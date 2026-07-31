@@ -40,7 +40,8 @@ export function LeadDrawer({ lead, onClose, onChange }: {
     try {
       const updated = await updateLead(lead.no, {
         company_en: draft.company_en, country: draft.country, city: draft.city,
-        contact_name: draft.contact_name, email: draft.email, phone: draft.phone,
+        contact_name: draft.contact_name, title: draft.title,
+        email: draft.email, phone: draft.phone,
         website: draft.website, instagram: draft.instagram, facebook: draft.facebook,
         linkedin: draft.linkedin, business: draft.business, stage: draft.stage,
         tags: draft.tags, follow_up_date: draft.follow_up_date, next_action: draft.next_action,
@@ -132,6 +133,7 @@ export function LeadDrawer({ lead, onClose, onChange }: {
           {field("phone", "电话 / WhatsApp")}
           {field("website", "官网")}
           {field("contact_name", "联系人")}
+          {field("title", "职位")}
           {field("instagram", "Instagram")}
           {field("facebook", "Facebook")}
           {field("linkedin", "LinkedIn")}

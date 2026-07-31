@@ -2,7 +2,10 @@ import { useEffect, useState } from "react";
 import { fetchMailboxes, createMailbox, setMailboxActive, deleteMailbox, testMailbox } from "../api";
 import type { Mailbox } from "../types";
 
-const BLANK = { email: "", smtp_host: "", port: 465, username: "", password: "", daily_cap: 40 };
+const BLANK = {
+  email: "", smtp_host: "", port: 465, imap_host: "", imap_port: 993,
+  username: "", password: "", daily_cap: 40,
+};
 
 export function MailboxPanel() {
   const [boxes, setBoxes] = useState<Mailbox[]>([]);
@@ -23,7 +26,7 @@ export function MailboxPanel() {
   const [testing, setTesting] = useState<number | null>(null);
   async function test(b: Mailbox) {
     setTesting(b.id); setMsg(`正在登录 ${b.email} …`);
-    try { await testMailbox(b.id); setMsg(`✓ ${b.email} 登录成功，可以正常发信`); }
+    try { await testMailbox(b.id); setMsg(`✓ ${b.email} SMTP/IMAP 登录成功，可正常发信和同步回复`); }
     catch (e) { setMsg(`✗ ${b.email} ${String(e instanceof Error ? e.message : e)}`); }
     finally { setTesting(null); }
   }
@@ -44,12 +47,14 @@ export function MailboxPanel() {
 
       {boxes.length > 0 && (
         <table className="lead-table" style={{ marginBottom: 12 }}>
-          <thead><tr><th>邮箱</th><th>SMTP</th><th>今日/上限</th><th>状态</th><th></th></tr></thead>
+          <thead><tr><th>邮箱</th><th>SMTP / IMAP</th><th>今日/上限</th><th>状态</th><th></th></tr></thead>
           <tbody>
             {boxes.map((b) => (
               <tr key={b.id}>
                 <td>{b.email}</td>
-                <td className="muted">{b.smtp_host}:{b.port}</td>
+                <td className="muted">
+                  {b.smtp_host}:{b.port}<br />{b.imap_host || "未配置"}:{b.imap_port}
+                </td>
                 <td className="num">{b.sent_today} / {b.daily_cap}</td>
                 <td>
                   <button className={`btn btn-sm${b.active ? " btn-green" : ""}`}
@@ -59,7 +64,7 @@ export function MailboxPanel() {
                 </td>
                 <td>
                   <button className="btn btn-sm" style={{ marginRight: 6 }} disabled={testing === b.id} onClick={() => test(b)}
-                    title="只登录不发信：立刻验证 SMTP 服务器、端口、密码是否正确，避免群发到一半才发现配错">
+                    title="只登录不发信：同时验证 SMTP 发信与 IMAP 回复同步，避免发送或拉取回复时才发现配错">
                     {testing === b.id ? "测试中…" : "测试"}
                   </button>
                   <button className="btn btn-sm" onClick={() => deleteMailbox(b.id).then(reload)}>删除</button>
@@ -74,6 +79,8 @@ export function MailboxPanel() {
         <input className="input" placeholder="发件邮箱" value={form.email} onChange={(e) => set("email", e.target.value)} style={{ minWidth: 180 }} />
         <input className="input" placeholder="SMTP 服务器" value={form.smtp_host} onChange={(e) => set("smtp_host", e.target.value)} style={{ width: 150 }} />
         <input className="input" placeholder="端口" type="number" value={form.port} onChange={(e) => set("port", Number(e.target.value))} style={{ width: 80 }} />
+        <input className="input" placeholder="IMAP（留空自动推断）" value={form.imap_host} onChange={(e) => set("imap_host", e.target.value)} style={{ width: 170 }} />
+        <input className="input" placeholder="IMAP 端口" type="number" value={form.imap_port} onChange={(e) => set("imap_port", Number(e.target.value))} style={{ width: 95 }} />
         <input className="input" placeholder="用户名（默认同邮箱）" value={form.username} onChange={(e) => set("username", e.target.value)} style={{ width: 160 }} />
         <input className="input" placeholder="密码 / 应用专用码" type="password" value={form.password} onChange={(e) => set("password", e.target.value)} style={{ width: 160 }} />
         <input className="input" placeholder="日上限" type="number" value={form.daily_cap} onChange={(e) => set("daily_cap", Number(e.target.value))} style={{ width: 90 }} />

@@ -83,6 +83,8 @@ CREATE TABLE IF NOT EXISTS mailboxes (
     email TEXT NOT NULL,
     smtp_host TEXT NOT NULL,
     port INTEGER NOT NULL DEFAULT 465,
+    imap_host TEXT,
+    imap_port INTEGER NOT NULL DEFAULT 993,
     username TEXT NOT NULL,
     password TEXT NOT NULL,
     daily_cap INTEGER NOT NULL DEFAULT 40,
@@ -109,6 +111,10 @@ CREATE TABLE IF NOT EXISTS send_log (
     channel TEXT NOT NULL,
     campaign TEXT NOT NULL,
     sent_at TEXT
+);
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
 );
 CREATE TABLE IF NOT EXISTS inbox_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -150,6 +156,10 @@ _TABLE_COLUMNS = {
     },
     "templates": {
         "lang": "TEXT",
+    },
+    "mailboxes": {
+        "imap_host": "TEXT",
+        "imap_port": "INTEGER NOT NULL DEFAULT 993",
     },
 }
 

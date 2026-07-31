@@ -19,6 +19,7 @@ export interface Lead {
   region: string | null;
   city: string | null;
   contact_name: string | null;
+  title: string | null;
   email: string | null;
   phone: string | null;
   website: string | null;
@@ -90,6 +91,8 @@ export interface Mailbox {
   email: string;
   smtp_host: string;
   port: number;
+  imap_host: string | null;
+  imap_port: number;
   username: string;
   daily_cap: number;
   active: boolean;
@@ -188,6 +191,38 @@ export interface OpportunityStats {
   overdue_count: number;
   stale_count: number;
   by_stage: Record<string, number>;
+}
+export interface ReadinessCheck {
+  id: string;
+  label: string;
+  status: "ok" | "attention" | "blocked";
+  detail: string;
+  action_page: string;
+}
+export interface AutoSendStatus {
+  enabled: boolean;
+  last_date: string | null;
+  last_result: string | null;
+  preview: {
+    due: number;
+    sendable: number;
+    will_send: number;
+    oldest_due: string | null;
+  };
+}
+export interface Readiness {
+  status: "ready" | "attention" | "blocked";
+  checks: ReadinessCheck[];
+  metrics: {
+    active_mailboxes: number;
+    fallback_gmail: boolean;
+    email_total: number;
+    email_checked: number;
+    email_verified_coverage: number;
+    reply_sync_last_at: string | null;
+    reply_sync_last_status: string | null;
+    autosend: AutoSendStatus;
+  };
 }
 export const OPPORTUNITY_STAGES = [
   "qualified", "requirements", "quoted", "negotiation", "won", "lost",

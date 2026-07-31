@@ -11,23 +11,40 @@ Passwords live in the local single-user DB and are never returned by the API.
 import datetime as _dt
 
 
+def infer_imap_host(smtp_host: str) -> str | None:
+    host = (smtp_host or "").strip().lower()
+    known = {
+        "smtp.gmail.com": "imap.gmail.com",
+        "smtp.office365.com": "outlook.office365.com",
+        "smtp-mail.outlook.com": "outlook.office365.com",
+        "smtp.zoho.com": "imap.zoho.com",
+    }
+    if host in known:
+        return known[host]
+    return host.replace("smtp.", "imap.", 1) if host.startswith("smtp.") else None
+
+
 def _today() -> str:
     return _dt.date.today().isoformat()
 
 
 def add_mailbox(conn, email: str, smtp_host: str, port: int, username: str,
-                password: str, daily_cap: int = 40) -> int:
+                password: str, daily_cap: int = 40, imap_host: str | None = None,
+                imap_port: int = 993) -> int:
     cur = conn.execute(
-        "INSERT INTO mailboxes(email, smtp_host, port, username, password, daily_cap, active, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, 1, ?)",
-        (email, smtp_host, port, username, password, daily_cap, _dt.datetime.now(_dt.UTC).isoformat()))
+        "INSERT INTO mailboxes(email, smtp_host, port, imap_host, imap_port,"
+        " username, password, daily_cap, active, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+        (email, smtp_host, port, imap_host, imap_port, username, password,
+         daily_cap, _dt.datetime.now(_dt.UTC).isoformat()))
     conn.commit()
     return cur.lastrowid
 
 
 def list_mailboxes(conn, include_secrets: bool = False) -> list[dict]:
     rows = conn.execute(
-        "SELECT id, email, smtp_host, port, username, password, daily_cap, active FROM mailboxes ORDER BY id")
+        "SELECT id, email, smtp_host, port, imap_host, imap_port, username,"
+        " password, daily_cap, active FROM mailboxes ORDER BY id")
     out = []
     for r in rows:
         d = dict(r)

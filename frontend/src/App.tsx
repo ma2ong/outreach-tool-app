@@ -101,7 +101,7 @@ export function App() {
     fetchAuthStatus().then((s) => setAuthed(!s.enabled || s.authed)).catch(() => setAuthed(true));
   }, []);
 
-  const refreshUnread = () => fetchInboxUnread().then(setUnread).catch(() => {});
+  const refreshUnread = () => fetchInboxUnread().then(setUnread).catch((e) => setErr(String(e)));
   useEffect(() => { refreshUnread(); }, []);
 
   // 追踪所有轮询定时器，组件卸载时统一清掉（防泄漏 + 对已卸载组件 setState）
@@ -140,12 +140,12 @@ export function App() {
 
   const PAGE_SIZE = 50;
 
-  useEffect(() => { fetchSequences().then(setSequences).catch(() => {}); }, []);
+  useEffect(() => { fetchSequences().then(setSequences).catch((e) => setErr(String(e))); }, []);
   async function enroll(sid: number) {
     try {
       const r = await enrollLeads(sid, [...selected]);
       setEnrollMsg(`已把 ${r.enrolled} 家加入序列（${r.selected - r.enrolled} 家已在其中或已回复被跳过）`);
-      fetchSequences().then(setSequences).catch(() => {});
+      fetchSequences().then(setSequences).catch((e) => setErr(String(e)));
     } catch (e) { setEnrollMsg("加入序列失败：" + String(e)); }
   }
 

@@ -18,10 +18,11 @@ import datetime as _dt
 import email
 import imaplib
 import re
+import json
 from email.header import decode_header, make_header
 from email.utils import parseaddr, parsedate_to_datetime
 
-from app import repository
+from app import mailboxes, repository, settings
 from app.channels.email_adapter import GMAIL_USER, get_password
 
 _EMAIL_RE = re.compile(r"[^@\s<>,;:\"']+@[^@\s<>,;:\"']+\.[^@\s<>,;:\"']+")
@@ -64,15 +65,18 @@ def _plain_body(msg) -> str:
     return fallback[:_BODY_LIMIT]
 
 
-def fetch_recent_messages(since_days: int = 7) -> list[dict]:
-    """Real IMAP: full messages (sender/subject/body/date) from the last `since_days`."""
-    pw = get_password()
+def fetch_mailbox_messages(mailbox: dict, since_days: int = 7) -> list[dict]:
+    """Fetch full messages from one configured mailbox without changing read state."""
+    host = mailbox.get("imap_host") or mailboxes.infer_imap_host(mailbox.get("smtp_host", ""))
+    if not host:
+        raise RuntimeError("IMAP server missing")
+    pw = mailbox.get("password")
     if not pw:
-        raise RuntimeError("Gmail app password missing (~/.gmail_app_password or GMAIL_APP_PASSWORD)")
+        raise RuntimeError("mailbox password missing")
     since = (_dt.date.today() - _dt.timedelta(days=since_days)).strftime("%d-%b-%Y")
     messages: list[dict] = []
-    with imaplib.IMAP4_SSL("imap.gmail.com", 993) as im:
-        im.login(GMAIL_USER, pw)
+    with imaplib.IMAP4_SSL(host, int(mailbox.get("imap_port") or 993)) as im:
+        im.login(mailbox.get("username") or mailbox.get("email"), pw)
         im.select("INBOX")
         typ, data = im.search(None, f'(SINCE "{since}")')
         if typ != "OK":
@@ -94,6 +98,29 @@ def fetch_recent_messages(since_days: int = 7) -> list[dict]:
                 "received_at": received,
             })
     return messages
+
+
+def fetch_recent_messages(since_days: int = 7) -> list[dict]:
+    """Backward-compatible fetch for the legacy fallback Gmail."""
+    pw = get_password()
+    if not pw:
+        raise RuntimeError("Gmail app password missing (~/.gmail_app_password or GMAIL_APP_PASSWORD)")
+    return fetch_mailbox_messages({
+        "email": GMAIL_USER,
+        "username": GMAIL_USER,
+        "password": pw,
+        "imap_host": "imap.gmail.com",
+        "imap_port": 993,
+    }, since_days)
+
+
+def test_mailbox(mailbox: dict) -> None:
+    """Verify IMAP credentials without fetching or changing any message."""
+    host = mailbox.get("imap_host") or mailboxes.infer_imap_host(mailbox.get("smtp_host", ""))
+    if not host:
+        raise RuntimeError("IMAP server missing")
+    with imaplib.IMAP4_SSL(host, int(mailbox.get("imap_port") or 993)) as im:
+        im.login(mailbox.get("username") or mailbox.get("email"), mailbox.get("password"))
 
 
 def _store(conn, lead_no: int, kind: str, m: dict) -> bool:
@@ -208,3 +235,49 @@ def match_and_mark(conn, sender_emails: list[str]) -> dict:
 
 def poll_replies(conn, fetch_messages=fetch_recent_messages, since_days: int = 7) -> dict:
     return process_messages(conn, fetch_messages(since_days))
+
+
+def poll_all_replies(conn, fetcher=fetch_mailbox_messages, since_days: int = 7) -> dict:
+    """Poll every active mailbox. One bad account must not hide replies in the others."""
+    configured = [m for m in mailboxes.list_mailboxes(conn, include_secrets=True) if m["active"]]
+    targets = configured
+    if not targets:
+        pw = get_password()
+        if pw:
+            targets = [{
+                "email": GMAIL_USER, "username": GMAIL_USER, "password": pw,
+                "imap_host": "imap.gmail.com", "imap_port": 993,
+            }]
+    if not targets:
+        settings.set_value(conn, "reply_sync_last_status", "error")
+        settings.set_value(conn, "reply_sync_last_result", "未配置可用的收件邮箱")
+        raise RuntimeError("no active mailbox and fallback Gmail password missing")
+
+    totals = {"replies": 0, "bounces": 0, "unsubscribes": 0, "stored": 0}
+    lead_nos: list[int] = []
+    errors: list[dict] = []
+    checked = 0
+    for mailbox in targets:
+        try:
+            result = process_messages(conn, fetcher(mailbox, since_days))
+        except Exception as exc:  # noqa: BLE001 — continue with the remaining accounts
+            errors.append({"email": mailbox.get("email", ""), "error": str(exc)[:200]})
+            continue
+        checked += 1
+        for key in totals:
+            totals[key] += result[key]
+        lead_nos.extend(result["lead_nos"])
+
+    status = "success" if not errors else ("partial" if checked else "error")
+    now = _dt.datetime.now(_dt.UTC).isoformat()
+    summary = {
+        **totals,
+        "lead_nos": lead_nos,
+        "mailboxes_checked": checked,
+        "mailboxes_total": len(targets),
+        "errors": errors,
+    }
+    settings.set_value(conn, "reply_sync_last_at", now)
+    settings.set_value(conn, "reply_sync_last_status", status)
+    settings.set_value(conn, "reply_sync_last_result", json.dumps(summary, ensure_ascii=False))
+    return summary

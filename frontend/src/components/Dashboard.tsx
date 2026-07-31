@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { fetchQuota, fetchCampaignStats, fetchDue, sendDue, fetchJob, fetchOpportunityStats, type CampaignStat, type CountryStat } from "../api";
 import type { Stats, ChannelReach, DueItem, SendJob, OpportunityStats } from "../types";
 import { StatCards } from "./StatCards";
+import { ReadinessPanel } from "./ReadinessPanel";
 
 const CH_LABEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook" };
 
@@ -33,15 +34,21 @@ export function Dashboard({ stats, unread, onGotoFollowUp, onGoto }: {
   const [sendJob, setSendJob] = useState<SendJob | null>(null);
   const [sendMsg, setSendMsg] = useState("");
   const [opportunityStats, setOpportunityStats] = useState<OpportunityStats | null>(null);
+  const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const pollRef = useRef<number | null>(null);
+  const reportLoadError = (name: string, error: unknown) => {
+    setLoadErrors((old) => [...new Set([...old, `${name}：${String(error)}`])]);
+  };
   function refreshDue() {
-    fetchQuota().then(setQuota).catch(() => {});
-    fetchDue().then(setDueSeq).catch(() => {});
+    fetchQuota().then(setQuota).catch((e) => reportLoadError("发送额度", e));
+    fetchDue().then(setDueSeq).catch((e) => reportLoadError("跟进队列", e));
   }
   useEffect(() => {
     refreshDue();
-    fetchCampaignStats().then((r) => { setCamps(r.campaigns); setCountryStats(r.countries); }).catch(() => {});
-    fetchOpportunityStats().then(setOpportunityStats).catch(() => {});
+    fetchCampaignStats().then((r) => { setCamps(r.campaigns); setCountryStats(r.countries); })
+      .catch((e) => reportLoadError("回复率分析", e));
+    fetchOpportunityStats().then(setOpportunityStats)
+      .catch((e) => reportLoadError("商机统计", e));
   }, []);
   // 组件卸载时清掉发送轮询，避免泄漏 + 对已卸载组件 setState
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
@@ -89,6 +96,15 @@ export function Dashboard({ stats, unread, onGotoFollowUp, onGoto }: {
   const maxC = countries[0]?.[1] ?? 1;
   return (
     <>
+      <ReadinessPanel onGoto={onGoto} />
+      {loadErrors.length > 0 && (
+        <div className="card" style={{ marginBottom: 16, borderColor: "var(--danger)" }}>
+          <b>部分数据加载失败</b>
+          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+            {loadErrors.join("；")}。请刷新页面；若持续出现，请检查后端服务。
+          </div>
+        </div>
+      )}
       {(dueSeq.length > 0 || unread > 0) && (
         <div className="card" style={{ marginBottom: 16 }}>
           <h3 style={{ marginTop: 0 }}>☀️ 今日工作台</h3>

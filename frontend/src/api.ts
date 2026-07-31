@@ -411,7 +411,8 @@ export async function fetchMailboxes(): Promise<import("./types").Mailbox[]> {
 }
 
 export async function createMailbox(m: {
-  email: string; smtp_host: string; port: number; username: string; password: string; daily_cap: number;
+  email: string; smtp_host: string; port: number; imap_host?: string; imap_port?: number;
+  username: string; password: string; daily_cap: number;
 }): Promise<import("./types").Mailbox> {
   const r = await fetch("/api/mailboxes", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(m),
@@ -458,4 +459,22 @@ export async function channelStatus(ch: string): Promise<string> {
   const r = await fetch(`/api/channels/${ch}/status`);
   if (!r.ok) throw new Error(`status ${r.status}`);
   return (await r.json()).status;
+}
+
+export async function fetchReadiness(): Promise<import("./types").Readiness> {
+  const r = await fetch("/api/readiness");
+  if (!r.ok) throw new Error(`readiness ${r.status}`);
+  return r.json();
+}
+
+export async function setAutoSend(enabled: boolean): Promise<import("./types").AutoSendStatus> {
+  const r = await fetch("/api/autosend", {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!r.ok) {
+    const detail = (await r.json().catch(() => null))?.detail;
+    throw new Error(detail || `autosend ${r.status}`);
+  }
+  return r.json();
 }

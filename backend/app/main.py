@@ -27,6 +27,8 @@ from app.api import classify as classify_api
 from app.api import products as products_api
 from app.api import inbox as inbox_api
 from app.api import opportunities as opportunities_api
+from app.api import autosend as autosend_api
+from app.api import readiness as readiness_api
 
 BACKUP_KEEP = 14
 
@@ -53,16 +55,15 @@ def auto_poll_replies() -> None:
     if os.environ.get("OUTREACH_AUTO_POLL", "1") == "0":
         return
     from app import replies
-    from app.channels.email_adapter import get_password
-    if not get_password():
-        return
-    conn = connect(DB_PATH)
+    conn = None
     try:
-        replies.poll_replies(conn)
+        conn = connect(DB_PATH)
+        replies.poll_all_replies(conn)
     except Exception:  # noqa: BLE001 — best-effort background refresh
         pass
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 @asynccontextmanager
@@ -81,6 +82,9 @@ async def lifespan(app: FastAPI):
         conn.close()
     # background so a slow IMAP never delays the app coming up
     threading.Thread(target=auto_poll_replies, daemon=True).start()
+    if os.environ.get("OUTREACH_AUTOSEND_SCHEDULER", "1") != "0":
+        from app import autosend
+        autosend.start_scheduler(DB_PATH)
     yield
 
 
@@ -113,6 +117,8 @@ app.include_router(classify_api.router)
 app.include_router(products_api.router)
 app.include_router(inbox_api.router)
 app.include_router(opportunities_api.router)
+app.include_router(autosend_api.router)
+app.include_router(readiness_api.router)
 from app.api import auth as auth_api  # noqa: E402
 from app.api import health as health_api  # noqa: E402
 app.include_router(auth_api.router)

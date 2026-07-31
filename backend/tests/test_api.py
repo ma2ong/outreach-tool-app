@@ -98,12 +98,20 @@ def test_export_csv_respects_filter(tmp_path):
 
 def test_patch_lead_edits_fields(tmp_path):
     client = _client(tmp_path)
-    r = client.patch("/api/leads/1", json={"phone": "+56 9 1", "stage": "negotiating", "tags": "hot"})
+    r = client.patch("/api/leads/1", json={
+        "phone": "+56 9 1", "stage": "negotiating", "tags": "hot",
+        "contact_name": "Ana Silva", "title": "Purchasing Manager",
+    })
     assert r.status_code == 200
     body = r.json()
     assert body["phone"] == "+56 9 1"
     assert body["stage"] == "negotiating"
     assert body["tags"] == "hot"
+    assert body["contact_name"] == "Ana Silva"
+    assert body["title"] == "Purchasing Manager"
+    refreshed = client.get("/api/leads/1").json()
+    assert refreshed["contact_name"] == "Ana Silva"
+    assert refreshed["title"] == "Purchasing Manager"
 
 
 def test_patch_lead_404(tmp_path):

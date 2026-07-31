@@ -76,9 +76,13 @@ def test_mailbox_test_endpoint_ok(tmp_path, monkeypatch):
     client.post("/api/mailboxes", json={"email": "a@x.com", "smtp_host": "smtp.x.com",
                                         "port": 465, "username": "a", "password": "right",
                                         "daily_cap": 40})
+    from app import replies
     from app.channels import email_adapter
     monkeypatch.setattr(email_adapter, "test_mailbox", lambda mbx: None)
-    assert client.post("/api/mailboxes/1/test").json() == {"ok": True}
+    monkeypatch.setattr(replies, "test_mailbox", lambda mbx: None)
+    assert client.post("/api/mailboxes/1/test").json() == {
+        "ok": True, "smtp": True, "imap": True,
+    }
 
 
 def test_mailbox_test_404(tmp_path):

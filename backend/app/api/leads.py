@@ -29,6 +29,7 @@ class LeadUpdate(BaseModel):
     country: str | None = None
     city: str | None = None
     contact_name: str | None = None
+    title: str | None = None
     email: str | None = None
     phone: str | None = None
     website: str | None = None

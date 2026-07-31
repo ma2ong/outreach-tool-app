@@ -19,7 +19,8 @@ from app.personalize import render
 
 def _contact(conn, lead_no: int) -> dict:
     r = conn.execute(
-        "SELECT no, company_en, contact_name, country, city, email, phone, instagram"
+        "SELECT no, company_en, contact_name, country, city, email, email_status,"
+        " phone, instagram"
         " FROM leads WHERE no=?", (lead_no,)).fetchone()
     return dict(r) if r else {}
 
@@ -52,7 +53,7 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
         try:
             if ch == "email":
                 to = lead.get("email")
-                if not to:
+                if not to or lead.get("email_status") == "invalid":
                     deferred += 1
                     continue
                 sender(to, render(d.get("subject"), lead),

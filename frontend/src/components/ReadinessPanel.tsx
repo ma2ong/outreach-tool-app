@@ -1,0 +1,78 @@
+import { useEffect, useState } from "react";
+import { fetchReadiness, setAutoSend } from "../api";
+import type { Readiness } from "../types";
+
+const STATUS = {
+  ok: { icon: "✓", color: "var(--green)" },
+  attention: { icon: "!", color: "var(--warn)" },
+  blocked: { icon: "×", color: "var(--danger)" },
+};
+
+export function ReadinessPanel({ onGoto }: { onGoto: (page: string) => void }) {
+  const [data, setData] = useState<Readiness | null>(null);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  function reload() {
+    fetchReadiness().then(setData).catch((e) => setError(`就绪检查失败：${String(e)}`));
+  }
+  useEffect(reload, []);
+
+  async function toggle() {
+    if (!data) return;
+    setBusy(true); setError("");
+    try {
+      await setAutoSend(!data.metrics.autosend.enabled);
+      reload();
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!data) {
+    return error ? <div className="error-text" style={{ marginBottom: 12 }}>{error}</div> : null;
+  }
+  const auto = data.metrics.autosend;
+  const problemCount = data.checks.filter((c) => c.status !== "ok").length;
+  return (
+    <div className="card" style={{ marginBottom: 16, borderColor: data.status === "blocked" ? "var(--danger)" : undefined }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div className="stat-label">每日就绪中心</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>
+            {data.status === "ready" ? "系统已准备好" : data.status === "blocked" ? "存在阻塞项" : `${problemCount} 项需要处理`}
+          </div>
+          <div className="muted" style={{ fontSize: 12 }}>
+            到期邮件 {auto.preview.due} 条，今日安全额度内预计发送 {auto.preview.will_send} 条
+            {auto.preview.oldest_due ? ` · 最早逾期 ${auto.preview.oldest_due}` : ""}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className={`btn btn-sm${auto.enabled ? " btn-green" : ""}`} onClick={toggle} disabled={busy}>
+            {busy ? "更新中…" : auto.enabled ? "自动邮件：已启用" : "自动邮件：关闭"}
+          </button>
+          <button className="btn btn-sm" onClick={() => setOpen(!open)}>{open ? "收起" : "查看检查项"}</button>
+        </div>
+      </div>
+      {auto.last_result && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>上次自动运行：{auto.last_result}</div>}
+      {error && <div className="error-text" style={{ marginTop: 8 }}>{error}</div>}
+      {open && (
+        <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+          {data.checks.map((c) => {
+            const meta = STATUS[c.status];
+            return (
+              <button key={c.id} className="btn" onClick={() => onGoto(c.action_page)}
+                style={{ display: "flex", textAlign: "left", alignItems: "center", gap: 10, justifyContent: "flex-start" }}>
+                <b style={{ color: meta.color, fontSize: 18, width: 16 }}>{meta.icon}</b>
+                <span><b>{c.label}</b><br /><span className="muted" style={{ fontSize: 12 }}>{c.detail}</span></span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
