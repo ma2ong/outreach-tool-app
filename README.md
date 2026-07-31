@@ -26,6 +26,24 @@
 2. **以后每次**：双击 `start.bat` —— 自动启动服务并打开浏览器看板。
    工作时保留弹出的 "outreach-tool-server" 窗口；关掉它即停止工具。
 
+## 开机自启 + 固定网址（推荐）
+双击 `install_autostart.bat`，之后：
+- 开机登录 20 秒后服务自动在后台运行，**没有黑窗口，不用再点 start.bat**；桌面留一个「客户开发系统」快捷方式。
+- 配过隧道的话，40 秒后公网地址 `https://crm.mcvisualled.com` 也自动上线，手机和外网同一个网址，永不变化。
+- 崩溃自动重试 3 次；日志在 `backend/logs/server-日期.log`。
+- 取消：双击 `uninstall_autostart.bat`（不影响手动 start.bat）。
+
+**电脑关机或睡眠 = 网站下线。** 隧道入口在本机，这是数据不出本地的代价。
+
+首次配置固定网址（换电脑时重做）：
+1. `bin\cloudflared.exe tunnel login` → 浏览器授权 `mcvisualled.com`（国内网络常拉取证书失败，按提示把浏览器下载的 `cert.pem` 手动放到 `%USERPROFILE%\.cloudflared\`）
+2. `bin\cloudflared.exe tunnel create maxcolor-crm`
+3. `bin\cloudflared.exe tunnel route dns maxcolor-crm crm.mcvisualled.com`
+4. 写 `%USERPROFILE%\.cloudflared\config.yml`：隧道 ID + 凭证路径 + `ingress` 指向 `http://127.0.0.1:8000`
+5. 重新双击 `install_autostart.bat`
+
+上公网前必须在 `backend/auth_password.txt` 写一行密码，否则客户库对外敞开（`start_online.bat` 会直接拒绝启动）。
+
 ## 命令行方式（可选）
 一次性准备：
 1. `cd backend && python -m pip install -r requirements.txt`
