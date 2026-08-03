@@ -1,8 +1,10 @@
 """Inbox intelligence: poll IMAP, store reply content, handle bounces & unsubscribes.
 
 Each fetched message is classified:
-- bounce   (mailer-daemon / delivery-failure): extract the failed recipient, mark that
-  lead's email_status='invalid' so every send path skips it. Not a reply.
+- bounce   (mailer-daemon / delivery-failure with a permanent reason): extract the failed
+  recipient, mark that lead's email_status='invalid' so every send path skips it.
+- delayed  (same sender, temporary reason): shown in the inbox but never acted on —
+  the address is still good, the server was just slow.
 - unsubscribe (remove me / stop ...): set lead.do_not_contact=1 (suppressed everywhere)
   and also mark replied (it IS a human answer, and must stop sequences).
 - reply    : store content, mark replied via repository.mark_replied, which stops any
@@ -25,16 +27,52 @@ from email.utils import parseaddr, parsedate_to_datetime
 from app import mailboxes, repository, settings
 from app.channels.email_adapter import GMAIL_USER, get_password
 
-_EMAIL_RE = re.compile(r"[^@\s<>,;:\"']+@[^@\s<>,;:\"']+\.[^@\s<>,;:\"']+")
+# Allow-list what an address may contain rather than blacklisting delimiters: Gmail's
+# bounce notice is localised, so the failed address is followed immediately by a
+# full-width comma ("...contato@ledwave.com.br，或该地址无法接收邮件") which a
+# blacklist regex swallows into the match, and the lead lookup then never hits.
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}")
 _BOUNCE_FROM_RE = re.compile(r"mailer-daemon|postmaster|mail delivery", re.I)
 _BOUNCE_SUBJ_RE = re.compile(
     r"undeliver|delivery status|delivery has failed|returned to sender|failure notice|"
     r"delivery incomplete|address not found", re.I)
+# Only a permanent failure justifies burning the address. A delay notice ("we'll keep
+# trying for 44 hours") arrives from the same mailer-daemon and looks identical, so
+# without this an ordinary greylist wobble would mark a live lead unmailable forever.
+_PERMANENT_RE = re.compile(
+    r"\b5\.\d\.\d\b|\b55[0-3]\b|no such user|does not exist|user unknown|"
+    r"address not found|mailbox (is )?unavailable|recipient (address )?rejected|"
+    r"找不到地址|地址不存在|无法接收邮件", re.I)
 _UNSUB_RE = re.compile(
     r"unsubscribe|remove me|take me off|stop (contacting|emailing|sending|messaging)|"
     r"do( not|n'?t) (contact|email)", re.I)
 
 _BODY_LIMIT = 4000
+
+_K_LAST_AT = "reply_sync_last_at"
+_K_LAST_SUCCESS = "reply_sync_last_success_at"
+_K_LAST_STATUS = "reply_sync_last_status"
+_K_LAST_RESULT = "reply_sync_last_result"
+
+SINCE_DAYS_MIN = 7
+SINCE_DAYS_MAX = 30
+
+
+def adaptive_since_days(conn) -> int:
+    """Look back far enough to cover the gap since the last successful poll.
+    A fixed 7-day window silently drops every reply that arrived while polling was
+    broken for longer than a week — and polling can be broken for weeks unnoticed."""
+    last = settings.get(conn, _K_LAST_SUCCESS)
+    if not last:
+        return SINCE_DAYS_MAX
+    try:
+        when = _dt.datetime.fromisoformat(last)
+    except ValueError:
+        return SINCE_DAYS_MAX
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=_dt.UTC)
+    gap = (_dt.datetime.now(_dt.UTC) - when).days
+    return max(SINCE_DAYS_MIN, min(SINCE_DAYS_MAX, gap + 2))
 
 
 def _norm(addr: str) -> str:
@@ -175,19 +213,25 @@ def process_messages(conn, messages: list[dict]) -> dict:
     """Classify and store fetched messages against the lead base."""
     by_email = _lead_emails(conn)
     by_domain = _by_domain(by_email)
-    replies_n = bounces = unsubs = stored = 0
+    replies_n = bounces = delayed = unsubs = stored = 0
     lead_nos: list[int] = []
     for m in messages:
         sender = _norm(m.get("from_addr"))
         subject, body = m.get("subject") or "", m.get("body") or ""
         if _BOUNCE_FROM_RE.search(sender) or _BOUNCE_SUBJ_RE.search(subject):
+            permanent = bool(_PERMANENT_RE.search(f"{subject}\n{body}"))
             failed = [a for a in _EMAIL_RE.findall(body) if _norm(a) in by_email]
             for addr in {_norm(a) for a in failed}:
                 no = by_email[addr]
-                conn.execute("UPDATE leads SET email_status='invalid' WHERE no=?", (no,))
-                if _store(conn, no, "bounce", m):
+                # Unproven failures are shown, never acted on — a wrongly burned address
+                # costs a real lead, a retained dead one only costs one more send.
+                if permanent:
+                    conn.execute("UPDATE leads SET email_status='invalid' WHERE no=?", (no,))
+                    bounces += 1
+                else:
+                    delayed += 1
+                if _store(conn, no, "bounce" if permanent else "delayed", m):
                     stored += 1
-                bounces += 1
                 lead_nos.append(no)
             continue
         matched = _resolve_sender(sender, by_email, by_domain)
@@ -208,8 +252,8 @@ def process_messages(conn, messages: list[dict]) -> dict:
         else:
             replies_n += 1
     conn.commit()
-    return {"replies": replies_n, "bounces": bounces, "unsubscribes": unsubs,
-            "stored": stored, "lead_nos": lead_nos}
+    return {"replies": replies_n, "bounces": bounces, "delayed": delayed,
+            "unsubscribes": unsubs, "stored": stored, "lead_nos": lead_nos}
 
 
 def match_and_mark(conn, sender_emails: list[str]) -> dict:
@@ -237,8 +281,11 @@ def poll_replies(conn, fetch_messages=fetch_recent_messages, since_days: int = 7
     return process_messages(conn, fetch_messages(since_days))
 
 
-def poll_all_replies(conn, fetcher=fetch_mailbox_messages, since_days: int = 7) -> dict:
-    """Poll every active mailbox. One bad account must not hide replies in the others."""
+def poll_all_replies(conn, fetcher=fetch_mailbox_messages, since_days: int | None = None) -> dict:
+    """Poll every active mailbox. One bad account must not hide replies in the others.
+    since_days=None widens the window to cover however long polling has been down."""
+    if since_days is None:
+        since_days = adaptive_since_days(conn)
     configured = [m for m in mailboxes.list_mailboxes(conn, include_secrets=True) if m["active"]]
     targets = configured
     if not targets:
@@ -249,11 +296,11 @@ def poll_all_replies(conn, fetcher=fetch_mailbox_messages, since_days: int = 7) 
                 "imap_host": "imap.gmail.com", "imap_port": 993,
             }]
     if not targets:
-        settings.set_value(conn, "reply_sync_last_status", "error")
-        settings.set_value(conn, "reply_sync_last_result", "未配置可用的收件邮箱")
+        settings.set_value(conn, _K_LAST_STATUS, "error")
+        settings.set_value(conn, _K_LAST_RESULT, "未配置可用的收件邮箱")
         raise RuntimeError("no active mailbox and fallback Gmail password missing")
 
-    totals = {"replies": 0, "bounces": 0, "unsubscribes": 0, "stored": 0}
+    totals = {"replies": 0, "bounces": 0, "delayed": 0, "unsubscribes": 0, "stored": 0}
     lead_nos: list[int] = []
     errors: list[dict] = []
     checked = 0
@@ -276,8 +323,13 @@ def poll_all_replies(conn, fetcher=fetch_mailbox_messages, since_days: int = 7) 
         "mailboxes_checked": checked,
         "mailboxes_total": len(targets),
         "errors": errors,
+        "since_days": since_days,
     }
-    settings.set_value(conn, "reply_sync_last_at", now)
-    settings.set_value(conn, "reply_sync_last_status", status)
-    settings.set_value(conn, "reply_sync_last_result", json.dumps(summary, ensure_ascii=False))
+    settings.set_value(conn, _K_LAST_AT, now)
+    settings.set_value(conn, _K_LAST_STATUS, status)
+    settings.set_value(conn, _K_LAST_RESULT, json.dumps(summary, ensure_ascii=False))
+    # Only a clean sweep may narrow the next look-back window; a partial run leaves the
+    # failed mailbox's gap uncovered.
+    if status == "success":
+        settings.set_value(conn, _K_LAST_SUCCESS, now)
     return summary

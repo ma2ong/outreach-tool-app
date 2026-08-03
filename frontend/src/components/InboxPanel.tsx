@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { fetchInbox, markInboxRead, pollReplies } from "../api";
+import { fetchInbox, markInboxRead, pollReplies, scanSocial } from "../api";
 import type { InboxMessage } from "../types";
 
-const KIND_LABEL: Record<string, string> = { reply: "回复", bounce: "退信", unsubscribe: "退订" };
-const KIND_COLOR: Record<string, string> = { reply: "badge-replied", bounce: "badge-untouched", unsubscribe: "badge-messaged" };
+const CH_NAME: Record<string, string> = { whatsapp: "WhatsApp", instagram: "Instagram", email: "邮件" };
+const KIND_LABEL: Record<string, string> = { reply: "回复", auto: "自动回复", bounce: "退信", delayed: "投递延迟", unsubscribe: "退订" };
+const KIND_COLOR: Record<string, string> = { reply: "badge-replied", auto: "badge-messaged", bounce: "badge-untouched", delayed: "badge-untouched", unsubscribe: "badge-messaged" };
 
 function fmtTs(iso: string | null): string {
   if (!iso) return "";
@@ -19,6 +20,7 @@ export function InboxPanel({ onOpenLead, onUnreadChange }: {
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
   const [polling, setPolling] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
@@ -28,13 +30,31 @@ export function InboxPanel({ onOpenLead, onUnreadChange }: {
   useEffect(reload, [unreadOnly]);
 
   async function poll() {
-    setPolling(true); setMsg("正在从 Gmail 拉取近 7 天邮件…");
+    setPolling(true); setMsg("正在拉取邮件…");
     try {
       const r = await pollReplies();
-      setMsg(`拉取完成：回复 ${r.replies} 封、退信 ${r.bounces} 封（邮箱已标无效，不再发送）、退订 ${r.unsubscribes} 家（已停止一切触达）`);
+      setMsg(`拉取完成（回看 ${r.since_days} 天）：回复 ${r.replies} 封、退信 ${r.bounces} 封（邮箱已标无效，不再发送）`
+        + `、投递延迟 ${r.delayed ?? 0} 封（地址仍有效，未做处理）、退订 ${r.unsubscribes} 家（已停止一切触达）`);
       reload(); onUnreadChange?.();
     } catch (e) { setMsg("拉取失败（需配置 Gmail 授权码）：" + String(e)); }
     finally { setPolling(false); }
+  }
+
+  async function scan() {
+    setScanning(true); setMsg("正在读取 WhatsApp / Instagram 会话列表…（只读列表，不会打开对话、不会清掉你手机上的未读）");
+    try {
+      const r = await scanSocial();
+      const per = r.channels.map((c) => `${CH_NAME[c.channel] ?? c.channel} ${c.replies} 条`).join("、");
+      const bad = r.errors.length ? `；失败：${r.errors.map((e) => `${CH_NAME[e.channel] ?? e.channel}(${e.error})`).join("、")}` : "";
+      const off = r.skipped?.length ? `；未连接已跳过：${r.skipped.map((c) => CH_NAME[c] ?? c).join("、")}` : "";
+      // 对不上客户的入站消息也要报出来 —— 悄悄丢掉就等于没修
+      const un = r.unmatched?.length
+        ? `；另有 ${r.unmatched.length} 条对方来信没能对上客户（${r.unmatched.slice(0, 5).join("、")}），请到 App 里自行查看`
+        : "";
+      setMsg(`扫描完成：共 ${r.threads} 个会话，识别到真人回复 ${r.replies} 条、自动回复 ${r.auto ?? 0} 条（自动回复不算已回复，跟进继续）（新入库 ${r.stored} 条）${per ? "——" + per : ""}${un}${off}${bad}`);
+      reload(); onUnreadChange?.();
+    } catch (e) { setMsg("扫描失败：" + String(e)); }
+    finally { setScanning(false); }
   }
 
   async function toggleOpen(m: InboxMessage) {
@@ -57,18 +77,23 @@ export function InboxPanel({ onOpenLead, onUnreadChange }: {
             <input type="checkbox" checked={unreadOnly} onChange={(e) => setUnreadOnly(e.target.checked)} />只看未读
           </label>
           <button className="btn btn-sm" onClick={poll} disabled={polling}
-            title="拉取 Gmail 近 7 天邮件：客户回复入库、退信自动标无效邮箱、退订自动停发">
+            title="拉取邮件：客户回复入库、退信自动标无效邮箱、退订自动停发。回看天数按上次成功同步的间隔自动决定">
             {polling ? "拉取中…" : "↻ 拉取邮件"}
+          </button>
+          <button className="btn btn-sm" onClick={scan} disabled={scanning}
+            title="读取 WhatsApp / Instagram 会话列表，找出客户回复。只读列表、不打开对话，不会清掉手机上的未读。需要先在「渠道」页连接登录">
+            {scanning ? "扫描中…" : "↻ 扫社媒回复"}
           </button>
         </div>
       </div>
       <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-        客户回了什么直接在这里看，不用去翻 Gmail。退信自动把邮箱标为无效、退订自动停止一切触达。
+        客户回了什么直接在这里看，不用去翻 Gmail 和手机。邮件每 15 分钟自动同步、
+        WhatsApp / Instagram 每天自动扫一次（仅在已连接时）。退信自动把邮箱标为无效、退订自动停止一切触达。
       </div>
       {err && <div className="error-text" style={{ marginTop: 8 }}>加载失败：{err}</div>}
       {msg && <div className="muted" style={{ marginTop: 8 }}>{msg}</div>}
       {messages.length === 0 ? (
-        <div className="muted" style={{ marginTop: 12 }}>还没有邮件。点「拉取邮件」从 Gmail 同步客户回复。</div>
+        <div className="muted" style={{ marginTop: 12 }}>还没有消息。点「拉取邮件」同步邮件回复，点「扫社媒回复」读 WhatsApp / Instagram。</div>
       ) : (
         <div style={{ marginTop: 10 }}>
           {messages.map((m) => (
@@ -78,6 +103,7 @@ export function InboxPanel({ onOpenLead, onUnreadChange }: {
                 <span className={`badge ${KIND_COLOR[m.kind] ?? ""}`}><i />{KIND_LABEL[m.kind] ?? m.kind}</span>
                 <strong style={{ fontWeight: m.is_read ? 500 : 700 }}>{m.company_en}</strong>
                 {m.country && <span className="muted">{m.country}</span>}
+                {m.channel !== "email" && <span className="muted" style={{ fontSize: 12 }}>{CH_NAME[m.channel] ?? m.channel}</span>}
                 <span className="muted" style={{ fontSize: 12 }}>{m.subject || "(无主题)"}</span>
                 <span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>{fmtTs(m.received_at)}</span>
               </div>
@@ -88,7 +114,7 @@ export function InboxPanel({ onOpenLead, onUnreadChange }: {
                   <button className="btn btn-sm" style={{ marginRight: 8 }} onClick={(e) => { e.stopPropagation(); onOpenLead(m.lead_no); }}>
                     打开客户详情 →
                   </button>
-                  {m.kind === "reply" && m.from_addr && (
+                  {m.channel === "email" && m.kind === "reply" && m.from_addr && (
                     <a className="btn btn-sm" target="_blank" rel="noreferrer"
                       onClick={(e) => e.stopPropagation()}
                       href={`https://mail.google.com/mail/u/0/#search/${encodeURIComponent("from:" + m.from_addr)}`}

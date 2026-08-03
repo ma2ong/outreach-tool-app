@@ -4,6 +4,17 @@ from app import autosend, mailboxes, settings
 from app.channels.email_adapter import get_password
 
 
+def _reply_error_text(result) -> str:
+    """The real reason, not a guess. 'Check your mailbox settings' sent Allen looking at
+    config for what was actually the network being down at logon."""
+    if isinstance(result, dict):
+        errs = result.get("errors") or []
+        if errs:
+            first = errs[0]
+            return f"{first.get('email', '')} {first.get('error', '')}".strip()[:140]
+    return str(result or "")[:140]
+
+
 def _check(check_id: str, label: str, status: str, detail: str, action_page: str) -> dict:
     return {
         "id": check_id,
@@ -26,6 +37,7 @@ def build(conn) -> dict:
     auto = autosend.status(conn)
     reply_status = settings.get(conn, "reply_sync_last_status")
     reply_at = settings.get(conn, "reply_sync_last_at") or None
+    reply_success_at = settings.get(conn, "reply_sync_last_success_at") or None
     raw_reply_result = settings.get(conn, "reply_sync_last_result")
     try:
         reply_result = json.loads(raw_reply_result) if raw_reply_result else None
@@ -48,10 +60,10 @@ def build(conn) -> dict:
         reply_detail = f"最近同步成功：{reply_at}"
         reply_level = "ok"
     elif reply_status == "partial":
-        reply_detail = "最近同步仅部分邮箱成功，请检查失败邮箱"
+        reply_detail = f"部分邮箱失败：{_reply_error_text(reply_result)}；系统会自动重试"
         reply_level = "attention"
     elif reply_status == "error":
-        reply_detail = "最近回复同步失败，请检查邮箱配置"
+        reply_detail = f"回复同步失败：{_reply_error_text(reply_result)}；系统每分钟自动重试"
         reply_level = "blocked"
     else:
         reply_detail = "尚未同步过回复，建议先执行一次"
@@ -88,6 +100,7 @@ def build(conn) -> dict:
             "email_checked": email_checked,
             "email_verified_coverage": coverage,
             "reply_sync_last_at": reply_at,
+            "reply_sync_last_success_at": reply_success_at,
             "reply_sync_last_status": reply_status or None,
             "reply_sync_last_result": reply_result,
             "autosend": auto,

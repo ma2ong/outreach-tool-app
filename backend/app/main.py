@@ -3,6 +3,7 @@ import glob
 import os
 import shutil
 import threading
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -31,6 +32,8 @@ from app.api import autosend as autosend_api
 from app.api import readiness as readiness_api
 
 BACKUP_KEEP = 14
+REPLY_POLL_SECONDS = 900   # steady-state inbox refresh
+REPLY_RETRY_SECONDS = 60   # until the first clean sweep — covers "network not up yet at logon"
 
 
 def backup_db(db_path: str = DB_PATH) -> str | None:
@@ -47,23 +50,61 @@ def backup_db(db_path: str = DB_PATH) -> str | None:
     return dest
 
 
-def auto_poll_replies() -> None:
-    """Pull replies once at startup so the inbox is current without Allen remembering
-    to click 拉取邮件 — a missed click means the sequences keep chasing people who
-    already answered. Fully fault-tolerant: no Gmail password or a network hiccup
-    just skips the poll; the manual button still exists."""
+def auto_poll_replies() -> bool:
+    """Pull replies so the inbox is current without Allen remembering to click 拉取邮件
+    — a missed pull means the sequences keep chasing people who already answered.
+    Fully fault-tolerant: no Gmail password or a network hiccup just skips this round;
+    the manual button still exists. Returns True when every mailbox was read."""
     if os.environ.get("OUTREACH_AUTO_POLL", "1") == "0":
-        return
+        return False
     from app import replies
     conn = None
     try:
         conn = connect(DB_PATH)
-        replies.poll_all_replies(conn)
+        return not replies.poll_all_replies(conn)["errors"]
     except Exception:  # noqa: BLE001 — best-effort background refresh
+        return False
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def auto_scan_social() -> None:
+    """Once a day, read the WhatsApp/Instagram thread lists — but only for channels
+    already logged in. Forcing a browser window open on a schedule would both surprise
+    Allen and, on a session that needs a re-scan of the QR code, do nothing useful."""
+    if os.environ.get("OUTREACH_AUTO_SCAN", "1") == "0":
+        return
+    from app import inbound
+    from app.api.channels import ENGINE
+    conn = None
+    try:
+        conn = connect(DB_PATH)
+        if not inbound.should_scan_today(conn):
+            return
+        live = [c for c in inbound.CHANNELS if ENGINE.status(c) == "connected"]
+        if live:
+            inbound.scan_all(conn, ENGINE.scan_threads, channels=live)
+    except Exception:  # noqa: BLE001 — a browser hiccup must not kill the poll loop
         pass
     finally:
         if conn is not None:
             conn.close()
+
+
+def reply_poll_loop() -> None:
+    """Keep pulling for as long as the app runs.
+
+    Polling used to happen exactly once, at startup. The app now auto-starts at logon,
+    where the network is routinely not up yet — the pull timed out, the failure was
+    swallowed, and nothing ever retried, so replies stayed invisible until someone
+    clicked the button. Retry fast until the first clean sweep, then settle down."""
+    if os.environ.get("OUTREACH_AUTO_POLL", "1") == "0":
+        return
+    while True:
+        ok = auto_poll_replies()
+        auto_scan_social()
+        time.sleep(REPLY_POLL_SECONDS if ok else REPLY_RETRY_SECONDS)
 
 
 @asynccontextmanager
@@ -81,7 +122,7 @@ async def lifespan(app: FastAPI):
     finally:
         conn.close()
     # background so a slow IMAP never delays the app coming up
-    threading.Thread(target=auto_poll_replies, daemon=True).start()
+    threading.Thread(target=reply_poll_loop, daemon=True).start()
     if os.environ.get("OUTREACH_AUTOSEND_SCHEDULER", "1") != "0":
         from app import autosend
         autosend.start_scheduler(DB_PATH)

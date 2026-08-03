@@ -301,9 +301,29 @@ export async function fetchClassifyJob(id: string): Promise<{ status: string; do
   return r.json();
 }
 
-export async function pollReplies(): Promise<{ replies: number; bounces: number; unsubscribes: number; stored: number; lead_nos: number[] }> {
+export async function pollReplies(): Promise<{ replies: number; bounces: number; delayed: number; unsubscribes: number; stored: number; lead_nos: number[]; since_days: number }> {
   const r = await fetch("/api/replies/poll", { method: "POST" });
   if (!r.ok) throw new Error(`poll ${r.status}`);
+  return r.json();
+}
+
+export interface SocialScanResult {
+  replies: number;
+  auto: number;
+  stored: number;
+  threads: number;
+  unmatched: string[];
+  channels: { channel: string; replies: number; stored: number; threads: number; outgoing: number; unmatched: string[] }[];
+  errors: { channel: string; error: string }[];
+  skipped?: string[];
+}
+
+export async function scanSocial(): Promise<SocialScanResult> {
+  const r = await fetch("/api/replies/scan", { method: "POST" });
+  if (!r.ok) {
+    const detail = (await r.json().catch(() => null))?.detail;
+    throw new Error(detail || `scan ${r.status}`);
+  }
   return r.json();
 }
 

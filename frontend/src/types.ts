@@ -220,6 +220,7 @@ export interface Readiness {
     email_checked: number;
     email_verified_coverage: number;
     reply_sync_last_at: string | null;
+    reply_sync_last_success_at: string | null;
     reply_sync_last_status: string | null;
     autosend: AutoSendStatus;
   };

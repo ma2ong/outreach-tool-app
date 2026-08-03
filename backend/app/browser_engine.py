@@ -8,6 +8,7 @@ class BrowserEngine(Protocol):
     def connect(self, channel: str) -> None: ...
     def qr_png(self, channel: str) -> bytes | None: ...
     def send_message(self, channel: str, target: str, message: str, image: str | None = None) -> None: ...
+    def scan_threads(self, channel: str) -> list[dict]: ...
 
 
 class FakeEngine:
@@ -17,6 +18,7 @@ class FakeEngine:
         self._state: dict[str, str] = {}
         self.sent: list[tuple[str, str, str, str | None]] = []  # (channel, target, message, image)
         self.fail_targets: set[str] = set()
+        self.threads: dict[str, list[dict]] = {}
 
     def status(self, channel: str) -> str:
         return self._state.get(channel, "disconnected")
@@ -35,3 +37,6 @@ class FakeEngine:
         if target in self.fail_targets:
             raise RuntimeError(f"send failed for {target}")
         self.sent.append((channel, target, message, image))
+
+    def scan_threads(self, channel: str) -> list[dict]:
+        return self.threads.get(channel, [])

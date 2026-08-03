@@ -210,6 +210,152 @@ class PlaywrightEngine:
             return True
         raise ValueError(f"unsupported channel {channel}")
 
+    # ---- inbound scanning (read-only: never opens a thread) ----
+    # A session that quietly expired looks exactly like "no replies", so say so instead.
+    _LOGGED_OUT = {
+        "whatsapp": "WhatsApp 登录已过期（页面停在扫码界面）。到「渠道」页重新扫码后再扫描——"
+                    "发送同样会失败，建议顺手确认一下。",
+        "instagram": "Instagram 登录已过期。到「渠道」页重新登录后再扫描。",
+    }
+    # Logged in but no list: the markup moved, or the inbox really is empty. Blaming the
+    # login here would send Allen to re-scan a QR code that was never the problem.
+    _NO_LIST = "{name}已登录，但页面上找不到会话列表——可能是它改版了（需要更新选择器），也可能收件箱是空的。"
+    _LOGIN_MARKER = {
+        "whatsapp": "canvas[aria-label*='Scan'], canvas",
+        "instagram": "input[name='username']",
+    }
+
+    def _scan_op(self, channel):
+        page = self._page(channel)
+        if channel == "whatsapp":
+            page.goto("https://web.whatsapp.com/", wait_until="domcontentloaded", timeout=60000)
+            self._wait_list(page, channel, "#pane-side", "WhatsApp")
+            return self._wa_threads(page)
+        if channel == "instagram":
+            page.goto("https://www.instagram.com/direct/inbox/",
+                      wait_until="domcontentloaded", timeout=60000)
+            self._wait_list(page, channel, self._IG_ROW, "Instagram")
+            return self._ig_threads(page)
+        raise ValueError(f"unsupported channel {channel}")
+
+    def _wait_list(self, page, channel, selector, name, timeout=25000):
+        try:
+            page.wait_for_selector(selector, timeout=timeout)
+        except Exception as exc:  # noqa: BLE001
+            try:
+                out = page.locator(self._LOGIN_MARKER[channel]).first.is_visible(timeout=2000)
+            except Exception:  # noqa: BLE001
+                out = False
+            raise RuntimeError(
+                self._LOGGED_OUT[channel] if out else self._NO_LIST.format(name=name)) from exc
+        page.wait_for_timeout(2500)
+
+    # One evaluate per pass instead of a handful of locator round-trips per row: with
+    # ~200 threads the per-row version took minutes. Leaf textContent survives a row
+    # scrolling out of the viewport, which innerText does not.
+    _ROWS_JS = """(sel) => [...document.querySelectorAll(sel)].map(r => ({
+        leaves: [...r.querySelectorAll('*')]
+            .filter(e => e.children.length === 0 && (e.textContent || '').trim())
+            .map(e => e.textContent.trim().slice(0, 600)),
+        title: r.querySelector('span[title]')
+            ? r.querySelector('span[title]').getAttribute('title') : null,
+        outgoing: !!r.querySelector("span[data-icon^='msg-']"),
+        unread: !!r.querySelector("span[aria-label*='unread'], span[aria-label*='未读']")
+    }))"""
+
+    def _raw_rows(self, page, selector):
+        try:
+            return page.evaluate(self._ROWS_JS, selector)
+        except Exception:  # noqa: BLE001 — a re-render mid-read is not an error
+            return []
+
+    def _scroll_list(self, page, row_selector, collect, deadline=None, patience=3):
+        """Both thread lists are virtualised: only what is on screen exists in the DOM.
+
+        Stop after `patience` consecutive passes that add nothing — the lists load
+        lazily, so a single slow pass is normal and quitting on the first one cut a
+        193-thread inbox down to 121.
+
+        Depth is bounded by a wall-clock `deadline` rather than a pass count. It has to
+        reach the bottom at least once: replies that were never processed sit at their
+        own last-message time, so on the first scan the ones worth finding are weeks
+        deep, not at the top. Later scans hit the patience exit within seconds."""
+        rows, seen = [], set()
+        idle = 0
+        while deadline is None or time.monotonic() < deadline:
+            before = len(rows)
+            collect(rows, seen)
+            try:  # the wheel goes wherever the pointer is, so put it over the list
+                page.locator(row_selector).last.hover(timeout=2500)
+            except Exception:  # noqa: BLE001
+                pass
+            page.mouse.wheel(0, 1400)
+            page.wait_for_timeout(1000)
+            idle = idle + 1 if len(rows) == before else 0
+            if idle >= patience:
+                break
+        return rows
+
+    _WA_ROW = "#pane-side div[role='listitem']"
+    # Wall-clock budget per channel; Instagram splits it across its three tabs.
+    SCAN_BUDGET = 240
+
+    def _wa_threads(self, page):
+        """Read the chat list only. A thread whose last message is ours carries a
+        delivery-status icon (msg-check / msg-dblcheck); its absence is what marks the
+        last message as inbound."""
+        from app import inbound
+
+        def collect(rows, seen):
+            for raw in self._raw_rows(page, self._WA_ROW):
+                t = inbound.whatsapp_thread(raw["leaves"], raw["title"],
+                                            raw["outgoing"], raw["unread"])
+                if t and t["sender"] not in seen:
+                    seen.add(t["sender"])
+                    rows.append(t)
+
+        return self._scroll_list(page, self._WA_ROW, collect,
+                                 time.monotonic() + self.SCAN_BUDGET)
+
+    # Cold replies from strangers never land in 主要 — they queue in 一般 and 陌生消息,
+    # so scanning only the default tab would miss almost all of them.
+    _IG_TABS = ("主要", "一般", "陌生消息", "Primary", "General", "Requests")
+    _IG_ROW = "div[role='button'][tabindex]:has(img[alt='user-profile-picture'])"
+
+    def _ig_threads(self, page):
+        from app import inbound
+        seen: set[str] = set()
+        rows: list[dict] = []
+        # Split the budget across the tabs so one crowded tab cannot starve the others —
+        # 陌生消息 is where cold replies land and it is scanned last.
+        share = self.SCAN_BUDGET / len(self._IG_TABS)
+
+        def per_tab():
+            return time.monotonic() + share
+
+        def collect(acc, _seen):
+            for raw in self._raw_rows(page, self._IG_ROW):
+                t = inbound.instagram_thread(raw["leaves"])
+                if t and t["sender"] not in seen:
+                    seen.add(t["sender"])
+                    acc.append(t)
+
+        opened = 0
+        for tab in self._IG_TABS:
+            try:
+                el = page.get_by_text(tab, exact=True).first
+                if not el.is_visible(timeout=1200):
+                    continue
+                el.click(timeout=4000)
+                page.wait_for_timeout(2500)
+            except Exception:  # noqa: BLE001 — a tab this account doesn't have
+                continue
+            opened += 1
+            rows.extend(self._scroll_list(page, self._IG_ROW, collect, per_tab()))
+        if not opened:  # locale changed the tab labels — read the default view at least
+            rows.extend(self._scroll_list(page, self._IG_ROW, collect, per_tab()))
+        return rows
+
     def _wa_attach_image(self, page, image):
         page.locator("div[title='Attach'], button[aria-label*='Attach'], span[data-icon='plus'], span[data-icon='clip'], span[data-icon='plus-rounded']").first.click(timeout=15000)
         page.wait_for_timeout(800)
@@ -225,6 +371,10 @@ class PlaywrightEngine:
 
     def send_message(self, channel: str, target: str, message: str, image: str | None = None) -> None:
         self._call(self._send_op, channel, target, message, image, timeout=150)
+
+    def scan_threads(self, channel: str) -> list[dict]:
+        # Instagram alone walks three tabs; 210s was cutting scans off mid-scroll.
+        return self._call(self._scan_op, channel, timeout=420)
 
     def connect(self, channel: str) -> None:
         self._state[channel] = "connecting"
