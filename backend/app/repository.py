@@ -177,21 +177,26 @@ def update_lead(conn, no: int, fields: dict) -> bool:
     params = [*cols.values(), _dt.datetime.now(_dt.UTC).isoformat(), no]
     cur = conn.execute(f"UPDATE leads SET {sets} WHERE no = ?", params)
     conn.commit()
+    if {"follow_up_date", "next_action"} & cols.keys() and cur.rowcount > 0:
+        from app import activities
+        activities.upsert_legacy_for_lead(conn, no)
     return cur.rowcount > 0
 
 
 # Everything that hangs off a lead. SQLite has no cascade here, and an orphan row would
 # keep a deleted company alive in the inbox, the send log and the pipeline counts.
 _LEAD_CHILDREN = ("outreach", "notes", "sequence_enrollments", "send_log",
-                  "inbox_messages", "opportunities")
+                  "inbox_messages", "activities", "opportunities")
 
 
 def delete_lead(conn, no: int) -> bool:
     """Erase a lead entirely. For rows that turn out not to be customers at all — a
     competitor, or a Chinese factory's overseas branch. 'Do not contact' is the wrong
     tool for those: it stops the sending but still counts them in the funnel."""
-    from app.opportunities import ensure_schema
-    ensure_schema(conn)
+    from app.opportunities import ensure_schema as ensure_opportunity_schema
+    from app.activities import ensure_schema as ensure_activity_schema
+    ensure_opportunity_schema(conn)
+    ensure_activity_schema(conn)
     if conn.execute("SELECT 1 FROM leads WHERE no = ?", (no,)).fetchone() is None:
         return False
     for table in _LEAD_CHILDREN:

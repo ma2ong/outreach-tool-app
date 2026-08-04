@@ -240,12 +240,15 @@ def process_threads(conn, channel: str, threads: list[dict]) -> dict:
             replies += 1
             lead_nos.append(no)
         if not _already_recorded(conn, no, channel, body):
-            conn.execute(
+            cur = conn.execute(
                 "INSERT INTO inbox_messages(lead_no, channel, kind, from_addr, subject, body, received_at)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (no, channel, kind, sender,
                  (t.get("name") or sender)[:120], body, now))
             stored += 1
+            if kind == "reply":
+                from app import activities
+                activities.create_reply_task(conn, cur.lastrowid)
         if not robot:
             repository.mark_replied(conn, no, channel)
     conn.commit()

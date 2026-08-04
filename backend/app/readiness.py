@@ -1,6 +1,6 @@
 import json
 
-from app import autosend, mailboxes, settings
+from app import activities, autosend, mailboxes, settings
 from app.channels.email_adapter import get_password
 
 
@@ -38,6 +38,7 @@ def build(conn) -> dict:
         "SELECT COUNT(*) AS c FROM inbox_messages"
         " WHERE kind='reply' AND handled_at IS NULL"
     ).fetchone()["c"]
+    activity_stats = activities.stats(conn)
     auto = autosend.status(conn)
     reply_status = settings.get(conn, "reply_sync_last_status")
     reply_at = settings.get(conn, "reply_sync_last_at") or None
@@ -81,6 +82,15 @@ def build(conn) -> dict:
         "inbox",
     ))
 
+    due_activities = activity_stats["overdue"] + activity_stats["today"]
+    checks.append(_check(
+        "sales_activities", "销售任务",
+        "attention" if due_activities else "ok",
+        (f"{activity_stats['overdue']} 项逾期，{activity_stats['today']} 项今天到期"
+         if due_activities else f"没有逾期或今日任务，未来已安排 {activity_stats['upcoming']} 项"),
+        "activities",
+    ))
+
     p = auto["preview"]
     if p["due"] == 0:
         checks.append(_check("sequences", "邮件跟进", "ok", "当前没有到期邮件", "sequences"))
@@ -115,6 +125,7 @@ def build(conn) -> dict:
             "reply_sync_last_status": reply_status or None,
             "reply_sync_last_result": reply_result,
             "pending_replies": pending_replies,
+            "activities": activity_stats,
             "autosend": auto,
         },
     }

@@ -32,6 +32,8 @@ def test_readiness_reports_blocker_without_exposing_secrets(tmp_path, monkeypatc
     assert body["metrics"]["autosend"]["enabled"] is False
     assert body["metrics"]["autosend"]["preview"]["due"] == 1
     assert body["metrics"]["pending_replies"] == 0
+    assert body["metrics"]["activities"]["open_count"] == 0
+    assert next(c for c in body["checks"] if c["id"] == "sales_activities")["action_page"] == "activities"
     assert "password" not in str(body).lower()
 
 

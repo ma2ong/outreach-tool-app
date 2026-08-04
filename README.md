@@ -6,8 +6,9 @@
 ## 功能一览
 | 页面 | 能力 |
 |---|---|
-| 仪表盘 | 今日工作台 + 统计卡 + 渠道额度 + 触达漏斗 + "该跟进了"卡 + **商机金额/加权预测/逾期停滞** + **回复率分析（各 Campaign/国家回复率）** + 国家分布 |
-| 客户库 | 全列表格（含**客户类型分级列**、邮箱有效性徽章）+ 详情抽屉（阶段/标签/跟进日期/备注时间线/**不再联系开关**）+ 筛选/排序/分页/导出 Excel + **一键验证邮箱（MX）/一键 ICP 分级** + **快速添加**（粘贴 IG/FB/LinkedIn/官网链接一键入库，官网自动深挖+分级+查重）+ 勾选后触达操作条（模板按客户国家推荐语言、可换附件、可命名 Campaign；同一客户每天最多一次批量触达） |
+| 仪表盘 | 今日工作台 + **销售任务（今日/逾期）** + 统计卡 + 渠道额度 + 触达漏斗 + "该跟进了"卡 + **商机金额/加权预测/逾期停滞** + **回复率分析（各 Campaign/国家回复率）** + 国家分布 |
+| 销售任务 | 所有下一步行动的唯一工作台：逾期/今天/未来/未排日期分组，支持电话、Email、WhatsApp、会议、报价等任务；客户真人回复自动建高优先级任务，商机下一步自动同步，完成后客户跟进字段同步更新 |
+| 客户库 | 全列表格（含**客户类型分级列**、邮箱有效性徽章）+ 详情抽屉（阶段/标签/**下一步任务**/备注时间线/**不再联系开关**）+ 筛选/排序/分页/导出 Excel + **一键验证邮箱（MX）/一键 ICP 分级** + **快速添加**（粘贴 IG/FB/LinkedIn/官网链接一键入库，官网自动深挖+分级+查重）+ 勾选后触达操作条（模板按客户国家推荐语言、可换附件、可命名 Campaign；同一客户每天最多一次批量触达） |
 | 商机管道 | 一个客户可建多个 LED 项目；记录金额/概率/预计成交日/下一步/用途/室内户外/尺寸/数量/像素间距/目的地/贸易条款/竞争对手/丢单原因；自动计算**加权预测**、识别下一步逾期和阶段停滞，关键字段不完整时阻止虚假推进 |
 | 收件箱 | 客户**回复正文直接在工具里看**；“已读”和“已处理”分开，只有确认已回复客户/已安排下一步后才清除首页待办，避免询盘看过后遗忘。邮件每 15 分钟自动拉取（失败每分钟重试，回看天数按断线时长自动放宽）；**WhatsApp / Instagram 每天自动扫一次会话列表**（只读列表、不打开对话，因此不会清掉手机上的未读；仅在渠道已连接时执行，也可手动点「扫社媒回复」）。**永久退信自动把死邮箱标 invalid 且不占收件箱**（投递延迟只展示不处理）；**退订关键词自动置"不再联系"**（全渠道停发）；**自动回复单独标记、不算已回复**，跟进序列照常继续 |
 | 跟进序列 | 建多步跟进序列（第 N 天发什么话术）→ 客户库勾选入组 → 每日"今日待发跟进"队列手动确认发送 → 回复自动检测（邮件走 IMAP，WA/IG 读会话列表）并停掉已回复客户的后续跟进 |
@@ -62,14 +63,15 @@ cd backend && python -m uvicorn app.main:app --port 8000
 
 ## 测试
 - 后端：`cd backend && python -m pytest`（全量回归）
-- 前端冒烟：启动后端后 `cd frontend && npx playwright test`（15 用例，只读+勾选，绝不触发真实发送；有密码时自动登录）
+- 前端冒烟：启动后端后 `cd frontend && npx playwright test`（只读+勾选，绝不触发真实发送；有密码时自动登录）
 
 ## 架构
 - `backend/app/db.py` — SQLite schema + 连接 · `repository.py` — 全部 SQL（含 untouched/has 筛选）
 - `backend/app/enrich.py` — 官网抓取（邮箱/电话/wa.me/IG/FB/LinkedIn）· `discovery.py` — 搜索深挖管道
 - `backend/app/outreach.py` / `channel_outreach.py` — Email / WA·IG 发送编排（限速+批量上限+日额度）
 - `backend/app/playwright_engine.py` — 每渠道持久化有头浏览器
-- `backend/app/api/` — REST：leads / stats / send / discover / channels
+- `backend/app/activities.py` — 销售任务、回复/商机自动建单、旧字段兼容迁移
+- `backend/app/api/` — REST：leads / activities / opportunities / stats / send / discover / channels
 - `frontend/src/theme.css` — 双主题 design tokens；`App.tsx` — AppShell + 页面切换；`components/` — Dashboard / LeadsTable / OutreachPanel / DiscoveryPanel / ConnectionPanel
 
 ## 已知边界

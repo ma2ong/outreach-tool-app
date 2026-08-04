@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead } from "../api";
-import type { Lead, Opportunity } from "../types";
+import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead, fetchActivities, createActivity, completeActivity, fetchLead } from "../api";
+import type { Activity, Lead, Opportunity } from "../types";
 import { STAGES, STAGE_LABEL, OPPORTUNITY_STAGE_LABEL } from "../types";
 
 const CH_LABEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", instagram: "Instagram" };
@@ -12,8 +12,15 @@ function fmtTs(iso: string | null): string {
   return isNaN(+d) ? iso : d.toLocaleString();
 }
 
-export function LeadDrawer({ lead, onClose, onChange, onDeleted }: {
+function localToday(): string {
+  const d = new Date();
+  const pad = (v: number) => String(v).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }: {
   lead: Lead; onClose: () => void; onChange: (l: Lead) => void; onDeleted: (no: number) => void;
+  onTasksChange: () => void;
 }) {
   const [draft, setDraft] = useState<Lead>(lead);
   const [note, setNote] = useState("");
@@ -29,12 +36,27 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted }: {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [blockToo, setBlockToo] = useState(true);
+  const [openTasks, setOpenTasks] = useState<Activity[]>([]);
+  const [doneTasks, setDoneTasks] = useState<Activity[]>([]);
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskDue, setTaskDue] = useState(localToday());
+  const [taskType, setTaskType] = useState("task");
+  const [taskBusy, setTaskBusy] = useState(false);
+
+  async function loadTasks(leadNo: number) {
+    const [open, done] = await Promise.all([
+      fetchActivities({ lead_no: leadNo, status: "open" }),
+      fetchActivities({ lead_no: leadNo, status: "done", limit: 3 }),
+    ]);
+    setOpenTasks(open); setDoneTasks(done.slice(0, 3));
+  }
 
   useEffect(() => {
     setDraft(lead); setDirty(false); setConfirmDelete(false);
     setProjectTitle(`${lead.company_en} LED 项目`);
     fetchOpportunities({ lead_no: lead.no }).then(setOpportunities)
       .catch((e) => setErr(`商机加载失败：${String(e)}`));
+    loadTasks(lead.no).catch((e) => setErr(`任务加载失败：${String(e)}`));
   }, [lead.no]);
 
   const set = (k: keyof Lead, v: string) => { setDraft((d) => ({ ...d, [k]: v })); setDirty(true); };
@@ -48,7 +70,7 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted }: {
         email: draft.email, phone: draft.phone,
         website: draft.website, instagram: draft.instagram, facebook: draft.facebook,
         linkedin: draft.linkedin, business: draft.business, stage: draft.stage,
-        tags: draft.tags, follow_up_date: draft.follow_up_date, next_action: draft.next_action,
+        tags: draft.tags,
       });
       setDraft(updated); setDirty(false); onChange(updated);
     } catch (e) { setErr(String(e)); } finally { setSaving(false); }
@@ -82,6 +104,33 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted }: {
       setProjectTitle(`${lead.company_en} LED 项目`);
     } catch (e) { setErr(String(e)); }
     finally { setProjectBusy(false); }
+  }
+
+  async function addTask() {
+    if (!taskTitle.trim()) { setErr("请输入明确的下一步动作"); return; }
+    setTaskBusy(true); setErr("");
+    try {
+      await createActivity({
+        lead_no: lead.no, title: taskTitle.trim(), type: taskType,
+        ...(taskDue ? { due_at: taskDue } : {}),
+      });
+      const updated = await fetchLead(lead.no);
+      setDraft(updated); onChange(updated);
+      await loadTasks(lead.no);
+      setTaskTitle(""); setTaskDue(localToday()); setTaskType("task"); onTasksChange();
+    } catch (e) { setErr(`新建任务失败：${String(e)}`); }
+    finally { setTaskBusy(false); }
+  }
+
+  async function finishTask(taskId: number) {
+    setTaskBusy(true); setErr("");
+    try {
+      await completeActivity(taskId);
+      const updated = await fetchLead(lead.no);
+      setDraft(updated); onChange(updated);
+      await loadTasks(lead.no); onTasksChange();
+    } catch (e) { setErr(`完成任务失败：${String(e)}`); }
+    finally { setTaskBusy(false); }
   }
 
   const blockDomain = (draft.website || draft.email || "").replace(/^https?:\/\/(www\.)?/, "").split("/")[0].split("@").pop() || "";
@@ -129,10 +178,45 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted }: {
           {!!draft.do_not_contact && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>已排除：群发、WhatsApp/Instagram、跟进序列都不会再发给这家。</div>}
         </div>
 
-        <div className="field-grid">
-          {field("follow_up_date", "下次跟进日期", "date")}
-          {field("next_action", "下一步动作")}
+        <div className="section-title">下一步行动</div>
+        <div className="card" style={{ padding: 10, marginBottom: 10 }}>
+          <input className="input" style={{ width: "100%", marginBottom: 7 }} value={taskTitle}
+            onChange={(e) => setTaskTitle(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") addTask(); }}
+            placeholder="明确动作，如：确认 P2.5 箱体尺寸并发送报价" />
+          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+            <select className="input" value={taskType} onChange={(e) => setTaskType(e.target.value)}>
+              <option value="task">任务</option><option value="call">电话</option>
+              <option value="email">Email</option><option value="whatsapp">WhatsApp</option>
+              <option value="instagram">Instagram</option><option value="meeting">会议</option>
+              <option value="quote">报价</option>
+            </select>
+            <input className="input" type="date" value={taskDue} onChange={(e) => setTaskDue(e.target.value)} />
+            <button className="btn btn-primary btn-sm" onClick={addTask} disabled={taskBusy}>安排任务</button>
+          </div>
         </div>
+        {openTasks.length === 0 ? <div className="muted">暂无未完成任务</div> : openTasks.map((task) => (
+          <div key={task.id} className="note-item" style={{ marginBottom: 7, display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+            <div>
+              <b>{task.title}</b>
+              <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
+                {task.due_at ? (task.due_at < localToday() ? `⚠ 已逾期 · ${task.due_at}` : task.due_at === localToday() ? "今天" : task.due_at) : "未排日期"}
+                {task.source === "reply" ? " · 客户回复" : task.source === "opportunity" ? " · 商机" : ""}
+              </div>
+            </div>
+            <button className="btn btn-sm" onClick={() => finishTask(task.id)} disabled={taskBusy}>✓ 完成</button>
+          </div>
+        ))}
+        {doneTasks.length > 0 && (
+          <details style={{ marginTop: 8 }}>
+            <summary className="muted" style={{ cursor: "pointer" }}>最近完成 {doneTasks.length} 项</summary>
+            {doneTasks.map((task) => (
+              <div key={task.id} className="muted" style={{ fontSize: 12, padding: "5px 0" }}>
+                ✓ {task.title} · {fmtTs(task.completed_at)}
+              </div>
+            ))}
+          </details>
+        )}
         <div className="field">
           <label>标签（逗号分隔，如 hot,distributor,大项目）</label>
           <input className="input" value={draft.tags ?? ""} onChange={(e) => set("tags", e.target.value)} placeholder="hot, 经销商, 租赁" />
@@ -235,7 +319,7 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted }: {
         {confirmDelete ? (
           <div>
             <div style={{ marginBottom: 6 }}>
-              确定删除 <b>{draft.company_en}</b>？触达记录、跟进记录、商机会一起消失，<b>不可恢复</b>。
+              确定删除 <b>{draft.company_en}</b>？触达记录、销售任务、跟进记录、商机会一起消失，<b>不可恢复</b>。
             </div>
             {blockDomain && (
               <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, cursor: "pointer" }}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchQuota, fetchCampaignStats, fetchDue, sendDue, fetchJob, fetchOpportunityStats, type CampaignStat, type CountryStat } from "../api";
-import type { Stats, ChannelReach, DueItem, SendJob, OpportunityStats } from "../types";
+import { fetchQuota, fetchCampaignStats, fetchDue, sendDue, fetchJob, fetchOpportunityStats, fetchActivityStats, type CampaignStat, type CountryStat } from "../api";
+import type { Stats, ChannelReach, DueItem, SendJob, OpportunityStats, ActivityStats } from "../types";
 import { StatCards } from "./StatCards";
 import { ReadinessPanel } from "./ReadinessPanel";
 
@@ -34,6 +34,7 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
   const [sendJob, setSendJob] = useState<SendJob | null>(null);
   const [sendMsg, setSendMsg] = useState("");
   const [opportunityStats, setOpportunityStats] = useState<OpportunityStats | null>(null);
+  const [activityStats, setActivityStats] = useState<ActivityStats | null>(null);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const pollRef = useRef<number | null>(null);
   const reportLoadError = (name: string, error: unknown) => {
@@ -49,6 +50,8 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
       .catch((e) => reportLoadError("回复率分析", e));
     fetchOpportunityStats().then(setOpportunityStats)
       .catch((e) => reportLoadError("商机统计", e));
+    fetchActivityStats().then(setActivityStats)
+      .catch((e) => reportLoadError("销售任务", e));
   }, []);
   // 组件卸载时清掉发送轮询，避免泄漏 + 对已卸载组件 setState
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
@@ -107,6 +110,24 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
           </div>
         </div>
       )}
+      <div className="card" style={{ marginBottom: 16, cursor: "pointer", borderColor: (activityStats?.overdue ?? 0) > 0 ? "var(--danger)" : undefined }}
+        onClick={() => onGoto("activities")} title="打开销售任务">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <div>
+            <div className="stat-label">✓ 今日销售任务</div>
+            <div className="stat-value">
+              今天 {activityStats?.today ?? 0} 项
+              <span style={{ color: (activityStats?.overdue ?? 0) > 0 ? "var(--danger)" : undefined, marginLeft: 12 }}>
+                逾期 {activityStats?.overdue ?? 0} 项
+              </span>
+            </div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              全部未完成 {activityStats?.open_count ?? 0} · 未来 {activityStats?.upcoming ?? 0} · 未排日期 {activityStats?.no_due ?? 0}
+            </div>
+          </div>
+          <span className="btn btn-primary btn-sm">开始处理 →</span>
+        </div>
+      </div>
       {(dueSeq.length > 0 || pendingReplies > 0) && (
         <div className="card" style={{ marginBottom: 16 }}>
           <h3 style={{ marginTop: 0 }}>☀️ 今日工作台</h3>

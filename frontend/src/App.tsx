@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchLead, fetchLeads, fetchLeadsPage, fetchStats, markReplied, fetchSequences, enrollLeads, startVerify, fetchVerifyJob, startClassify, fetchClassifyJob, fetchDuplicates, mergeDuplicates, fetchInboxPending, quickAddLead, fetchAuthStatus, login } from "./api";
-import type { Lead, Stats, Sequence } from "./types";
+import { fetchLead, fetchLeads, fetchLeadsPage, fetchStats, markReplied, fetchSequences, enrollLeads, startVerify, fetchVerifyJob, startClassify, fetchClassifyJob, fetchDuplicates, mergeDuplicates, fetchInboxPending, quickAddLead, fetchAuthStatus, login, fetchActivityStats } from "./api";
+import type { ActivityStats, Lead, Stats, Sequence } from "./types";
 import { Dashboard } from "./components/Dashboard";
 import { LeadsTable } from "./components/LeadsTable";
 import { LeadDrawer } from "./components/LeadDrawer";
@@ -14,8 +14,9 @@ import { SequencesPanel } from "./components/SequencesPanel";
 import { InboxPanel } from "./components/InboxPanel";
 import { HealthPanel } from "./components/HealthPanel";
 import { OpportunityPipeline } from "./components/OpportunityPipeline";
+import { ActivitiesPanel } from "./components/ActivitiesPanel";
 
-type Page = "dashboard" | "leads" | "opportunities" | "inbox" | "sequences" | "discovery" | "products" | "channels";
+type Page = "dashboard" | "activities" | "leads" | "opportunities" | "inbox" | "sequences" | "discovery" | "products" | "channels";
 
 function exportQuery(params: Record<string, string>): string {
   const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
@@ -24,6 +25,7 @@ function exportQuery(params: Record<string, string>): string {
 
 const PAGES: { id: Page; label: string; ico: string }[] = [
   { id: "dashboard", label: "仪表盘", ico: "▦" },
+  { id: "activities", label: "销售任务", ico: "✓" },
   { id: "leads", label: "客户库", ico: "☰" },
   { id: "opportunities", label: "商机管道", ico: "◇" },
   { id: "inbox", label: "收件箱", ico: "✉" },
@@ -97,6 +99,7 @@ export function App() {
   const [enrollMsg, setEnrollMsg] = useState("");
   const [err, setErr] = useState("");
   const [pendingReplies, setPendingReplies] = useState(0);
+  const [activityStats, setActivityStats] = useState<ActivityStats | null>(null);
   const [authed, setAuthed] = useState<boolean | null>(null);
   useEffect(() => {
     fetchAuthStatus().then((s) => setAuthed(!s.enabled || s.authed)).catch((e) => {
@@ -105,7 +108,9 @@ export function App() {
   }, []);
 
   const refreshPending = () => fetchInboxPending().then(setPendingReplies).catch((e) => setErr(String(e)));
+  const refreshActivityStats = () => fetchActivityStats().then(setActivityStats).catch((e) => setErr(String(e)));
   useEffect(() => { refreshPending(); }, []);
+  useEffect(() => { refreshActivityStats(); }, []);
 
   // 追踪所有轮询定时器，组件卸载时统一清掉（防泄漏 + 对已卸载组件 setState）
   const timers = useRef<Set<number>>(new Set());
@@ -267,6 +272,8 @@ export function App() {
           <button key={p.id} className={`nav-item${page === p.id ? " active" : ""}`} onClick={() => setPage(p.id)}>
             <span className="ico">{p.ico}</span><span className="nav-label">{p.label}</span>
             {p.id === "inbox" && pendingReplies > 0 && <span className="unread-dot">{pendingReplies}</span>}
+            {p.id === "activities" && !!activityStats && activityStats.overdue + activityStats.today > 0 &&
+              <span className="unread-dot">{activityStats.overdue + activityStats.today}</span>}
           </button>
         ))}
       </aside>
@@ -394,8 +401,9 @@ export function App() {
               )}
             </>
           )}
-          {page === "opportunities" && <OpportunityPipeline onOpenLead={openLead} />}
-          {page === "inbox" && <InboxPanel onOpenLead={openLead} onPendingChange={() => { refreshPending(); reload(); }} />}
+          {page === "opportunities" && <OpportunityPipeline onOpenLead={openLead} onChanged={refreshActivityStats} />}
+          {page === "activities" && <ActivitiesPanel onOpenLead={openLead} onChanged={refreshActivityStats} />}
+          {page === "inbox" && <InboxPanel onOpenLead={openLead} onPendingChange={() => { refreshPending(); refreshActivityStats(); reload(); }} />}
           {page === "sequences" && <SequencesPanel onChanged={() => { reload(); refreshPending(); }} />}
           {page === "discovery" && <><DiscoveryPanel onImported={reload} /><BlocklistPanel /></>}
           {page === "products" && <ProductsPanel />}
@@ -408,6 +416,7 @@ export function App() {
           onClose={() => setDetail(null)}
           onChange={(u) => { setDetail(u); setLeads((ls) => ls.map((l) => (l.no === u.no ? u : l))); }}
           onDeleted={(no) => { setDetail(null); setLeads((ls) => ls.filter((l) => l.no !== no)); reload(); }}
+          onTasksChange={refreshActivityStats}
         />
       )}
     </div>

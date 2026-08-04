@@ -193,6 +193,32 @@ export interface OpportunityStats {
   stale_count: number;
   by_stage: Record<string, number>;
 }
+export interface Activity {
+  id: number;
+  lead_no: number;
+  opportunity_id: number | null;
+  type: string;
+  title: string;
+  due_at: string | null;
+  priority: "high" | "normal" | "low";
+  status: "open" | "done" | "cancelled";
+  source: "manual" | "reply" | "opportunity" | "legacy";
+  source_ref: string | null;
+  note: string | null;
+  created_at: string;
+  completed_at: string | null;
+  updated_at: string;
+  company_en: string;
+  country: string | null;
+  opportunity_title: string | null;
+}
+export interface ActivityStats {
+  overdue: number;
+  today: number;
+  upcoming: number;
+  no_due: number;
+  open_count: number;
+}
 export interface ReadinessCheck {
   id: string;
   label: string;
@@ -224,6 +250,7 @@ export interface Readiness {
     reply_sync_last_success_at: string | null;
     reply_sync_last_status: string | null;
     pending_replies: number;
+    activities: ActivityStats;
     autosend: AutoSendStatus;
   };
 }

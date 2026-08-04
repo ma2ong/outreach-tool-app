@@ -78,6 +78,8 @@ def test_read_reply_stays_pending_until_salesperson_finishes_it(tmp_path):
         client.post("/api/replies/poll")
         message = client.get("/api/inbox").json()[0]
         assert client.get("/api/inbox/pending_count").json()["count"] == 1
+        task = client.get("/api/activities?lead_no=1").json()[0]
+        assert task["source_ref"] == f"inbox:{message['id']}" and task["priority"] == "high"
 
         # Reading is not the same as replying or arranging the next action.
         client.post(f"/api/inbox/{message['id']}/read")
@@ -88,6 +90,8 @@ def test_read_reply_stays_pending_until_salesperson_finishes_it(tmp_path):
         assert client.post(f"/api/inbox/{message['id']}/handled").status_code == 200
         assert client.get("/api/inbox/pending_count").json()["count"] == 0
         assert client.get("/api/inbox?pending_only=1").json() == []
+        assert client.get("/api/activities?lead_no=1").json() == []
+        assert client.get("/api/activities?lead_no=1&status=done").json()[0]["id"] == task["id"]
     finally:
         replies_api.FETCHER = replies_api.replies.fetch_mailbox_messages
 

@@ -47,6 +47,8 @@ test("clicking a lead row opens detail drawer with stage and notes", async ({ pa
   await page.locator("table tbody tr").first().locator("td").nth(2).click();
   await expect(page.locator(".drawer")).toBeVisible();
   await expect(page.getByText("销售阶段")).toBeVisible();
+  await expect(page.getByText("下一步行动", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "安排任务" })).toBeVisible();
   await expect(page.getByText("LED 项目 / 商机")).toBeVisible();
   await expect(page.getByText("跟进记录", { exact: true })).toBeVisible();
   await page.locator(".drawer-close").click();
@@ -58,6 +60,18 @@ test("dashboard shows stats", async ({ page }) => {
   await page.getByRole("button", { name: /仪表盘/ }).click();
   await expect(page.getByText("客户总数").first()).toBeVisible();
   await expect(page.getByText(/国家分布/)).toBeVisible();
+  await expect(page.getByText("今日销售任务")).toBeVisible();
+});
+
+// SAFETY: reads the task workbench and creation controls, but does not create or complete anything.
+test("sales activity workbench exposes one next-action queue", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /销售任务/ }).click();
+  await expect(page.getByText("安排下一步")).toBeVisible();
+  await expect(page.getByPlaceholder("输入并选择客户公司")).toBeVisible();
+  await expect(page.getByRole("button", { name: "创建任务" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /全部未完成/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "最近完成" })).toBeVisible();
 });
 
 // SAFETY: only checks the discovery page renders — never clicks 搜索深挖/导入 (would hit network / write DB).

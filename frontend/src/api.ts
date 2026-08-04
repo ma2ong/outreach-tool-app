@@ -436,6 +436,61 @@ export async function updateOpportunity(
   return r.json();
 }
 
+export async function fetchActivities(params: {
+  status?: string; scope?: string; lead_no?: number; opportunity_id?: number; limit?: number;
+} = {}): Promise<import("./types").Activity[]> {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set("status", params.status);
+  if (params.scope) qs.set("scope", params.scope);
+  if (params.lead_no !== undefined) qs.set("lead_no", String(params.lead_no));
+  if (params.opportunity_id !== undefined) qs.set("opportunity_id", String(params.opportunity_id));
+  if (params.limit !== undefined) qs.set("limit", String(params.limit));
+  const r = await fetch(`/api/activities${qs.size ? "?" + qs.toString() : ""}`);
+  if (!r.ok) throw new Error(`activities ${r.status}`);
+  return r.json();
+}
+
+export async function fetchActivityStats(): Promise<import("./types").ActivityStats> {
+  const r = await fetch("/api/activities/stats");
+  if (!r.ok) throw new Error(`activity stats ${r.status}`);
+  return r.json();
+}
+
+export async function createActivity(data: {
+  lead_no: number; opportunity_id?: number | null; type?: string; title: string;
+  due_at?: string | null; priority?: string; note?: string | null;
+}): Promise<import("./types").Activity> {
+  const r = await fetch("/api/activities", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!r.ok) {
+    const detail = (await r.json().catch(() => null))?.detail;
+    throw new Error(detail || `activity ${r.status}`);
+  }
+  return r.json();
+}
+
+export async function updateActivity(
+  id: number, data: Partial<import("./types").Activity>,
+): Promise<import("./types").Activity> {
+  const r = await fetch(`/api/activities/${id}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!r.ok) {
+    const detail = (await r.json().catch(() => null))?.detail;
+    throw new Error(detail || `activity ${r.status}`);
+  }
+  return r.json();
+}
+
+export async function completeActivity(id: number): Promise<import("./types").Activity> {
+  const r = await fetch(`/api/activities/${id}/complete`, { method: "POST" });
+  if (!r.ok) throw new Error(`activity ${r.status}`);
+  return r.json();
+}
+
 export interface HealthLead { no: number; company_en: string; website: string | null; country: string | null; reason?: string }
 
 export async function scanHealth(): Promise<{ issues: Record<string, HealthLead[]>; total: number }> {

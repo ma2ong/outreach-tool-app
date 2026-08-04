@@ -60,7 +60,10 @@ def mark_handled(message_id: int, conn=Depends(get_conn)):
         " WHERE id=? AND kind='reply'",
         (message_id,),
     )
-    conn.commit()
     if cur.rowcount == 0:
+        conn.commit()
         raise HTTPException(status_code=404, detail="actionable reply not found")
+    from app import activities
+    activities.complete_reply_task(conn, message_id)
+    conn.commit()
     return {"ok": True}

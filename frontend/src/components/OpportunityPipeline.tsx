@@ -114,7 +114,9 @@ function OpportunityEditor({ item, onSaved, onClose }: {
   );
 }
 
-export function OpportunityPipeline({ onOpenLead }: { onOpenLead: (no: number) => void }) {
+export function OpportunityPipeline({ onOpenLead, onChanged }: {
+  onOpenLead: (no: number) => void; onChanged?: () => void;
+}) {
   const [items, setItems] = useState<Opportunity[]>([]);
   const [stats, setStats] = useState<OpportunityStats | null>(null);
   const [stage, setStage] = useState("");
@@ -204,7 +206,7 @@ export function OpportunityPipeline({ onOpenLead }: { onOpenLead: (no: number) =
         </div>
       </div>
       {editing && <OpportunityEditor item={editing}
-        onSaved={(saved) => { setEditing(saved); load(); }} onClose={() => setEditing(null)} />}
+        onSaved={(saved) => { setEditing(saved); load(); onChanged?.(); }} onClose={() => setEditing(null)} />}
     </>
   );
 }

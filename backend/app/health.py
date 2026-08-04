@@ -52,12 +52,14 @@ def cleanable(conn) -> list[dict]:
     """Leads that are pure dead weight — safe to delete without reading them one by one.
 
     Nothing to send to (no email/phone/IG/FB) AND nothing invested: never messaged, no
-    note, no inbox message, no opportunity. Anything with history stays, because a
+    note, no inbox message, no sales task, no opportunity. Anything with history stays, because a
     deleted lead cannot be undone and a wrong call there costs a real customer. Peers
     keep their own conservative fix (do_not_contact), so they are not in here even
     though Allen may well want them gone — those he picks by hand."""
-    from app.opportunities import ensure_schema
-    ensure_schema(conn)
+    from app.opportunities import ensure_schema as ensure_opportunity_schema
+    from app.activities import ensure_schema as ensure_activity_schema
+    ensure_opportunity_schema(conn)
+    ensure_activity_schema(conn)
     return [dict(r) for r in conn.execute("""
         SELECT no, company_en, website, country FROM leads l
          WHERE COALESCE(email,'')='' AND COALESCE(phone,'')=''
@@ -66,6 +68,7 @@ def cleanable(conn) -> list[dict]:
                             AND o.status IN ('messaged','replied'))
            AND NOT EXISTS (SELECT 1 FROM notes n WHERE n.lead_no=l.no)
            AND NOT EXISTS (SELECT 1 FROM inbox_messages m WHERE m.lead_no=l.no)
+           AND NOT EXISTS (SELECT 1 FROM activities a WHERE a.lead_no=l.no)
            AND NOT EXISTS (SELECT 1 FROM opportunities p WHERE p.lead_no=l.no)
          ORDER BY no""")]
 

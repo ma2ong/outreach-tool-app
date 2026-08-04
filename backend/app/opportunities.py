@@ -185,7 +185,10 @@ def create(conn: sqlite3.Connection, lead_no: int, data: dict) -> dict:
         f"INSERT INTO opportunities({','.join(cols)}) VALUES ({marks})", values)
     _sync_lead_stage(conn, lead_no, stage)
     conn.commit()
-    return get(conn, cur.lastrowid)
+    result = get(conn, cur.lastrowid)
+    from app import activities
+    activities.sync_opportunity(conn, result)
+    return result
 
 
 def get(conn: sqlite3.Connection, opportunity_id: int, today: dt.date | None = None) -> dict | None:
@@ -222,7 +225,10 @@ def update(conn: sqlite3.Connection, opportunity_id: int, data: dict) -> dict | 
     )
     _sync_lead_stage(conn, current["lead_no"], stage)
     conn.commit()
-    return get(conn, opportunity_id)
+    result = get(conn, opportunity_id)
+    from app import activities
+    activities.sync_opportunity(conn, result)
+    return result
 
 
 def list_all(conn: sqlite3.Connection, *, stage: str | None = None,

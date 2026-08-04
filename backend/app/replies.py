@@ -163,13 +163,13 @@ def test_mailbox(mailbox: dict) -> None:
         im.login(mailbox.get("username") or mailbox.get("email"), mailbox.get("password"))
 
 
-def _store(conn, lead_no: int, kind: str, m: dict) -> bool:
+def _store(conn, lead_no: int, kind: str, m: dict) -> int | None:
     cur = conn.execute(
         "INSERT OR IGNORE INTO inbox_messages(lead_no, channel, kind, from_addr, subject, body, received_at)"
         " VALUES (?, 'email', ?, ?, ?, ?, ?)",
         (lead_no, kind, _norm(m.get("from_addr")), m.get("subject") or "",
          m.get("body") or "", m.get("received_at") or ""))
-    return cur.rowcount > 0
+    return cur.lastrowid if cur.rowcount > 0 else None
 
 
 # Domains where the local-part identifies a person, not a company — a reply from
@@ -240,8 +240,12 @@ def process_messages(conn, messages: list[dict]) -> dict:
         kind = "unsubscribe" if _UNSUB_RE.search(subject) or _UNSUB_RE.search(body) else "reply"
         # A reply/unsub from someone at the company applies to every lead we hold there:
         # store the message once (on the first), stop chasing all of them.
-        if _store(conn, matched[0], kind, m):
+        inbox_id = _store(conn, matched[0], kind, m)
+        if inbox_id:
             stored += 1
+            if kind == "reply":
+                from app import activities
+                activities.create_reply_task(conn, inbox_id)
         for no in matched:
             if kind == "unsubscribe":
                 conn.execute("UPDATE leads SET do_not_contact=1 WHERE no=?", (no,))
