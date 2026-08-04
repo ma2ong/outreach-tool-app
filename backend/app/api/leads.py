@@ -48,6 +48,11 @@ class NoteRequest(BaseModel):
     text: str
 
 
+class BulkDeleteRequest(BaseModel):
+    nos: list[int]
+    block: bool = False   # also add each company's domain to the never-collect list
+
+
 @router.get("/leads", response_model=list[Lead])
 def list_leads(response: Response, country: str | None = None, channel: str | None = None,
                status: str | None = None, search: str | None = None,
@@ -106,7 +111,11 @@ def quick_add_lead(req: QuickAddRequest, conn=Depends(get_conn)):
     data["company_en"] = (req.company_en or "").strip() or company_from_site or qa.display_name(fields)
     data["country"] = (req.country or "").strip() or None
     data.setdefault("target_fit", "quick-add")
-    no = repo.insert_lead(conn, data)
+    from app import blocklist
+    try:
+        no = repo.insert_lead(conn, data)
+    except blocklist.BlockedLead as exc:
+        raise HTTPException(status_code=400, detail=f"{exc.domain} 在「永不再收录」名单里，没有添加。要收录先到「客户开发」页把它移出名单。")
     repo.add_note(conn, no, f"快速添加自 {req.url.strip()}")
     return {"duplicate_of": None, "lead": repo.get_lead(conn, no)}
 
@@ -127,6 +136,25 @@ def merge_duplicates(conn=Depends(get_conn)):
     return dedupe.merge_all(conn)
 
 
+@router.post("/leads/bulk_delete")
+def bulk_delete(req: BulkDeleteRequest, conn=Depends(get_conn)):
+    """Delete the leads Allen ticked, in one go. Ids that are already gone are skipped
+    rather than failing the batch — the list he ticked may be a minute out of date."""
+    from app import blocklist
+    deleted, blocked = 0, []
+    for no in req.nos:
+        lead = repo.get_lead(conn, no)
+        if lead is None:
+            continue
+        if req.block:
+            row = blocklist.add(conn, lead.website or lead.email or "", f"批量清理 {lead.company_en}")
+            if row:
+                blocked.append(row["domain"])
+        repo.delete_lead(conn, no)
+        deleted += 1
+    return {"deleted": deleted, "blocked_domains": sorted(set(blocked))}
+
+
 @router.get("/leads/{no}", response_model=Lead)
 def get_lead(no: int, conn=Depends(get_conn)):
     lead = repo.get_lead(conn, no)
@@ -141,6 +169,25 @@ def update_lead(no: int, req: LeadUpdate, conn=Depends(get_conn)):
     if not repo.update_lead(conn, no, fields):
         raise HTTPException(status_code=404, detail="lead not found")
     return repo.get_lead(conn, no)
+
+
+@router.delete("/leads/{no}")
+def delete_lead(no: int, block: int = 0, conn=Depends(get_conn)):
+    """Permanently remove a lead and its history. Irreversible — the UI asks twice.
+
+    block=1 also puts the company's domain on the never-collect-again list. That matters
+    for the case this exists for: a deleted competitor is still sitting in the collector's
+    files and would return on the next import."""
+    from app import blocklist
+    lead = repo.get_lead(conn, no)
+    if lead is None:
+        raise HTTPException(status_code=404, detail="lead not found")
+    blocked = None
+    if block:
+        row = blocklist.add(conn, lead.website or lead.email or "", f"手动删除 {lead.company_en}")
+        blocked = row["domain"] if row else None
+    repo.delete_lead(conn, no)
+    return {"ok": True, "blocked_domain": blocked}
 
 
 @router.get("/leads/{no}/notes")

@@ -64,6 +64,35 @@ export async function updateLead(no: number, fields: Partial<Lead>): Promise<Lea
   return r.json();
 }
 
+export async function deleteLead(no: number, block = false): Promise<{ blocked_domain: string | null }> {
+  const r = await fetch(`/api/leads/${no}?block=${block ? 1 : 0}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(`delete ${r.status}`);
+  return r.json();
+}
+
+export type BlockedDomain = { id: number; domain: string; reason: string | null; created_at: string | null };
+
+export async function fetchBlocklist(): Promise<BlockedDomain[]> {
+  const r = await fetch("/api/blocklist");
+  if (!r.ok) throw new Error(`blocklist ${r.status}`);
+  return r.json();
+}
+
+export async function addBlocked(value: string, reason?: string): Promise<BlockedDomain> {
+  const r = await fetch("/api/blocklist", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value, reason }),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `block ${r.status}`);
+  return r.json();
+}
+
+export async function removeBlocked(id: number): Promise<void> {
+  const r = await fetch(`/api/blocklist/${id}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(`unblock ${r.status}`);
+}
+
 export async function addNote(no: number, text: string): Promise<Lead> {
   const r = await fetch(`/api/leads/${no}/notes`, {
     method: "POST",
@@ -197,7 +226,7 @@ export async function importLeads(country: string, candidates: {
   company_en: string; website: string; email: string | null; country?: string;
   phone?: string | null; instagram?: string | null; facebook?: string | null; linkedin?: string | null;
   source?: string | null; icp_type?: string | null; fit_score?: number | null;
-}[]): Promise<{ imported: number; skipped: { company_en: string; website: string | null; duplicate_of: number }[] }> {
+}[]): Promise<{ imported: number; skipped: { company_en: string; website: string | null; duplicate_of?: number; blocked_domain?: string }[] }> {
   const r = await fetch("/api/leads/import", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -407,6 +436,20 @@ export interface HealthLead { no: number; company_en: string; website: string | 
 export async function scanHealth(): Promise<{ issues: Record<string, HealthLead[]>; total: number }> {
   const r = await fetch("/api/health/scan");
   if (!r.ok) throw new Error(`health ${r.status}`);
+  return r.json();
+}
+
+export async function fetchCleanable(): Promise<{ leads: HealthLead[]; count: number }> {
+  const r = await fetch("/api/health/cleanable");
+  if (!r.ok) throw new Error(`cleanable ${r.status}`);
+  return r.json();
+}
+
+export async function bulkDeleteLeads(nos: number[], block = false): Promise<{ deleted: number; blocked_domains: string[] }> {
+  const r = await fetch("/api/leads/bulk_delete", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nos, block }),
+  });
+  if (!r.ok) throw new Error(`bulk delete ${r.status}`);
   return r.json();
 }
 

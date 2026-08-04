@@ -112,7 +112,7 @@ def discover_job(job_id: str):
 
 @router.post("/leads/import")
 def import_leads(req: ImportRequest, conn=Depends(get_conn)):
-    from app import icp as icp_mod
+    from app import blocklist, icp as icp_mod
     imported = 0
     skipped: list[dict] = []
     for c in req.candidates:
@@ -125,11 +125,16 @@ def import_leads(req: ImportRequest, conn=Depends(get_conn)):
         fit = "discovered"
         if c.icp_type and c.icp_type != "unknown":
             fit = f"{icp_mod.label(c.icp_type)} ({c.fit_score or 0})"
-        no = repository.insert_lead(conn, {
-            "company_en": c.company_en, "country": c.country or req.country, "city": c.city,
-            "website": c.website, "email": c.email, "phone": c.phone,
-            "instagram": c.instagram, "facebook": c.facebook, "linkedin": c.linkedin,
-            "target_fit": fit})
+        try:
+            no = repository.insert_lead(conn, {
+                "company_en": c.company_en, "country": c.country or req.country, "city": c.city,
+                "website": c.website, "email": c.email, "phone": c.phone,
+                "instagram": c.instagram, "facebook": c.facebook, "linkedin": c.linkedin,
+                "target_fit": fit})
+        except blocklist.BlockedLead as exc:
+            skipped.append({"company_en": c.company_en, "website": c.website,
+                            "blocked_domain": exc.domain})
+            continue
         if c.icp_type and c.icp_type != "unknown":
             icp_mod.apply_to_lead(conn, no, {"icp_type": c.icp_type, "fit_score": c.fit_score or 0})
         imported += 1

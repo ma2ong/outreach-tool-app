@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from app import blocklist
 from app.db import connect, init_schema
 from app.migrate import load_leads, load_pipeline_rows, run_migration
 
@@ -49,3 +50,16 @@ def test_run_migration_populates_db(tmp_path):
     assert row["phone"] == "+1 555"
     assert row["whatsapp_verified"] == 0
     assert json.loads(row["source_urls"]) == ["u"]
+
+
+def test_blocked_domains_do_not_come_back_on_re_import(tmp_path):
+    """The collector's files are never edited when a lead is deleted, so this replay is
+    how a deleted competitor returns. Its pipeline row must be skipped too, or the
+    outreach table keeps a row pointing at a lead that no longer exists."""
+    d = _make_leads_dir(tmp_path)
+    conn = connect(str(tmp_path / "t.db"))
+    init_schema(conn)
+    blocklist.add(conn, "a.com", "同行")
+    assert run_migration(conn, str(d)) == 1
+    assert [r["no"] for r in conn.execute("SELECT no FROM leads")] == [2]
+    assert conn.execute("SELECT COUNT(*) c FROM outreach").fetchone()["c"] == 0

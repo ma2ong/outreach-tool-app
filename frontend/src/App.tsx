@@ -6,6 +6,7 @@ import { LeadsTable } from "./components/LeadsTable";
 import { LeadDrawer } from "./components/LeadDrawer";
 import { OutreachPanel } from "./components/OutreachPanel";
 import { DiscoveryPanel } from "./components/DiscoveryPanel";
+import { BlocklistPanel } from "./components/BlocklistPanel";
 import { ConnectionPanel } from "./components/ConnectionPanel";
 import { MailboxPanel } from "./components/MailboxPanel";
 import { ProductsPanel } from "./components/ProductsPanel";
@@ -394,7 +395,7 @@ export function App() {
           {page === "opportunities" && <OpportunityPipeline onOpenLead={openLead} />}
           {page === "inbox" && <InboxPanel onOpenLead={openLead} onUnreadChange={() => { refreshUnread(); reload(); }} />}
           {page === "sequences" && <SequencesPanel onChanged={() => { reload(); refreshUnread(); }} />}
-          {page === "discovery" && <DiscoveryPanel onImported={reload} />}
+          {page === "discovery" && <><DiscoveryPanel onImported={reload} /><BlocklistPanel /></>}
           {page === "products" && <ProductsPanel />}
           {page === "channels" && <><ConnectionPanel /><MailboxPanel /></>}
         </div>
@@ -404,6 +405,7 @@ export function App() {
           lead={detail}
           onClose={() => setDetail(null)}
           onChange={(u) => { setDetail(u); setLeads((ls) => ls.map((l) => (l.no === u.no ? u : l))); }}
+          onDeleted={(no) => { setDetail(null); setLeads((ls) => ls.filter((l) => l.no !== no)); reload(); }}
         />
       )}
     </div>

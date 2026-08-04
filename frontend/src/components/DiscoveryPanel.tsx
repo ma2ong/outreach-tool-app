@@ -87,10 +87,15 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
         phone: c.phone, instagram: c.instagram, facebook: c.facebook, linkedin: c.linkedin,
         source: c.source, icp_type: c.icp_type, fit_score: c.fit_score,
       })));
-      const skipNote = res.skipped.length
-        ? `；${res.skipped.length} 家已在库跳过（${res.skipped.map((s) => `${s.website ?? s.company_en} → #${s.duplicate_of}`).join("、")}）`
+      const dups = res.skipped.filter((s) => s.duplicate_of);
+      const blocked = res.skipped.filter((s) => s.blocked_domain);
+      const skipNote = dups.length
+        ? `；${dups.length} 家已在库跳过（${dups.map((s) => `${s.website ?? s.company_en} → #${s.duplicate_of}`).join("、")}）`
         : "";
-      setMsg(`已导入 ${res.imported} 家${skipNote}`);
+      const blockNote = blocked.length
+        ? `；${blocked.length} 家在「永不再收录」名单里跳过（${blocked.map((s) => s.blocked_domain).join("、")}）`
+        : "";
+      setMsg(`已导入 ${res.imported} 家${skipNote}${blockNote}`);
       // 表格状态列同步为已在库，避免误以为没导进去
       const dupMap = new Map(res.skipped.map((s) => [s.website, s.duplicate_of]));
       setCands((cs) => cs.map((c) => (picked.has(c.domain) && !c.duplicate_of

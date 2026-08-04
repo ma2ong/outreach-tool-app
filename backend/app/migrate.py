@@ -63,15 +63,27 @@ def _lead_values(lead: dict) -> list:
     return [src.get(c) for c in _LEAD_COLS]
 
 
-def run_migration(conn: sqlite3.Connection, leads_dir: str = DEFAULT_LEADS_DIR) -> None:
+def run_migration(conn: sqlite3.Connection, leads_dir: str = DEFAULT_LEADS_DIR) -> int:
+    """Replay the collector's files into the DB. Returns how many rows were skipped for
+    being on the never-collect-again list — this replay is exactly how a hand-deleted
+    competitor would otherwise come back. Deleting the lead does not edit the collector's
+    source files, so the check has to happen on every import."""
+    from app import blocklist
+    blocked = blocklist.blocked_domains(conn)
     placeholders = ",".join("?" * len(_LEAD_COLS))
     cols = ",".join(_LEAD_COLS)
+    skipped: set[int] = set()
     for lead in load_leads(leads_dir):
+        if blocklist.match(blocked, lead.get("website"), lead.get("email")):
+            skipped.add(lead.get("no"))
+            continue
         conn.execute(
             f"INSERT OR REPLACE INTO leads({cols}, updated_at) VALUES ({placeholders}, datetime('now'))",
             _lead_values(lead),
         )
     for r in load_pipeline_rows(leads_dir):
+        if r["lead_no"] in skipped:  # its lead was never inserted; this row would orphan
+            continue
         conn.execute(
             "INSERT OR REPLACE INTO outreach"
             "(lead_no, channel, status, touch_count, message_sent_date, reply_received, exclude_reason)"
@@ -80,6 +92,7 @@ def run_migration(conn: sqlite3.Connection, leads_dir: str = DEFAULT_LEADS_DIR) 
              r["message_sent_date"], r["reply_received"], r["exclude_reason"]],
         )
     conn.commit()
+    return len(skipped)
 
 
 if __name__ == "__main__":
@@ -88,7 +101,8 @@ if __name__ == "__main__":
     db_path = sys.argv[2] if len(sys.argv) > 2 else "outreach.db"
     c = connect(db_path)
     init_schema(c)
-    run_migration(c, leads_dir)
+    blocked = run_migration(c, leads_dir)
     n = c.execute("SELECT COUNT(*) c FROM leads").fetchone()["c"]
     o = c.execute("SELECT COUNT(*) c FROM outreach").fetchone()["c"]
-    print(f"Migrated {n} leads, {o} outreach rows into {db_path}")
+    print(f"Migrated {n} leads, {o} outreach rows into {db_path}"
+          + (f" ({blocked} skipped: 永不再收录)" if blocked else ""))

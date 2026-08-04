@@ -116,6 +116,12 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS lead_blocklist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    domain TEXT NOT NULL UNIQUE,
+    reason TEXT,
+    created_at TEXT
+);
 CREATE TABLE IF NOT EXISTS inbox_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     lead_no INTEGER NOT NULL,

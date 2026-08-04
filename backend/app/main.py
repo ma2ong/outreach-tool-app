@@ -27,6 +27,7 @@ from app.api import mailboxes as mailboxes_api
 from app.api import classify as classify_api
 from app.api import products as products_api
 from app.api import inbox as inbox_api
+from app.api import blocklist as blocklist_api
 from app.api import opportunities as opportunities_api
 from app.api import autosend as autosend_api
 from app.api import readiness as readiness_api
@@ -157,6 +158,7 @@ app.include_router(mailboxes_api.router)
 app.include_router(classify_api.router)
 app.include_router(products_api.router)
 app.include_router(inbox_api.router)
+app.include_router(blocklist_api.router)
 app.include_router(opportunities_api.router)
 app.include_router(autosend_api.router)
 app.include_router(readiness_api.router)

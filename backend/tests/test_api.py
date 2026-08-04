@@ -118,6 +118,17 @@ def test_patch_lead_404(tmp_path):
     assert _client(tmp_path).patch("/api/leads/999", json={"stage": "won"}).status_code == 404
 
 
+def test_delete_lead(tmp_path):
+    client = _client(tmp_path)
+    assert client.delete("/api/leads/1").status_code == 200
+    assert client.get("/api/leads/1").status_code == 404
+    assert [l["no"] for l in client.get("/api/leads").json()] == [2]
+
+
+def test_delete_lead_404(tmp_path):
+    assert _client(tmp_path).delete("/api/leads/999").status_code == 404
+
+
 def test_notes_add_and_list(tmp_path):
     client = _client(tmp_path)
     r = client.post("/api/leads/1/notes", json={"text": "打了电话"})
@@ -135,3 +146,18 @@ def test_mark_replied_bad(tmp_path):
     client = _client(tmp_path)
     assert client.post("/api/leads/999/reply", json={"channel": "email"}).status_code == 404
     assert client.post("/api/leads/1/reply", json={"channel": "telegram"}).status_code == 400
+
+
+def test_bulk_delete(tmp_path):
+    client = _client(tmp_path)
+    r = client.post("/api/leads/bulk_delete", json={"nos": [1, 999]})
+    # a stale id in the batch is skipped, not an error
+    assert r.json() == {"deleted": 1, "blocked_domains": []}
+    assert [l["no"] for l in client.get("/api/leads").json()] == [2]
+
+
+def test_bulk_delete_can_block_the_domains(tmp_path):
+    client = _client(tmp_path)
+    r = client.post("/api/leads/bulk_delete", json={"nos": [1], "block": True})
+    assert r.json()["blocked_domains"] == ["a.com"]
+    assert [b["domain"] for b in client.get("/api/blocklist").json()] == ["a.com"]

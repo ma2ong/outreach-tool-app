@@ -68,3 +68,25 @@ def test_scan_is_idempotent_after_fix(conn):
     r = health.scan(conn)
     assert "peer" not in r and "directory" not in r and "stale_stage" not in r
     assert "no_contact" in r  # reported only, not auto-fixed
+
+
+def test_cleanable_is_only_dead_weight(conn):
+    """#4 has no contact and no history — safe. #3 (Alibaba) also has no contact, and is
+    equally safe by this rule; #5 and #6 have contacts or history and must never be in
+    the automatic set."""
+    nos = [l["no"] for l in health.cleanable(conn)]
+    assert 4 in nos
+    assert 5 not in nos and 6 not in nos and 1 not in nos
+
+
+def test_cleanable_spares_anything_with_history(conn):
+    from app import repository
+    # strip #4's contacts stay empty but give it a note: someone has looked at it
+    repository.add_note(conn, 4, "老板说这家要留着")
+    assert 4 not in [l["no"] for l in health.cleanable(conn)]
+
+
+def test_cleanable_spares_a_lead_already_messaged(conn):
+    conn.execute("UPDATE leads SET email=NULL WHERE no=6")
+    conn.commit()
+    assert 6 not in [l["no"] for l in health.cleanable(conn)]

@@ -22,6 +22,13 @@ def fix(req: FixRequest, conn=Depends(get_conn)):
     return health.fix(conn, req.issues)
 
 
+@router.get("/health/cleanable")
+def cleanable(conn=Depends(get_conn)):
+    """Preview for 一键智能清理: what a smart clean would delete, before it deletes it."""
+    leads = health.cleanable(conn)
+    return {"leads": leads, "count": len(leads)}
+
+
 @router.post("/seeds/load")
 def load_seeds(conn=Depends(get_conn)):
     templates = seeds.seed_templates(conn)

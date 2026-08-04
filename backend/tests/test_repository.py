@@ -145,6 +145,23 @@ def test_update_lead_missing_returns_false(conn):
     assert repo.update_lead(conn, 1, {"stage": "won"}) is True
 
 
+def test_delete_lead_takes_its_history_with_it(conn):
+    """An orphaned outreach/inbox row would keep a deleted company in the funnel counts
+    and in the inbox, which is the whole reason the row was deleted."""
+    repo.add_note(conn, 1, "同行，不是客户")
+    conn.execute("INSERT INTO inbox_messages(lead_no, channel, kind, body) VALUES (1,'email','reply','hi')")
+    conn.commit()
+    assert repo.delete_lead(conn, 1) is True
+    assert repo.get_lead(conn, 1) is None
+    for table in ("outreach", "notes", "inbox_messages"):
+        assert conn.execute(f"SELECT COUNT(*) FROM {table} WHERE lead_no=1").fetchone()[0] == 0
+    assert {l.no for l in repo.list_leads(conn)} == {2, 3}
+
+
+def test_delete_lead_missing_returns_false(conn):
+    assert repo.delete_lead(conn, 999) is False
+
+
 def test_notes_add_and_list(conn):
     repo.add_note(conn, 1, "打了电话，要 P2.5 报价")
     repo.add_note(conn, 1, "已发报价单")

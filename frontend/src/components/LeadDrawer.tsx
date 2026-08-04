@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { updateLead, addNote, createOpportunity, fetchOpportunities } from "../api";
+import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead } from "../api";
 import type { Lead, Opportunity } from "../types";
 import { STAGES, STAGE_LABEL, OPPORTUNITY_STAGE_LABEL } from "../types";
 
@@ -12,8 +12,8 @@ function fmtTs(iso: string | null): string {
   return isNaN(+d) ? iso : d.toLocaleString();
 }
 
-export function LeadDrawer({ lead, onClose, onChange }: {
-  lead: Lead; onClose: () => void; onChange: (l: Lead) => void;
+export function LeadDrawer({ lead, onClose, onChange, onDeleted }: {
+  lead: Lead; onClose: () => void; onChange: (l: Lead) => void; onDeleted: (no: number) => void;
 }) {
   const [draft, setDraft] = useState<Lead>(lead);
   const [note, setNote] = useState("");
@@ -26,9 +26,12 @@ export function LeadDrawer({ lead, onClose, onChange }: {
   const [projectAmount, setProjectAmount] = useState("");
   const [projectClose, setProjectClose] = useState("");
   const [projectBusy, setProjectBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [blockToo, setBlockToo] = useState(true);
 
   useEffect(() => {
-    setDraft(lead); setDirty(false);
+    setDraft(lead); setDirty(false); setConfirmDelete(false);
     setProjectTitle(`${lead.company_en} LED 项目`);
     fetchOpportunities({ lead_no: lead.no }).then(setOpportunities).catch(() => {});
   }, [lead.no]);
@@ -78,6 +81,14 @@ export function LeadDrawer({ lead, onClose, onChange }: {
       setProjectTitle(`${lead.company_en} LED 项目`);
     } catch (e) { setErr(String(e)); }
     finally { setProjectBusy(false); }
+  }
+
+  const blockDomain = (draft.website || draft.email || "").replace(/^https?:\/\/(www\.)?/, "").split("/")[0].split("@").pop() || "";
+
+  async function removeLead() {
+    setDeleting(true); setErr("");
+    try { await deleteLead(lead.no, blockToo && !!blockDomain); onDeleted(lead.no); }
+    catch (e) { setErr(String(e)); setDeleting(false); setConfirmDelete(false); }
   }
 
   const field = (k: keyof Lead, label: string, type = "text") => (
@@ -216,6 +227,39 @@ export function LeadDrawer({ lead, onClose, onChange }: {
               <div>{n.text}</div>
             </div>
           ))}
+
+        {/* 删除放最底部：不是客户（同行、中国厂的海外分公司）才用它。
+            只是暂时不想联系，用上面的「不再联系」——那个可以撤销，这个不能。 */}
+        <div className="section-title">删除客户</div>
+        {confirmDelete ? (
+          <div>
+            <div style={{ marginBottom: 6 }}>
+              确定删除 <b>{draft.company_en}</b>？触达记录、跟进记录、商机会一起消失，<b>不可恢复</b>。
+            </div>
+            {blockDomain && (
+              <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, cursor: "pointer" }}
+                title="不加的话，下次跑采集导入时这家还会被重新收进来——采集文件里仍有它">
+                <input type="checkbox" checked={blockToo} onChange={(e) => setBlockToo(e.target.checked)} />
+                同时把 <b>{blockDomain}</b> 加入「永不再收录」（否则下次采集会再收进来）
+              </label>
+            )}
+            <button className="btn btn-sm" style={{ background: "#c0392b", color: "#fff", borderColor: "#c0392b", marginRight: 8 }}
+              onClick={removeLead} disabled={deleting}>
+              {deleting ? "删除中…" : "确认删除"}
+            </button>
+            <button className="btn btn-sm" onClick={() => setConfirmDelete(false)} disabled={deleting}>取消</button>
+          </div>
+        ) : (
+          <div>
+            <button className="btn btn-sm" onClick={() => setConfirmDelete(true)}
+              title="彻底删除这家公司及其全部记录。只是不想再联系的话，用上面的「不再联系」">
+              🗑 从客户库删除
+            </button>
+            <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>
+              用于同行、中国厂的海外分公司这类根本不是客户的记录。只是不想再联系，请用上面的「不再联系」。
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

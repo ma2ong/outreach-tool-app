@@ -180,6 +180,27 @@ def update_lead(conn, no: int, fields: dict) -> bool:
     return cur.rowcount > 0
 
 
+# Everything that hangs off a lead. SQLite has no cascade here, and an orphan row would
+# keep a deleted company alive in the inbox, the send log and the pipeline counts.
+_LEAD_CHILDREN = ("outreach", "notes", "sequence_enrollments", "send_log",
+                  "inbox_messages", "opportunities")
+
+
+def delete_lead(conn, no: int) -> bool:
+    """Erase a lead entirely. For rows that turn out not to be customers at all — a
+    competitor, or a Chinese factory's overseas branch. 'Do not contact' is the wrong
+    tool for those: it stops the sending but still counts them in the funnel."""
+    from app.opportunities import ensure_schema
+    ensure_schema(conn)
+    if conn.execute("SELECT 1 FROM leads WHERE no = ?", (no,)).fetchone() is None:
+        return False
+    for table in _LEAD_CHILDREN:
+        conn.execute(f"DELETE FROM {table} WHERE lead_no = ?", (no,))
+    conn.execute("DELETE FROM leads WHERE no = ?", (no,))
+    conn.commit()
+    return True
+
+
 def add_note(conn, no: int, text: str) -> int:
     now = _dt.datetime.now(_dt.UTC).isoformat()
     cur = conn.execute("INSERT INTO notes(lead_no, created_at, text) VALUES (?, ?, ?)",
@@ -292,7 +313,13 @@ def next_no(conn) -> int:
 
 
 def insert_lead(conn, data: dict) -> int:
+    """Raises blocklist.BlockedLead when the domain is on the never-collect-again list —
+    checked here rather than at each caller so a new import path cannot forget it."""
+    from app import blocklist
     from app.dedupe import normalize_website
+    hit = blocklist.is_blocked(conn, data.get("website"), data.get("email"))
+    if hit:
+        raise blocklist.BlockedLead(hit)
     no = next_no(conn)
     cols = ["no"] + _INSERT_COLS + ["created_at", "updated_at"]
     now = _dt.datetime.now(_dt.UTC).isoformat()
