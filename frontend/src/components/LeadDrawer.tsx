@@ -33,7 +33,8 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted }: {
   useEffect(() => {
     setDraft(lead); setDirty(false); setConfirmDelete(false);
     setProjectTitle(`${lead.company_en} LED 项目`);
-    fetchOpportunities({ lead_no: lead.no }).then(setOpportunities).catch(() => {});
+    fetchOpportunities({ lead_no: lead.no }).then(setOpportunities)
+      .catch((e) => setErr(`商机加载失败：${String(e)}`));
   }, [lead.no]);
 
   const set = (k: keyof Lead, v: string) => { setDraft((d) => ({ ...d, [k]: v })); setDirty(true); };

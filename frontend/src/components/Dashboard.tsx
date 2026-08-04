@@ -23,10 +23,10 @@ function ReachRow({ channel, r }: { channel: string; r: ChannelReach }) {
   );
 }
 
-export function Dashboard({ stats, unread, onGotoFollowUp, onGoto }: {
-  stats: Stats; unread: number; onGotoFollowUp: () => void; onGoto: (page: string) => void;
+export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
+  stats: Stats; pendingReplies: number; onGotoFollowUp: () => void; onGoto: (page: string) => void;
 }) {
-  const [quota, setQuota] = useState<Record<string, { sent_today: number; cap: number }>>({});
+  const [quota, setQuota] = useState<Record<string, { sent_today: number; cap: number; batch?: number }>>({});
   const [camps, setCamps] = useState<CampaignStat[]>([]);
   const [countryStats, setCountryStats] = useState<CountryStat[]>([]);
   const [dueSeq, setDueSeq] = useState<DueItem[]>([]);
@@ -57,7 +57,9 @@ export function Dashboard({ stats, unread, onGotoFollowUp, onGoto }: {
   // 今日能发出去的跟进（各渠道剩余额度封顶），既给"待发"数字也给一键发送用的 enrollment_id
   const todayPicks = (() => {
     const left: Record<string, number> = {};
-    for (const [ch, q] of Object.entries(quota)) left[ch] = Math.max(0, q.cap - q.sent_today);
+    for (const [ch, q] of Object.entries(quota)) {
+      left[ch] = Math.min(Math.max(0, q.cap - q.sent_today), q.batch ?? Number.MAX_SAFE_INTEGER);
+    }
     const ids: number[] = [];
     for (const d of dueSeq) { if ((left[d.channel] ?? 0) > 0) { left[d.channel]--; ids.push(d.enrollment_id); } }
     return ids;
@@ -105,7 +107,7 @@ export function Dashboard({ stats, unread, onGotoFollowUp, onGoto }: {
           </div>
         </div>
       )}
-      {(dueSeq.length > 0 || unread > 0) && (
+      {(dueSeq.length > 0 || pendingReplies > 0) && (
         <div className="card" style={{ marginBottom: 16 }}>
           <h3 style={{ marginTop: 0 }}>☀️ 今日工作台</h3>
           <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "center" }}>
@@ -132,12 +134,12 @@ export function Dashboard({ stats, unread, onGotoFollowUp, onGoto }: {
                 </div>
               </div>
             )}
-            {unread > 0 && (
+            {pendingReplies > 0 && (
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <div>
-                  <div className="stat-label">未读回复</div>
-                  <div className="stat-value" style={{ color: "var(--green)" }}>{unread} 封</div>
-                  <div className="muted" style={{ fontSize: 12 }}>客户回的话在等你看 —— 回复越快成单率越高</div>
+                  <div className="stat-label">待处理回复</div>
+                  <div className="stat-value" style={{ color: "var(--green)" }}>{pendingReplies} 封</div>
+                  <div className="muted" style={{ fontSize: 12 }}>读过也不会消失；回复客户或安排下一步后再标记完成</div>
                 </div>
                 <button className="btn btn-green btn-sm" onClick={() => onGoto("inbox")}>去查看 →</button>
               </div>

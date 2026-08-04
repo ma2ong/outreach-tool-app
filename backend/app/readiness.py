@@ -34,6 +34,10 @@ def build(conn) -> dict:
     email_checked = conn.execute(
         "SELECT COUNT(*) AS c FROM leads WHERE email_status IN ('valid', 'role', 'invalid')"
     ).fetchone()["c"]
+    pending_replies = conn.execute(
+        "SELECT COUNT(*) AS c FROM inbox_messages"
+        " WHERE kind='reply' AND handled_at IS NULL"
+    ).fetchone()["c"]
     auto = autosend.status(conn)
     reply_status = settings.get(conn, "reply_sync_last_status")
     reply_at = settings.get(conn, "reply_sync_last_at") or None
@@ -70,6 +74,13 @@ def build(conn) -> dict:
         reply_level = "attention"
     checks.append(_check("reply_sync", "回复同步", reply_level, reply_detail, "inbox"))
 
+    checks.append(_check(
+        "pending_replies", "客户回复处理",
+        "attention" if pending_replies else "ok",
+        f"{pending_replies} 条真人回复仍需回复或安排下一步" if pending_replies else "没有遗漏的真人回复",
+        "inbox",
+    ))
+
     p = auto["preview"]
     if p["due"] == 0:
         checks.append(_check("sequences", "邮件跟进", "ok", "当前没有到期邮件", "sequences"))
@@ -103,6 +114,7 @@ def build(conn) -> dict:
             "reply_sync_last_success_at": reply_success_at,
             "reply_sync_last_status": reply_status or None,
             "reply_sync_last_result": reply_result,
+            "pending_replies": pending_replies,
             "autosend": auto,
         },
     }

@@ -59,8 +59,8 @@ export function OutreachPanel({ selected, countries = [], firstCompany = "", onD
   const isEmail = channel === "email";
   const pollRef = useRef<number | null>(null);
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
-  useEffect(() => { fetchQuota().then(setQuota).catch(() => {}); }, [channel, sending]);
-  useEffect(() => { fetchTemplates(channel).then(setTemplates).catch(() => {}); }, [channel]);
+  useEffect(() => { fetchQuota().then(setQuota).catch((e) => setMsg(`额度加载失败：${String(e)}`)); }, [channel, sending]);
+  useEffect(() => { fetchTemplates(channel).then(setTemplates).catch((e) => setMsg(`模板加载失败：${String(e)}`)); }, [channel]);
 
   function applyTemplate(id: string) {
     const t = templates.find((x) => String(x.id) === id);
@@ -75,7 +75,7 @@ export function OutreachPanel({ selected, countries = [], firstCompany = "", onD
     try {
       await createTemplate({ name, channel, subject: isEmail ? subject : null, body: isEmail ? body : dm, lang: tplLang || null });
       setTplName(""); setMsg(`已保存模板「${name}」`);
-      fetchTemplates(channel).then(setTemplates).catch(() => {});
+      fetchTemplates(channel).then(setTemplates).catch((e) => setMsg(`模板刷新失败：${String(e)}`));
     } catch (e) { setMsg("保存模板失败：" + String(e)); }
   }
 
@@ -107,41 +107,6 @@ export function OutreachPanel({ selected, countries = [], firstCompany = "", onD
   }
 
   const CH_NAME: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook" };
-  const [allJobs, setAllJobs] = useState<{ ch: string; job: SendJob | null; note: string }[]>([]);
-
-  async function sendAll() {
-    if (selected.length === 0) { setMsg("请先勾选客户"); return; }
-    setSending(true); setMsg(""); setJob(null); setAllJobs([]);
-    const att = attachment.trim() || undefined;
-    const camp = campaign.trim() || undefined;
-    const started: { ch: string; job_id: string; note: string }[] = [];
-    // Email 用当前邮件话术，WA/IG 用当前 DM 话术；各渠道自己按"有联系方式且未发过+日限"过滤
-    try {
-      const e = await startEmailSend({ lead_nos: selected, subject, body,
-        ...(att ? { attachment: att } : {}), ...(camp ? { campaign: camp } : {}) });
-      started.push({ ch: "email", job_id: e.job_id, note: `符合 ${e.eligible} 家` });
-    } catch (e) { started.push({ ch: "email", job_id: "", note: "启动失败：" + String(e) }); }
-    for (const ch of ["whatsapp", "instagram", "facebook"]) {
-      try {
-        const s = await startChannelSend(ch, selected, dm, att, camp);
-        started.push({ ch, job_id: s.job_id, note: `符合 ${s.eligible} 家，本批发 ${s.will_send} 家` });
-      } catch (e) { started.push({ ch, job_id: "", note: "启动失败：" + String(e) }); }
-    }
-    setAllJobs(started.map((s) => ({ ch: s.ch, job: null, note: s.note })));
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = window.setInterval(async () => {
-      const rows = await Promise.all(started.map(async (s) => {
-        if (!s.job_id) return { ch: s.ch, job: null, note: s.note };
-        try { return { ch: s.ch, job: await fetchJob(s.job_id), note: s.note }; }
-        catch { return { ch: s.ch, job: null, note: s.note }; }
-      }));
-      setAllJobs(rows);
-      if (rows.every((r) => !r.job || r.job.status !== "running")) {
-        if (pollRef.current) clearInterval(pollRef.current);
-        pollRef.current = null; setSending(false); onDone();
-      }
-    }, 2000);
-  }
 
   return (
     <div>
@@ -175,7 +140,7 @@ export function OutreachPanel({ selected, countries = [], firstCompany = "", onD
               try {
                 const r = await loadSeeds();
                 setMsg(`已载入 ${r.templates} 条现成话术，在左边下拉里选`);
-                fetchTemplates(channel).then(setTemplates).catch(() => {});
+                fetchTemplates(channel).then(setTemplates).catch((e) => setMsg(`模板刷新失败：${String(e)}`));
               } catch (e) { setMsg("载入失败：" + String(e)); }
             }}>✨ 载入现成话术</button>
         )}
@@ -226,29 +191,15 @@ export function OutreachPanel({ selected, countries = [], firstCompany = "", onD
         <button className="btn btn-green" onClick={send} disabled={sending}>
           {sending ? "发送中…" : isEmail ? "发送邮件" : `发送 ${channel === "whatsapp" ? "WhatsApp" : "Instagram"} 私信`}
         </button>
-        <button className="btn" onClick={sendAll} disabled={sending}
-          title="用当前话术同时发起四路发送：邮件用上面的邮件话术，WA/IG/FB 用 DM 话术并自动带案例图。各渠道分别按「有该渠道联系方式且未发过」过滤，各守自己的单批 20 条和日上限（WA/IG 40、FB 20）。">
-          🚀 一键全渠道（Email+WA+IG+FB）
-        </button>
+        <span className="muted" style={{ fontSize: 12 }}>
+          为避免骚扰，同一客户每天最多一次批量触达；需要多渠道跟进时请错开日期。
+        </span>
         {job && <span className="muted">进度 {job.done}/{job.total}
           {job.status === "done" && job.result && "sent" in job.result &&
             ` — 成功 ${job.result.sent}，失败 ${job.result.failed}，跳过 ${job.result.skipped}${job.result.deferred ? `，延后 ${job.result.deferred}` : ""}`}
           {job.status === "error" && job.result && "error" in job.result && ` — 错误：${job.result.error}`}
         </span>}
       </div>
-      {allJobs.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          {allJobs.map((r) => (
-            <div key={r.ch} className="muted" style={{ fontSize: 13 }}>
-              {CH_NAME[r.ch]}：{r.note}
-              {r.job && ` · 进度 ${r.job.done}/${r.job.total}`}
-              {r.job?.status === "done" && r.job.result && "sent" in r.job.result &&
-                ` — 成功 ${r.job.result.sent}，失败 ${r.job.result.failed}${r.job.result.deferred ? `，延后 ${r.job.result.deferred}` : ""}`}
-              {r.job?.status === "error" && r.job.result && "error" in r.job.result && ` — 错误：${r.job.result.error}`}
-            </div>
-          ))}
-        </div>
-      )}
       {msg && <div className="muted" style={{ marginTop: 8 }}>{msg}</div>}
     </div>
   );

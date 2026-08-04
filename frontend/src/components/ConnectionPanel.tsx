@@ -9,7 +9,9 @@ export function ConnectionPanel() {
   const [qrTick, setQrTick] = useState(0);
   const [err, setErr] = useState("");
 
-  useEffect(() => { fetchChannels().then(setStatus).catch(() => {}); }, []);
+  useEffect(() => {
+    fetchChannels().then(setStatus).catch((e) => setErr(`渠道状态加载失败：${String(e)}`));
+  }, []);
 
   useEffect(() => {
     if (!active) return;
@@ -19,7 +21,9 @@ export function ConnectionPanel() {
         setStatus((s) => ({ ...s, [active]: st }));
         setQrTick((n) => n + 1);
         if (st === "connected") { clearInterval(t); setActive(null); }
-      } catch { /* ignore */ }
+      } catch (e) {
+        setErr(`无法检查 ${LABELS[active]} 状态：${String(e)}`);
+      }
     }, 3000);
     return () => clearInterval(t);
   }, [active]);

@@ -59,6 +59,9 @@ def test_second_step_reaches_already_messaged_lead(conn):
     sequence_send.send_due(conn, [eid], sender=lambda *a: None, email_delay=(0, 0))
     # force step 1 due now
     conn.execute("UPDATE sequence_enrollments SET next_due_date=date('now') WHERE id=?", (eid,))
+    # Simulate the next eligible day; the global cadence guard intentionally prevents
+    # two bulk touches to the same lead on one local day.
+    conn.execute("UPDATE send_log SET sent_at=datetime('now', '-1 day') WHERE lead_no=1")
     conn.commit()
     log = []
     sequence_send.send_due(conn, [eid], sender=lambda to, s, b, i: log.append(b), email_delay=(0, 0))

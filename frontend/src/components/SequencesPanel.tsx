@@ -47,7 +47,7 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
     fetchSequences().then(setSeqs).catch((e) => setMsg(String(e)));
     Promise.all([fetchDue(), fetchQuota()])
       .then(([d, q]) => { setDue(d); setQuota(q); setPicked(pickWithinQuota(d, q)); })
-      .catch(() => {});
+      .catch((e) => setMsg(`跟进队列或额度加载失败：${String(e)}`));
   }
   useEffect(reload, []);
 

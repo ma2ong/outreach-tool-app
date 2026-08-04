@@ -1,7 +1,7 @@
 import datetime
 import glob
 import os
-import shutil
+import sqlite3
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -45,7 +45,20 @@ def backup_db(db_path: str = DB_PATH) -> str | None:
     os.makedirs(bdir, exist_ok=True)
     dest = os.path.join(bdir, f"outreach-{datetime.date.today().isoformat()}.db")
     if not os.path.exists(dest):
-        shutil.copy2(db_path, dest)
+        # A file copy can omit committed rows that still live in SQLite's WAL file.
+        # The backup API takes a transactionally consistent snapshot while the live
+        # app keeps serving reads/writes.
+        tmp = dest + ".tmp"
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        source = sqlite3.connect(db_path, timeout=30)
+        target = sqlite3.connect(tmp)
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+            source.close()
+        os.replace(tmp, dest)
     for old in sorted(glob.glob(os.path.join(bdir, "outreach-*.db")))[:-BACKUP_KEEP]:
         os.remove(old)
     return dest

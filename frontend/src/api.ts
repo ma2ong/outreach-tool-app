@@ -356,14 +356,14 @@ export async function scanSocial(): Promise<SocialScanResult> {
   return r.json();
 }
 
-export async function fetchInbox(unreadOnly = false): Promise<import("./types").InboxMessage[]> {
-  const r = await fetch(`/api/inbox${unreadOnly ? "?unread_only=1" : ""}`);
+export async function fetchInbox(pendingOnly = false): Promise<import("./types").InboxMessage[]> {
+  const r = await fetch(`/api/inbox${pendingOnly ? "?pending_only=1" : ""}`);
   if (!r.ok) throw new Error(`inbox ${r.status}`);
   return r.json();
 }
 
-export async function fetchInboxUnread(): Promise<number> {
-  const r = await fetch("/api/inbox/unread_count");
+export async function fetchInboxPending(): Promise<number> {
+  const r = await fetch("/api/inbox/pending_count");
   if (!r.ok) throw new Error(`inbox ${r.status}`);
   return (await r.json()).count;
 }
@@ -371,6 +371,11 @@ export async function fetchInboxUnread(): Promise<number> {
 export async function markInboxRead(id: number): Promise<void> {
   const r = await fetch(`/api/inbox/${id}/read`, { method: "POST" });
   if (!r.ok) throw new Error(`inbox ${r.status}`);
+}
+
+export async function markInboxHandled(id: number): Promise<void> {
+  const r = await fetch(`/api/inbox/${id}/handled`, { method: "POST" });
+  if (!r.ok) throw new Error(`inbox handled ${r.status}`);
 }
 
 export async function fetchLead(no: number): Promise<Lead> {

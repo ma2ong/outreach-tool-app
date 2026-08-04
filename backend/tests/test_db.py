@@ -8,6 +8,8 @@ def test_init_schema_creates_tables(tmp_path):
         "SELECT name FROM sqlite_master WHERE type='table'"
     )}
     assert {"leads", "outreach"} <= names
+    assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 30000
 
 
 def test_outreach_unique_lead_channel(tmp_path):

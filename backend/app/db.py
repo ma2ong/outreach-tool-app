@@ -131,7 +131,8 @@ CREATE TABLE IF NOT EXISTS inbox_messages (
     subject TEXT,
     body TEXT,
     received_at TEXT,
-    is_read INTEGER DEFAULT 0
+    is_read INTEGER DEFAULT 0,
+    handled_at TEXT
 );
 """
 
@@ -167,16 +168,20 @@ _TABLE_COLUMNS = {
         "imap_host": "TEXT",
         "imap_port": "INTEGER NOT NULL DEFAULT 993",
     },
+    "inbox_messages": {
+        "handled_at": "TEXT",
+    },
 }
 
 
 def connect(path: str) -> sqlite3.Connection:
-    # check_same_thread=False: FastAPI runs a request's dependency and endpoint in
-    # different threadpool threads; each request opens/closes its own connection and
-    # they never run concurrently, so disabling the per-thread check is safe here.
-    conn = sqlite3.connect(path, check_same_thread=False)
+    # Reply polling, automatic follow-ups and API requests can write concurrently.
+    # Waiting is safer than immediately failing a real sales action with
+    # "database is locked" while a background task holds the short write lock.
+    conn = sqlite3.connect(path, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 30000")
     return conn
 
 
@@ -189,6 +194,11 @@ def _migrate_columns(conn: sqlite3.Connection) -> None:
 
 
 def init_schema(conn: sqlite3.Connection) -> None:
+    # WAL lets readers continue while a background sender/sync commits. The mode is
+    # persistent for the DB file; NORMAL keeps the local single-user durability/speed
+    # trade-off sensible and daily backups remain the recovery boundary.
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
     conn.executescript(SCHEMA)
     _migrate_columns(conn)
     conn.executescript(INDEXES)

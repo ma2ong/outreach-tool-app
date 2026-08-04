@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchInbox, markInboxRead, pollReplies, scanSocial } from "../api";
+import { fetchInbox, markInboxHandled, markInboxRead, pollReplies, scanSocial } from "../api";
 import type { InboxMessage } from "../types";
 
 const CH_NAME: Record<string, string> = { whatsapp: "WhatsApp", instagram: "Instagram", email: "邮件" };
@@ -12,12 +12,12 @@ function fmtTs(iso: string | null): string {
   return isNaN(+d) ? iso : d.toLocaleString();
 }
 
-export function InboxPanel({ onOpenLead, onUnreadChange }: {
+export function InboxPanel({ onOpenLead, onPendingChange }: {
   onOpenLead: (leadNo: number) => void;
-  onUnreadChange?: () => void;
+  onPendingChange?: () => void;
 }) {
   const [messages, setMessages] = useState<InboxMessage[]>([]);
-  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [pendingOnly, setPendingOnly] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
   const [polling, setPolling] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -25,9 +25,9 @@ export function InboxPanel({ onOpenLead, onUnreadChange }: {
   const [err, setErr] = useState("");
 
   function reload() {
-    fetchInbox(unreadOnly).then(setMessages).catch((e) => setErr(String(e)));
+    fetchInbox(pendingOnly).then(setMessages).catch((e) => setErr(String(e)));
   }
-  useEffect(reload, [unreadOnly]);
+  useEffect(reload, [pendingOnly]);
 
   async function poll() {
     setPolling(true); setMsg("正在拉取邮件…");
@@ -35,7 +35,7 @@ export function InboxPanel({ onOpenLead, onUnreadChange }: {
       const r = await pollReplies();
       setMsg(`拉取完成（回看 ${r.since_days} 天）：回复 ${r.replies} 封、退订 ${r.unsubscribes} 家（已停止一切触达）。`
         + `另有退信 ${r.bounces} 封（邮箱已自动标无效，不再发送）、投递延迟 ${r.delayed ?? 0} 封（地址仍有效），都不进收件箱`);
-      reload(); onUnreadChange?.();
+      reload(); onPendingChange?.();
     } catch (e) { setMsg("拉取失败（需配置 Gmail 授权码）：" + String(e)); }
     finally { setPolling(false); }
   }
@@ -52,7 +52,7 @@ export function InboxPanel({ onOpenLead, onUnreadChange }: {
         ? `；另有 ${r.unmatched.length} 条对方来信没能对上客户（${r.unmatched.slice(0, 5).join("、")}），请到 App 里自行查看`
         : "";
       setMsg(`扫描完成：共 ${r.threads} 个会话，识别到真人回复 ${r.replies} 条、自动回复 ${r.auto ?? 0} 条（自动回复不算已回复，跟进继续）（新入库 ${r.stored} 条）${per ? "——" + per : ""}${un}${off}${bad}`);
-      reload(); onUnreadChange?.();
+      reload(); onPendingChange?.();
     } catch (e) { setMsg("扫描失败：" + String(e)); }
     finally { setScanning(false); }
   }
@@ -63,9 +63,20 @@ export function InboxPanel({ onOpenLead, onUnreadChange }: {
       try {
         await markInboxRead(m.id);
         setMessages((ms) => ms.map((x) => (x.id === m.id ? { ...x, is_read: 1 } : x)));
-        onUnreadChange?.();
+        onPendingChange?.();
       } catch { /* 已读标记失败不打断阅读 */ }
     }
+  }
+
+  async function handle(m: InboxMessage) {
+    try {
+      await markInboxHandled(m.id);
+      setMessages((ms) => pendingOnly
+        ? ms.filter((x) => x.id !== m.id)
+        : ms.map((x) => (x.id === m.id ? { ...x, is_read: 1, handled_at: new Date().toISOString() } : x)));
+      onPendingChange?.();
+      setMsg(`${m.company_en} 的回复已标记处理完成`);
+    } catch (e) { setErr(`更新处理状态失败：${String(e)}`); }
   }
 
   return (
@@ -74,7 +85,7 @@ export function InboxPanel({ onOpenLead, onUnreadChange }: {
         <h3 style={{ margin: 0 }}>收件箱（{messages.length}）</h3>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <label className="muted" style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 4 }}>
-            <input type="checkbox" checked={unreadOnly} onChange={(e) => setUnreadOnly(e.target.checked)} />只看未读
+            <input type="checkbox" checked={pendingOnly} onChange={(e) => setPendingOnly(e.target.checked)} />只看待处理
           </label>
           <button className="btn btn-sm" onClick={poll} disabled={polling}
             title="拉取邮件：客户回复入库、退信自动标无效邮箱、退订自动停发。回看天数按上次成功同步的间隔自动决定">
@@ -87,7 +98,7 @@ export function InboxPanel({ onOpenLead, onUnreadChange }: {
         </div>
       </div>
       <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-        客户回了什么直接在这里看，不用去翻 Gmail 和手机。邮件每 15 分钟自动同步、
+        客户回了什么直接在这里看，不用去翻 Gmail 和手机。打开消息只代表已读；回复客户、建商机或安排下一步后，点「完成处理」才会从首页待办消失。邮件每 15 分钟自动同步、
         WhatsApp / Instagram 每天自动扫一次（仅在已连接时）。退信和投递延迟不进这里：退信自动把邮箱标为无效，退订自动停止一切触达。
         <br />Instagram 的来信多数落在 App 的「一般」和「消息请求」标签里，主收件箱看不到 —— 在这里看到 Instagram 消息却在手机上找不到，去那两个标签翻。
       </div>
@@ -103,6 +114,8 @@ export function InboxPanel({ onOpenLead, onUnreadChange }: {
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <span className={`badge ${KIND_COLOR[m.kind] ?? ""}`}><i />{KIND_LABEL[m.kind] ?? m.kind}</span>
                 <strong style={{ fontWeight: m.is_read ? 500 : 700 }}>{m.company_en}</strong>
+                {m.kind === "reply" && !m.handled_at && <span className="warn-text" style={{ fontSize: 12 }}>待处理</span>}
+                {m.kind === "reply" && m.handled_at && <span className="muted" style={{ fontSize: 12 }}>已处理</span>}
                 {m.country && <span className="muted">{m.country}</span>}
                 {m.channel !== "email" && <span className="muted" style={{ fontSize: 12 }}>{CH_NAME[m.channel] ?? m.channel}</span>}
                 <span className="muted" style={{ fontSize: 12 }}>{m.subject || "(无主题)"}</span>
@@ -115,6 +128,13 @@ export function InboxPanel({ onOpenLead, onUnreadChange }: {
                   <button className="btn btn-sm" style={{ marginRight: 8 }} onClick={(e) => { e.stopPropagation(); onOpenLead(m.lead_no); }}>
                     打开客户详情 →
                   </button>
+                  {m.kind === "reply" && !m.handled_at && (
+                    <button className="btn btn-green btn-sm" style={{ marginRight: 8 }}
+                      onClick={(e) => { e.stopPropagation(); handle(m); }}
+                      title="确认你已经回复客户、建了商机或安排了明确下一步">
+                      ✓ 已回复客户 / 已安排下一步
+                    </button>
+                  )}
                   {m.channel === "email" && m.kind === "reply" && m.from_addr && (
                     <a className="btn btn-sm" target="_blank" rel="noreferrer"
                       onClick={(e) => e.stopPropagation()}

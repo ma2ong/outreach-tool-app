@@ -100,11 +100,12 @@ test("leads page has quick-add panel", async ({ page }) => {
 });
 
 // SAFETY: only reveals the action bar and reads the button — never clicks it.
-test("action bar has one-click all-channel send button", async ({ page }) => {
+test("action bar prevents same-day all-channel blasting", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /客户库/ }).click();
   await page.locator("table tbody tr").first().locator("input[type=checkbox]").check();
-  await expect(page.getByRole("button", { name: /一键全渠道/ })).toBeVisible();
+  await expect(page.getByText(/同一客户每天最多一次批量触达/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /一键全渠道/ })).toHaveCount(0);
 });
 
 // SAFETY: only checks the channels page renders — never clicks 连接 (would launch a real browser).
@@ -128,20 +129,18 @@ test("lead drawer shows do-not-contact toggle", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /客户库/ }).click();
   await page.locator("table tbody tr").first().locator("td").nth(2).click();
-  await expect(page.getByText(/不再联系/)).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: /不再联系/ })).toBeVisible();
   await page.locator(".drawer-close").click();
 });
 
-// SAFETY: reads pipeline totals and opens the editor, but never saves changes.
-test("opportunity pipeline shows forecast and project context", async ({ page }) => {
+// SAFETY: validates the pipeline shell without assuming the live DB already has a deal.
+test("opportunity pipeline shows forecast and LED project context", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /商机管道/ }).click();
   await expect(page.getByText("加权预测", { exact: true })).toBeVisible();
-  await expect(page.getByText("Church P2.5 LED wall")).toBeVisible();
-  await expect(page.getByText("逾期", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "编辑" }).first().click();
-  await expect(page.getByText(/编辑商机/)).toBeVisible();
-  await expect(page.locator('input[value="P2.5"]')).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "下一步" })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "LED 规格" })).toBeVisible();
+  await expect(page.getByText(/共 \d+ 个项目/)).toBeVisible();
 });
 
 test("theme toggle switches to light and persists attribute", async ({ page }) => {

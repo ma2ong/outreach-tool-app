@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchLead, fetchLeads, fetchLeadsPage, fetchStats, markReplied, fetchSequences, enrollLeads, startVerify, fetchVerifyJob, startClassify, fetchClassifyJob, fetchDuplicates, mergeDuplicates, fetchInboxUnread, quickAddLead, fetchAuthStatus, login } from "./api";
+import { fetchLead, fetchLeads, fetchLeadsPage, fetchStats, markReplied, fetchSequences, enrollLeads, startVerify, fetchVerifyJob, startClassify, fetchClassifyJob, fetchDuplicates, mergeDuplicates, fetchInboxPending, quickAddLead, fetchAuthStatus, login } from "./api";
 import type { Lead, Stats, Sequence } from "./types";
 import { Dashboard } from "./components/Dashboard";
 import { LeadsTable } from "./components/LeadsTable";
@@ -96,14 +96,16 @@ export function App() {
   const [sequences, setSequences] = useState<Sequence[]>([]);
   const [enrollMsg, setEnrollMsg] = useState("");
   const [err, setErr] = useState("");
-  const [unread, setUnread] = useState(0);
+  const [pendingReplies, setPendingReplies] = useState(0);
   const [authed, setAuthed] = useState<boolean | null>(null);
   useEffect(() => {
-    fetchAuthStatus().then((s) => setAuthed(!s.enabled || s.authed)).catch(() => setAuthed(true));
+    fetchAuthStatus().then((s) => setAuthed(!s.enabled || s.authed)).catch((e) => {
+      setErr(`无法读取登录状态：${String(e)}`); setAuthed(true);
+    });
   }, []);
 
-  const refreshUnread = () => fetchInboxUnread().then(setUnread).catch((e) => setErr(String(e)));
-  useEffect(() => { refreshUnread(); }, []);
+  const refreshPending = () => fetchInboxPending().then(setPendingReplies).catch((e) => setErr(String(e)));
+  useEffect(() => { refreshPending(); }, []);
 
   // 追踪所有轮询定时器，组件卸载时统一清掉（防泄漏 + 对已卸载组件 setState）
   const timers = useRef<Set<number>>(new Set());
@@ -264,7 +266,7 @@ export function App() {
         {PAGES.map((p) => (
           <button key={p.id} className={`nav-item${page === p.id ? " active" : ""}`} onClick={() => setPage(p.id)}>
             <span className="ico">{p.ico}</span><span className="nav-label">{p.label}</span>
-            {p.id === "inbox" && unread > 0 && <span className="unread-dot">{unread}</span>}
+            {p.id === "inbox" && pendingReplies > 0 && <span className="unread-dot">{pendingReplies}</span>}
           </button>
         ))}
       </aside>
@@ -278,7 +280,7 @@ export function App() {
         <div className="content">
           {err && <div className="error-text" style={{ marginBottom: 12 }}>加载失败：{err}</div>}
           {page === "dashboard" && stats && (
-            <Dashboard stats={stats} unread={unread} onGoto={(p) => setPage(p as Page)} onGotoFollowUp={() => {
+            <Dashboard stats={stats} pendingReplies={pendingReplies} onGoto={(p) => setPage(p as Page)} onGotoFollowUp={() => {
               setCountry(""); setChannel(""); setStatus(""); setHas(""); setSearch("");
               setFollowUp("due"); setLeadPage(0); setPage("leads");
             }} />
@@ -393,8 +395,8 @@ export function App() {
             </>
           )}
           {page === "opportunities" && <OpportunityPipeline onOpenLead={openLead} />}
-          {page === "inbox" && <InboxPanel onOpenLead={openLead} onUnreadChange={() => { refreshUnread(); reload(); }} />}
-          {page === "sequences" && <SequencesPanel onChanged={() => { reload(); refreshUnread(); }} />}
+          {page === "inbox" && <InboxPanel onOpenLead={openLead} onPendingChange={() => { refreshPending(); reload(); }} />}
+          {page === "sequences" && <SequencesPanel onChanged={() => { reload(); refreshPending(); }} />}
           {page === "discovery" && <><DiscoveryPanel onImported={reload} /><BlocklistPanel /></>}
           {page === "products" && <ProductsPanel />}
           {page === "channels" && <><ConnectionPanel /><MailboxPanel /></>}

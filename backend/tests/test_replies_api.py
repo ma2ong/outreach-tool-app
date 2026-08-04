@@ -71,6 +71,40 @@ def test_inbox_unread_only_filter(tmp_path):
         replies_api.FETCHER = replies_api.replies.fetch_mailbox_messages
 
 
+def test_read_reply_stays_pending_until_salesperson_finishes_it(tmp_path):
+    client = _client(tmp_path)
+    replies_api.FETCHER = _fake_fetcher
+    try:
+        client.post("/api/replies/poll")
+        message = client.get("/api/inbox").json()[0]
+        assert client.get("/api/inbox/pending_count").json()["count"] == 1
+
+        # Reading is not the same as replying or arranging the next action.
+        client.post(f"/api/inbox/{message['id']}/read")
+        assert client.get("/api/inbox/unread_count").json()["count"] == 0
+        assert client.get("/api/inbox/pending_count").json()["count"] == 1
+        assert len(client.get("/api/inbox?pending_only=1").json()) == 1
+
+        assert client.post(f"/api/inbox/{message['id']}/handled").status_code == 200
+        assert client.get("/api/inbox/pending_count").json()["count"] == 0
+        assert client.get("/api/inbox?pending_only=1").json() == []
+    finally:
+        replies_api.FETCHER = replies_api.replies.fetch_mailbox_messages
+
+
+def test_legacy_bounces_are_not_sales_inbox_items(tmp_path):
+    client = _client(tmp_path)
+    override = main.app.dependency_overrides[main.get_conn]
+    conn = override()
+    conn.execute(
+        "INSERT INTO inbox_messages(lead_no, channel, kind, subject, is_read)"
+        " VALUES (1, 'email', 'bounce', 'old failure notice', 0)"
+    )
+    conn.commit(); conn.close()
+    assert client.get("/api/inbox").json() == []
+    assert client.get("/api/inbox/unread_count").json()["count"] == 0
+
+
 def test_poll_continues_when_one_mailbox_fails(tmp_path):
     client = _client(tmp_path)
     client.post("/api/mailboxes", json={

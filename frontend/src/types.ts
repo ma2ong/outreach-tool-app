@@ -148,6 +148,7 @@ export interface InboxMessage {
   body: string | null;
   received_at: string | null;
   is_read: number;
+  handled_at: string | null;
   company_en: string;
   country: string | null;
 }
@@ -222,6 +223,7 @@ export interface Readiness {
     reply_sync_last_at: string | null;
     reply_sync_last_success_at: string | null;
     reply_sync_last_status: string | null;
+    pending_replies: number;
     autosend: AutoSendStatus;
   };
 }

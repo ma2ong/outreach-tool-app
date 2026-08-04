@@ -31,6 +31,7 @@ def test_readiness_reports_blocker_without_exposing_secrets(tmp_path, monkeypatc
     assert body["metrics"]["email_verified_coverage"] == 50
     assert body["metrics"]["autosend"]["enabled"] is False
     assert body["metrics"]["autosend"]["preview"]["due"] == 1
+    assert body["metrics"]["pending_replies"] == 0
     assert "password" not in str(body).lower()
 
 

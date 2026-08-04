@@ -46,6 +46,9 @@ def eligible(conn, lead_nos: list[int], channel: str) -> list[dict]:
               AND l.{col} IS NOT NULL AND l.{col} != ''
               AND COALESCE(l.do_not_contact, 0) = 0
               AND l.no NOT IN (
+                  SELECT lead_no FROM send_log
+                  WHERE date(sent_at, 'localtime')=date('now', 'localtime'))
+              AND l.no NOT IN (
                   SELECT lead_no FROM outreach WHERE channel=? AND status IN ('messaged','replied'))
             ORDER BY l.no""",
         [*lead_nos, channel],

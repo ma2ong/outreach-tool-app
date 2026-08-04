@@ -19,6 +19,20 @@ def default_label(channel: str) -> str:
     return f"{channel} {_dt.date.today().isoformat()}"
 
 
+def contacted_today(conn, lead_no: int) -> bool:
+    """Global cadence guard: one bulk/automated touch per lead per local day.
+
+    Per-channel caps protect accounts; this protects the customer experience. A lead
+    emailed this morning must not receive the same cold pitch on three social channels
+    later that day.
+    """
+    return conn.execute(
+        "SELECT 1 FROM send_log WHERE lead_no=?"
+        " AND date(sent_at, 'localtime')=date('now', 'localtime') LIMIT 1",
+        (lead_no,),
+    ).fetchone() is not None
+
+
 def campaign_stats(conn) -> list[dict]:
     rows = conn.execute(
         """SELECT s.campaign, s.channel,
