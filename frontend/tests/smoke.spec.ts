@@ -49,6 +49,8 @@ test("clicking a lead row opens detail drawer with stage and notes", async ({ pa
   await expect(page.getByText("销售阶段")).toBeVisible();
   await expect(page.getByText("下一步行动", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "安排任务" })).toBeVisible();
+  await expect(page.getByText(/联系人（\d+）/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "＋ 新建联系人" })).toBeVisible();
   await expect(page.getByText("LED 项目 / 商机")).toBeVisible();
   await expect(page.getByText("跟进记录", { exact: true })).toBeVisible();
   await page.locator(".drawer-close").click();

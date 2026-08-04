@@ -170,6 +170,7 @@ _TABLE_COLUMNS = {
     },
     "inbox_messages": {
         "handled_at": "TEXT",
+        "contact_id": "INTEGER",
     },
 }
 

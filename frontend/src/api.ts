@@ -384,6 +384,51 @@ export async function fetchLead(no: number): Promise<Lead> {
   return r.json();
 }
 
+export async function fetchContacts(leadNo: number): Promise<import("./types").Contact[]> {
+  const r = await fetch(`/api/contacts?lead_no=${leadNo}`);
+  if (!r.ok) throw new Error(`contacts ${r.status}`);
+  return r.json();
+}
+
+export async function createContact(data: {
+  lead_no: number; name?: string | null; title?: string | null; email?: string | null;
+  phone?: string | null; linkedin?: string | null; role?: string; note?: string | null;
+  is_primary?: boolean;
+}): Promise<import("./types").Contact> {
+  const r = await fetch("/api/contacts", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+  });
+  if (!r.ok) {
+    const detail = (await r.json().catch(() => null))?.detail;
+    throw new Error(detail || `contact ${r.status}`);
+  }
+  return r.json();
+}
+
+export async function updateContact(
+  id: number, data: Partial<import("./types").Contact>,
+): Promise<import("./types").Contact> {
+  const r = await fetch(`/api/contacts/${id}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+  });
+  if (!r.ok) {
+    const detail = (await r.json().catch(() => null))?.detail;
+    throw new Error(detail || `contact ${r.status}`);
+  }
+  return r.json();
+}
+
+export async function setPrimaryContact(id: number): Promise<import("./types").Contact> {
+  const r = await fetch(`/api/contacts/${id}/primary`, { method: "POST" });
+  if (!r.ok) throw new Error(`contact ${r.status}`);
+  return r.json();
+}
+
+export async function deleteContact(id: number): Promise<void> {
+  const r = await fetch(`/api/contacts/${id}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(`contact ${r.status}`);
+}
+
 export async function fetchOpportunities(params: {
   stage?: string; lead_no?: number; attention?: boolean;
 } = {}): Promise<import("./types").Opportunity[]> {

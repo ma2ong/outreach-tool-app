@@ -16,7 +16,7 @@ import datetime as _dt
 import json
 import re
 
-from app import repository, settings
+from app import contacts, repository, settings
 
 CHANNELS = ("whatsapp", "instagram")
 
@@ -39,12 +39,7 @@ def normalize_handle(raw: str) -> str:
 
 
 def _lead_phones(conn) -> dict[str, int]:
-    out: dict[str, int] = {}
-    for r in conn.execute("SELECT no, phone FROM leads WHERE phone IS NOT NULL AND phone != ''"):
-        digits = normalize_phone(r["phone"])
-        if len(digits) >= _MIN_PHONE_DIGITS:
-            out[digits] = r["no"]
-    return out
+    return contacts.phone_leads(conn, _MIN_PHONE_DIGITS)
 
 
 def _lead_handles(conn) -> dict[str, int]:
@@ -240,10 +235,11 @@ def process_threads(conn, channel: str, threads: list[dict]) -> dict:
             replies += 1
             lead_nos.append(no)
         if not _already_recorded(conn, no, channel, body):
+            contact = contacts.find_phone(conn, sender, no) if channel == "whatsapp" else None
             cur = conn.execute(
-                "INSERT INTO inbox_messages(lead_no, channel, kind, from_addr, subject, body, received_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (no, channel, kind, sender,
+                "INSERT INTO inbox_messages(lead_no, contact_id, channel, kind, from_addr, subject, body, received_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (no, contact["id"] if contact else None, channel, kind, sender,
                  (t.get("name") or sender)[:120], body, now))
             stored += 1
             if kind == "reply":

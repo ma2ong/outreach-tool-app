@@ -64,6 +64,8 @@ def classify_email(addr: str, resolve_domain=default_resolver) -> tuple[str, str
 
 
 def verify_leads(conn, lead_nos: list[int] | None = None, resolve_domain=default_resolver) -> dict:
+    from app import contacts
+    contacts.ensure_schema(conn)
     if lead_nos:
         ph = ",".join("?" * len(lead_nos))
         rows = conn.execute(
@@ -83,6 +85,11 @@ def verify_leads(conn, lead_nos: list[int] | None = None, resolve_domain=default
     for r in rows:
         status, _ = classify_email(r["email"], _resolve)
         conn.execute("UPDATE leads SET email_status=? WHERE no=?", (status, r["no"]))
+        conn.execute(
+            "UPDATE contacts SET email_status=?, updated_at=datetime('now')"
+            " WHERE lead_no=? AND is_primary=1",
+            (status, r["no"]),
+        )
         counts[status] = counts.get(status, 0) + 1
     conn.commit()
     return {"checked": len(rows), **counts}

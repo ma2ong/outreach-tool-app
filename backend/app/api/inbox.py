@@ -11,10 +11,14 @@ _VISIBLE_SQL = ",".join("?" for _ in VISIBLE_KINDS)
 @router.get("")
 def list_inbox(unread_only: int = 0, pending_only: int = 0,
                limit: int = 200, conn=Depends(get_conn)):
+    from app import contacts
+    contacts.ensure_schema(conn)
     sql = (
-        "SELECT m.id, m.lead_no, m.channel, m.kind, m.from_addr, m.subject, m.body,"
-        "       m.received_at, m.is_read, m.handled_at, l.company_en, l.country"
+        "SELECT m.id, m.lead_no, m.contact_id, m.channel, m.kind, m.from_addr, m.subject, m.body,"
+        "       m.received_at, m.is_read, m.handled_at, l.company_en, l.country,"
+        "       c.name AS contact_name"
         " FROM inbox_messages m JOIN leads l ON l.no = m.lead_no"
+        " LEFT JOIN contacts c ON c.id=m.contact_id"
         f" WHERE m.kind IN ({_VISIBLE_SQL})")
     params: list = [*VISIBLE_KINDS]
     if unread_only:

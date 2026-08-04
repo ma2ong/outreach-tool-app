@@ -61,8 +61,11 @@ def _lead_filters(country, channel, status, search, has, follow_up, follow_up_da
         where.append("l.country = ?")
         params.append(country)
     if search:
-        where.append("(l.company_en LIKE ? OR l.website LIKE ? OR l.city LIKE ?)")
-        params += [f"%{search}%"] * 3
+        where.append(
+            "(l.company_en LIKE ? OR l.website LIKE ? OR l.city LIKE ?"
+            " OR EXISTS (SELECT 1 FROM contacts c WHERE c.lead_no=l.no"
+            "   AND (c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR c.title LIKE ?)))")
+        params += [f"%{search}%"] * 7
     if follow_up == "due":
         clause, cp = _due_clause(follow_up_days)
         where.append(clause)
@@ -70,7 +73,13 @@ def _lead_filters(country, channel, status, search, has, follow_up, follow_up_da
     if has:
         col = _HAS_COLS.get(has)
         if col:
-            where.append(f"l.{col} IS NOT NULL AND l.{col} != ''")
+            if has in ("email", "phone"):
+                where.append(
+                    f"((l.{col} IS NOT NULL AND l.{col} != '') OR EXISTS"
+                    f" (SELECT 1 FROM contacts c WHERE c.lead_no=l.no"
+                    f" AND c.{col} IS NOT NULL AND c.{col} != ''))")
+            else:
+                where.append(f"l.{col} IS NOT NULL AND l.{col} != ''")
     if status == "untouched":
         if channel:
             where.append("l.no NOT IN (SELECT lead_no FROM outreach"
@@ -94,6 +103,8 @@ def _lead_filters(country, channel, status, search, has, follow_up, follow_up_da
 
 def count_leads(conn, country=None, channel=None, status=None, search=None, has=None,
                 follow_up=None, follow_up_days=7) -> int:
+    from app.contacts import ensure_schema
+    ensure_schema(conn)
     where, params = _lead_filters(country, channel, status, search, has, follow_up, follow_up_days)
     sql = "SELECT COUNT(*) c FROM leads l"
     if where:
@@ -104,6 +115,8 @@ def count_leads(conn, country=None, channel=None, status=None, search=None, has=
 def list_leads(conn, country=None, channel=None, status=None, search=None, has=None,
                follow_up=None, follow_up_days=7,
                sort=None, order="asc", limit=None, offset=0) -> list[Lead]:
+    from app.contacts import ensure_schema
+    ensure_schema(conn)
     where, params = _lead_filters(country, channel, status, search, has, follow_up, follow_up_days)
     sql = "SELECT l.* FROM leads l"
     if where:
@@ -180,13 +193,16 @@ def update_lead(conn, no: int, fields: dict) -> bool:
     if {"follow_up_date", "next_action"} & cols.keys() and cur.rowcount > 0:
         from app import activities
         activities.upsert_legacy_for_lead(conn, no)
+    if {"contact_name", "title", "email", "phone", "linkedin", "email_status"} & cols.keys() and cur.rowcount > 0:
+        from app import contacts
+        contacts.upsert_primary_from_lead(conn, no)
     return cur.rowcount > 0
 
 
 # Everything that hangs off a lead. SQLite has no cascade here, and an orphan row would
 # keep a deleted company alive in the inbox, the send log and the pipeline counts.
 _LEAD_CHILDREN = ("outreach", "notes", "sequence_enrollments", "send_log",
-                  "inbox_messages", "activities", "opportunities")
+                  "inbox_messages", "activities", "opportunities", "contacts")
 
 
 def delete_lead(conn, no: int) -> bool:
@@ -195,8 +211,10 @@ def delete_lead(conn, no: int) -> bool:
     tool for those: it stops the sending but still counts them in the funnel."""
     from app.opportunities import ensure_schema as ensure_opportunity_schema
     from app.activities import ensure_schema as ensure_activity_schema
+    from app.contacts import ensure_schema as ensure_contact_schema
     ensure_opportunity_schema(conn)
     ensure_activity_schema(conn)
+    ensure_contact_schema(conn)
     if conn.execute("SELECT 1 FROM leads WHERE no = ?", (no,)).fetchone() is None:
         return False
     for table in _LEAD_CHILDREN:
@@ -333,4 +351,6 @@ def insert_lead(conn, data: dict) -> int:
     placeholders = ",".join("?" * len(cols))
     conn.execute(f"INSERT INTO leads({','.join(cols)}) VALUES ({placeholders})", vals)
     conn.commit()
+    from app import contacts
+    contacts.migrate_lead(conn, no)
     return no

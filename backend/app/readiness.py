@@ -1,6 +1,6 @@
 import json
 
-from app import activities, autosend, mailboxes, settings
+from app import activities, autosend, contacts, mailboxes, settings
 from app.channels.email_adapter import get_password
 
 
@@ -39,6 +39,7 @@ def build(conn) -> dict:
         " WHERE kind='reply' AND handled_at IS NULL"
     ).fetchone()["c"]
     activity_stats = activities.stats(conn)
+    contact_stats = contacts.stats(conn)
     auto = autosend.status(conn)
     reply_status = settings.get(conn, "reply_sync_last_status")
     reply_at = settings.get(conn, "reply_sync_last_at") or None
@@ -91,6 +92,15 @@ def build(conn) -> dict:
         "activities",
     ))
 
+    checks.append(_check(
+        "contact_quality", "采购联系人",
+        "ok" if contact_stats["decision_makers"] else "attention",
+        (f"已标记 {contact_stats['decision_makers']} 位决策人，共 {contact_stats['named_contacts']} 位实名联系人"
+         if contact_stats["decision_makers"] else
+         f"已有 {contact_stats['named_contacts']} 位实名联系人，但尚未标记决策人/采购角色"),
+        "leads",
+    ))
+
     p = auto["preview"]
     if p["due"] == 0:
         checks.append(_check("sequences", "邮件跟进", "ok", "当前没有到期邮件", "sequences"))
@@ -126,6 +136,7 @@ def build(conn) -> dict:
             "reply_sync_last_result": reply_result,
             "pending_replies": pending_replies,
             "activities": activity_stats,
+            "contacts": contact_stats,
             "autosend": auto,
         },
     }

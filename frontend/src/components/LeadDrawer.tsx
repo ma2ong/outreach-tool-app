@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
-import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead, fetchActivities, createActivity, completeActivity, fetchLead } from "../api";
-import type { Activity, Lead, Opportunity } from "../types";
+import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead, fetchActivities, createActivity, completeActivity, fetchLead, fetchContacts, createContact, updateContact, setPrimaryContact, deleteContact } from "../api";
+import type { Activity, Contact, Lead, Opportunity } from "../types";
 import { STAGES, STAGE_LABEL, OPPORTUNITY_STAGE_LABEL } from "../types";
 
 const CH_LABEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", instagram: "Instagram" };
 const STATE_TEXT: Record<string, string> = { replied: "已回复", messaged: "已触达" };
+const ROLE_LABEL: Record<string, string> = {
+  decision_maker: "决策人 / 采购", influencer: "影响人", technical: "技术",
+  finance: "财务", other: "其他 / 未确认",
+};
 
 function fmtTs(iso: string | null): string {
   if (!iso) return "";
@@ -16,6 +20,72 @@ function localToday(): string {
   const d = new Date();
   const pad = (v: number) => String(v).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function ContactCard({ contact, onRefresh, onError }: {
+  contact: Contact; onRefresh: () => Promise<void>; onError: (message: string) => void;
+}) {
+  const [draft, setDraft] = useState(contact);
+  const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  useEffect(() => setDraft(contact), [contact]);
+  const set = (key: keyof Contact, value: string | null) =>
+    setDraft((old) => ({ ...old, [key]: value }));
+  async function save() {
+    setBusy(true); onError("");
+    try {
+      await updateContact(contact.id, {
+        name: draft.name, title: draft.title, email: draft.email, phone: draft.phone,
+        linkedin: draft.linkedin, role: draft.role, note: draft.note,
+      });
+      await onRefresh();
+    } catch (e) { onError(`保存联系人失败：${String(e)}`); }
+    finally { setBusy(false); }
+  }
+  async function makePrimary() {
+    setBusy(true); onError("");
+    try { await setPrimaryContact(contact.id); await onRefresh(); }
+    catch (e) { onError(`设置主要联系人失败：${String(e)}`); }
+    finally { setBusy(false); }
+  }
+  async function remove() {
+    setBusy(true); onError("");
+    try { await deleteContact(contact.id); await onRefresh(); }
+    catch (e) { onError(`删除联系人失败：${String(e)}`); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="note-item" style={{ marginBottom: 9 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", marginBottom: 7 }}>
+        <div>
+          <b>{draft.name || draft.email || draft.phone || "未命名联系人"}</b>
+          {contact.is_primary && <span className="badge badge-replied" style={{ marginLeft: 7 }}><i />主要联系人</span>}
+          <span className="muted" style={{ marginLeft: 7, fontSize: 12 }}>{ROLE_LABEL[draft.role]}</span>
+        </div>
+        {!contact.is_primary && <button className="btn btn-sm" onClick={makePrimary} disabled={busy}>设为主要</button>}
+      </div>
+      <div className="field-grid">
+        <div className="field"><label>姓名</label><input className="input" value={draft.name ?? ""} onChange={(e) => set("name", e.target.value || null)} /></div>
+        <div className="field"><label>职位</label><input className="input" value={draft.title ?? ""} onChange={(e) => set("title", e.target.value || null)} /></div>
+        <div className="field"><label>邮箱</label><input className="input" value={draft.email ?? ""} onChange={(e) => set("email", e.target.value || null)} /></div>
+        <div className="field"><label>电话 / WhatsApp</label><input className="input" value={draft.phone ?? ""} onChange={(e) => set("phone", e.target.value || null)} /></div>
+        <div className="field"><label>LinkedIn</label><input className="input" value={draft.linkedin ?? ""} onChange={(e) => set("linkedin", e.target.value || null)} /></div>
+        <div className="field"><label>采购角色</label>
+          <select className="input" value={draft.role} onChange={(e) => set("role", e.target.value)}>
+            {Object.entries(ROLE_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="field"><label>联系人备注</label>
+        <input className="input" value={draft.note ?? ""} onChange={(e) => set("note", e.target.value || null)} placeholder="例如：负责技术确认，偏好 WhatsApp" />
+      </div>
+      <button className="btn btn-primary btn-sm" onClick={save} disabled={busy}>保存联系人</button>
+      {confirmDelete ? <>
+        <button className="btn btn-sm" style={{ marginLeft: 7, color: "var(--danger)" }} onClick={remove} disabled={busy}>确认删除</button>
+        <button className="btn btn-sm" style={{ marginLeft: 5 }} onClick={() => setConfirmDelete(false)}>取消</button>
+      </> : <button className="btn btn-sm" style={{ marginLeft: 7 }} onClick={() => setConfirmDelete(true)}>删除</button>}
+    </div>
+  );
 }
 
 export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }: {
@@ -42,6 +112,14 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
   const [taskDue, setTaskDue] = useState(localToday());
   const [taskType, setTaskType] = useState("task");
   const [taskBusy, setTaskBusy] = useState(false);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [showNewContact, setShowNewContact] = useState(false);
+  const [contactName, setContactName] = useState("");
+  const [contactTitle, setContactTitle] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [contactRole, setContactRole] = useState("other");
+  const [contactBusy, setContactBusy] = useState(false);
 
   async function loadTasks(leadNo: number) {
     const [open, done] = await Promise.all([
@@ -51,12 +129,19 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
     setOpenTasks(open); setDoneTasks(done.slice(0, 3));
   }
 
+  async function refreshContacts() {
+    const [rows, updated] = await Promise.all([fetchContacts(lead.no), fetchLead(lead.no)]);
+    setContacts(rows); setDraft(updated); onChange(updated);
+  }
+
   useEffect(() => {
     setDraft(lead); setDirty(false); setConfirmDelete(false);
     setProjectTitle(`${lead.company_en} LED 项目`);
     fetchOpportunities({ lead_no: lead.no }).then(setOpportunities)
       .catch((e) => setErr(`商机加载失败：${String(e)}`));
     loadTasks(lead.no).catch((e) => setErr(`任务加载失败：${String(e)}`));
+    fetchContacts(lead.no).then(setContacts)
+      .catch((e) => setErr(`联系人加载失败：${String(e)}`));
   }, [lead.no]);
 
   const set = (k: keyof Lead, v: string) => { setDraft((d) => ({ ...d, [k]: v })); setDirty(true); };
@@ -66,10 +151,8 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
     try {
       const updated = await updateLead(lead.no, {
         company_en: draft.company_en, country: draft.country, city: draft.city,
-        contact_name: draft.contact_name, title: draft.title,
-        email: draft.email, phone: draft.phone,
         website: draft.website, instagram: draft.instagram, facebook: draft.facebook,
-        linkedin: draft.linkedin, business: draft.business, stage: draft.stage,
+        business: draft.business, stage: draft.stage,
         tags: draft.tags,
       });
       setDraft(updated); setDirty(false); onChange(updated);
@@ -131,6 +214,22 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
       await loadTasks(lead.no); onTasksChange();
     } catch (e) { setErr(`完成任务失败：${String(e)}`); }
     finally { setTaskBusy(false); }
+  }
+
+  async function addContact() {
+    if (![contactName, contactEmail, contactPhone].some((value) => value.trim())) {
+      setErr("联系人至少填写姓名、邮箱或电话"); return;
+    }
+    setContactBusy(true); setErr("");
+    try {
+      await createContact({
+        lead_no: lead.no, name: contactName || null, title: contactTitle || null,
+        email: contactEmail || null, phone: contactPhone || null, role: contactRole,
+      });
+      setContactName(""); setContactTitle(""); setContactEmail(""); setContactPhone("");
+      setContactRole("other"); setShowNewContact(false); await refreshContacts();
+    } catch (e) { setErr(`新建联系人失败：${String(e)}`); }
+    finally { setContactBusy(false); }
   }
 
   const blockDomain = (draft.website || draft.email || "").replace(/^https?:\/\/(www\.)?/, "").split("/")[0].split("@").pop() || "";
@@ -223,16 +322,38 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
           {tags.length > 0 && <div style={{ marginTop: 5 }}>{tags.map((t) => <span key={t} className="tag-chip">{t}</span>)}</div>}
         </div>
 
-        <div className="section-title">联系方式</div>
+        <div className="section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>联系人（{contacts.length}）</span>
+          <button className="btn btn-sm" onClick={() => setShowNewContact(!showNewContact)}>＋ 新建联系人</button>
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+          主要联系人是邮件、WhatsApp 和话术个性化的默认对象；次要联系人不会被自动群发。
+        </div>
+        {showNewContact && (
+          <div className="card" style={{ padding: 10, marginBottom: 10 }}>
+            <div className="field-grid">
+              <div className="field"><label>姓名</label><input className="input" value={contactName} onChange={(e) => setContactName(e.target.value)} /></div>
+              <div className="field"><label>职位</label><input className="input" value={contactTitle} onChange={(e) => setContactTitle(e.target.value)} /></div>
+              <div className="field"><label>邮箱</label><input className="input" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} /></div>
+              <div className="field"><label>电话 / WhatsApp</label><input className="input" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} /></div>
+              <div className="field"><label>采购角色</label>
+                <select className="input" value={contactRole} onChange={(e) => setContactRole(e.target.value)}>
+                  {Object.entries(ROLE_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </div>
+            </div>
+            <button className="btn btn-primary btn-sm" onClick={addContact} disabled={contactBusy}>添加联系人</button>
+          </div>
+        )}
+        {contacts.length === 0 ? <div className="muted">还没有联系人；添加采购、技术或财务联系人后再安排触达。</div> :
+          contacts.map((contact) => <ContactCard key={contact.id} contact={contact}
+            onRefresh={refreshContacts} onError={setErr} />)}
+
+        <div className="section-title">公司渠道与资料</div>
         <div className="field-grid">
-          {field("email", "邮箱")}
-          {field("phone", "电话 / WhatsApp")}
           {field("website", "官网")}
-          {field("contact_name", "联系人")}
-          {field("title", "职位")}
           {field("instagram", "Instagram")}
           {field("facebook", "Facebook")}
-          {field("linkedin", "LinkedIn")}
         </div>
         <div className="field-grid">
           {field("company_en", "公司名")}

@@ -141,6 +141,7 @@ export interface Candidate {
 export interface InboxMessage {
   id: number;
   lead_no: number;
+  contact_id: number | null;
   channel: string;
   kind: string;
   from_addr: string | null;
@@ -149,6 +150,25 @@ export interface InboxMessage {
   received_at: string | null;
   is_read: number;
   handled_at: string | null;
+  company_en: string;
+  contact_name: string | null;
+  country: string | null;
+}
+export interface Contact {
+  id: number;
+  lead_no: number;
+  name: string | null;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  linkedin: string | null;
+  role: "decision_maker" | "influencer" | "technical" | "finance" | "other";
+  is_primary: boolean;
+  email_status: string | null;
+  source: string;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
   company_en: string;
   country: string | null;
 }
@@ -251,6 +271,13 @@ export interface Readiness {
     reply_sync_last_status: string | null;
     pending_replies: number;
     activities: ActivityStats;
+    contacts: {
+      total_contacts: number;
+      companies_with_contacts: number;
+      companies_without_contacts: number;
+      named_contacts: number;
+      decision_makers: number;
+    };
     autosend: AutoSendStatus;
   };
 }

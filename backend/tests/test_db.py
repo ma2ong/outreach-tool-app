@@ -8,6 +8,8 @@ def test_init_schema_creates_tables(tmp_path):
         "SELECT name FROM sqlite_master WHERE type='table'"
     )}
     assert {"leads", "outreach"} <= names
+    inbox_cols = {row[1] for row in conn.execute("PRAGMA table_info(inbox_messages)")}
+    assert {"handled_at", "contact_id"} <= inbox_cols
     assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 30000
 

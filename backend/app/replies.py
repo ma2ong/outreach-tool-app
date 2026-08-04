@@ -26,7 +26,7 @@ import json
 from email.header import decode_header, make_header
 from email.utils import parseaddr, parsedate_to_datetime
 
-from app import mailboxes, repository, settings
+from app import contacts, mailboxes, repository, settings
 from app.channels.email_adapter import GMAIL_USER, get_password
 
 # Allow-list what an address may contain rather than blacklisting delimiters: Gmail's
@@ -126,13 +126,14 @@ def fetch_mailbox_messages(mailbox: dict, since_days: int = 7) -> list[dict]:
             if typ != "OK" or not msg_data or not msg_data[0]:
                 continue
             msg = email.message_from_bytes(msg_data[0][1])
-            _, addr = parseaddr(msg.get("From", ""))
+            display_name, addr = parseaddr(msg.get("From", ""))
             try:
                 received = parsedate_to_datetime(msg.get("Date")).isoformat()
             except Exception:  # noqa: BLE001
                 received = ""
             messages.append({
                 "from_addr": _norm(addr),
+                "from_name": _decode(display_name),
                 "subject": _decode(msg.get("Subject", "")),
                 "body": _plain_body(msg),
                 "received_at": received,
@@ -163,11 +164,12 @@ def test_mailbox(mailbox: dict) -> None:
         im.login(mailbox.get("username") or mailbox.get("email"), mailbox.get("password"))
 
 
-def _store(conn, lead_no: int, kind: str, m: dict) -> int | None:
+def _store(conn, lead_no: int, kind: str, m: dict,
+           contact_id: int | None = None) -> int | None:
     cur = conn.execute(
-        "INSERT OR IGNORE INTO inbox_messages(lead_no, channel, kind, from_addr, subject, body, received_at)"
-        " VALUES (?, 'email', ?, ?, ?, ?, ?)",
-        (lead_no, kind, _norm(m.get("from_addr")), m.get("subject") or "",
+        "INSERT OR IGNORE INTO inbox_messages(lead_no, contact_id, channel, kind, from_addr, subject, body, received_at)"
+        " VALUES (?, ?, 'email', ?, ?, ?, ?, ?)",
+        (lead_no, contact_id, kind, _norm(m.get("from_addr")), m.get("subject") or "",
          m.get("body") or "", m.get("received_at") or ""))
     return cur.lastrowid if cur.rowcount > 0 else None
 
@@ -187,9 +189,7 @@ def _domain(addr: str) -> str:
 
 
 def _lead_emails(conn) -> dict[str, int]:
-    rows = conn.execute(
-        "SELECT no, email FROM leads WHERE email IS NOT NULL AND email != ''").fetchall()
-    return {_norm(r["email"]): r["no"] for r in rows}
+    return contacts.email_leads(conn)
 
 
 def _by_domain(by_email: dict[str, int]) -> dict[str, list[int]]:
@@ -198,7 +198,8 @@ def _by_domain(by_email: dict[str, int]) -> dict[str, list[int]]:
     for addr, no in by_email.items():
         dom = _domain(addr)
         if dom and dom not in _FREE_MAIL:
-            out.setdefault(dom, []).append(no)
+            if no not in out.setdefault(dom, []):
+                out[dom].append(no)
     return out
 
 
@@ -229,6 +230,7 @@ def process_messages(conn, messages: list[dict]) -> dict:
                 # costs a real lead, a retained dead one only costs one more send.
                 if permanent:
                     conn.execute("UPDATE leads SET email_status='invalid' WHERE no=?", (no,))
+                    contacts.sync_primary_email_status(conn, no, "invalid")
                     bounces += 1
                 else:
                     delayed += 1
@@ -240,7 +242,24 @@ def process_messages(conn, messages: list[dict]) -> dict:
         kind = "unsubscribe" if _UNSUB_RE.search(subject) or _UNSUB_RE.search(body) else "reply"
         # A reply/unsub from someone at the company applies to every lead we hold there:
         # store the message once (on the first), stop chasing all of them.
-        inbox_id = _store(conn, matched[0], kind, m)
+        exact_contact = contacts.find_email(conn, sender, lead_no=matched[0])
+        if exact_contact is None and kind == "reply" and len(matched) == 1:
+            # A person often replies from john@company.com after outreach went to
+            # info@company.com. The unique company-domain match is strong enough to
+            # adopt that person as a secondary contact, but never make them the send
+            # target when a primary contact already exists.
+            try:
+                exact_contact = contacts.create(
+                    conn, matched[0], {
+                        "name": m.get("from_name") or None,
+                        "email": sender,
+                        "role": "other",
+                    }, source="reply")
+            except contacts.ContactValidation:
+                exact_contact = None
+        inbox_id = _store(
+            conn, matched[0], kind, m,
+            contact_id=exact_contact["id"] if exact_contact else None)
         if inbox_id:
             stored += 1
             if kind == "reply":

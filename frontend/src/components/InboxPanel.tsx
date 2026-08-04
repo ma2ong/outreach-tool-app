@@ -114,6 +114,7 @@ export function InboxPanel({ onOpenLead, onPendingChange }: {
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <span className={`badge ${KIND_COLOR[m.kind] ?? ""}`}><i />{KIND_LABEL[m.kind] ?? m.kind}</span>
                 <strong style={{ fontWeight: m.is_read ? 500 : 700 }}>{m.company_en}</strong>
+                {m.contact_name && <span className="muted">联系人：{m.contact_name}</span>}
                 {m.kind === "reply" && !m.handled_at && <span className="warn-text" style={{ fontSize: 12 }}>待处理</span>}
                 {m.kind === "reply" && m.handled_at && <span className="muted" style={{ fontSize: 12 }}>已处理</span>}
                 {m.country && <span className="muted">{m.country}</span>}
@@ -123,7 +124,9 @@ export function InboxPanel({ onOpenLead, onPendingChange }: {
               </div>
               {open === m.id && (
                 <div style={{ marginTop: 8 }}>
-                  <div className="muted" style={{ fontSize: 12 }}>发件人：{m.from_addr}</div>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    发件人：{m.from_addr}{m.contact_name ? ` · 已匹配 ${m.contact_name}` : ""}
+                  </div>
                   <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13, margin: "6px 0" }}>{m.body || "(无正文)"}</pre>
                   <button className="btn btn-sm" style={{ marginRight: 8 }} onClick={(e) => { e.stopPropagation(); onOpenLead(m.lead_no); }}>
                     打开客户详情 →
