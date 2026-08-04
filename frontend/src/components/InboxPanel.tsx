@@ -3,8 +3,8 @@ import { fetchInbox, markInboxRead, pollReplies, scanSocial } from "../api";
 import type { InboxMessage } from "../types";
 
 const CH_NAME: Record<string, string> = { whatsapp: "WhatsApp", instagram: "Instagram", email: "邮件" };
-const KIND_LABEL: Record<string, string> = { reply: "回复", auto: "自动回复", bounce: "退信", delayed: "投递延迟", unsubscribe: "退订" };
-const KIND_COLOR: Record<string, string> = { reply: "badge-replied", auto: "badge-messaged", bounce: "badge-untouched", delayed: "badge-untouched", unsubscribe: "badge-messaged" };
+const KIND_LABEL: Record<string, string> = { reply: "回复", auto: "自动回复", attachment: "只发了图", unsubscribe: "退订" };
+const KIND_COLOR: Record<string, string> = { reply: "badge-replied", auto: "badge-messaged", attachment: "badge-messaged", unsubscribe: "badge-messaged" };
 
 function fmtTs(iso: string | null): string {
   if (!iso) return "";
@@ -33,8 +33,8 @@ export function InboxPanel({ onOpenLead, onUnreadChange }: {
     setPolling(true); setMsg("正在拉取邮件…");
     try {
       const r = await pollReplies();
-      setMsg(`拉取完成（回看 ${r.since_days} 天）：回复 ${r.replies} 封、退信 ${r.bounces} 封（邮箱已标无效，不再发送）`
-        + `、投递延迟 ${r.delayed ?? 0} 封（地址仍有效，未做处理）、退订 ${r.unsubscribes} 家（已停止一切触达）`);
+      setMsg(`拉取完成（回看 ${r.since_days} 天）：回复 ${r.replies} 封、退订 ${r.unsubscribes} 家（已停止一切触达）。`
+        + `另有退信 ${r.bounces} 封（邮箱已自动标无效，不再发送）、投递延迟 ${r.delayed ?? 0} 封（地址仍有效），都不进收件箱`);
       reload(); onUnreadChange?.();
     } catch (e) { setMsg("拉取失败（需配置 Gmail 授权码）：" + String(e)); }
     finally { setPolling(false); }
@@ -88,7 +88,8 @@ export function InboxPanel({ onOpenLead, onUnreadChange }: {
       </div>
       <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
         客户回了什么直接在这里看，不用去翻 Gmail 和手机。邮件每 15 分钟自动同步、
-        WhatsApp / Instagram 每天自动扫一次（仅在已连接时）。退信自动把邮箱标为无效、退订自动停止一切触达。
+        WhatsApp / Instagram 每天自动扫一次（仅在已连接时）。退信和投递延迟不进这里：退信自动把邮箱标为无效，退订自动停止一切触达。
+        <br />Instagram 的来信多数落在 App 的「一般」和「消息请求」标签里，主收件箱看不到 —— 在这里看到 Instagram 消息却在手机上找不到，去那两个标签翻。
       </div>
       {err && <div className="error-text" style={{ marginTop: 8 }}>加载失败：{err}</div>}
       {msg && <div className="muted" style={{ marginTop: 8 }}>{msg}</div>}

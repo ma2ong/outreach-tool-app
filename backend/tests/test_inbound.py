@@ -142,8 +142,10 @@ def test_status_survives_a_corrupt_result_blob(conn):
 
 
 def _dt():
+    # inside the scan window, today — a hard-coded date made "the day is done" pass only
+    # on the day the test was written, since the scan records the real current date
     import datetime
-    return datetime.datetime(2026, 8, 3, 10, 0)
+    return datetime.datetime.combine(datetime.date.today(), datetime.time(10, 0))
 
 
 # ---- Instagram display-name matching ----
@@ -310,3 +312,20 @@ def test_a_human_reply_that_merely_says_thanks_is_not_swallowed(conn):
     res = inbound.process_threads(
         conn, "instagram", [_thread("LedWave", "Thanks! Please send the P2.5 price")])
     assert res["replies"] == 1 and res["auto"] == 0
+
+
+@pytest.mark.parametrize("preview", [
+    "LedWave 发送了附件。",
+    "LedWave sent an attachment",
+    "LedWave sent a photo",
+])
+def test_an_attachment_without_text_is_not_a_human_reply(conn, preview):
+    """Verbatim from a live scan: an image-only message is what business automation
+    sends, and its preview carries no words to judge. Filed to be looked at, but the
+    follow-up keeps running."""
+    res = inbound.process_threads(conn, "instagram", [_thread("LedWave", preview)])
+    assert res["replies"] == 0 and res["auto"] == 1
+    assert conn.execute("SELECT kind FROM inbox_messages WHERE lead_no=1").fetchone()[0] == "attachment"
+    assert conn.execute(
+        "SELECT status FROM outreach WHERE lead_no=1 AND channel='instagram'"
+    ).fetchone()[0] == "messaged"

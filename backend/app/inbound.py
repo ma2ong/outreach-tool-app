@@ -140,8 +140,21 @@ _AUTO_REPLY = re.compile(
     r"메시지가 접수되었습니다|문의해주셔서 감사합니다|감사합니다\.?$", re.I)
 
 
+# "AVL 发送了附件。" is Instagram's placeholder for a message with no text at all — an
+# image or a GIF card, which is what a business account's automation usually sends. It
+# proves something arrived, not that a human wrote it, so it is filed to be looked at
+# but never marks the lead replied: that would silently end the follow-up.
+_NO_TEXT = re.compile(
+    r"发送了附件|发送了一(张|条|个)|sent an attachment|sent (a|an) (photo|video|image|reel|post|gif|attachment)",
+    re.I)
+
+
 def is_auto_reply(text: str) -> bool:
     return bool(_AUTO_REPLY.search(text or ""))
+
+
+def is_no_text(text: str) -> bool:
+    return bool(_NO_TEXT.search(text or ""))
 
 
 def _clean(leaves) -> list[str]:
@@ -219,7 +232,8 @@ def process_threads(conn, channel: str, threads: list[dict]) -> dict:
                 unmatched.append(sender[:60])
             continue
         body = (t.get("preview") or "")[:_PREVIEW_LIMIT]
-        robot = is_auto_reply(body)
+        kind = "auto" if is_auto_reply(body) else ("attachment" if is_no_text(body) else "reply")
+        robot = kind != "reply"
         if robot:
             auto += 1
         else:
@@ -229,7 +243,7 @@ def process_threads(conn, channel: str, threads: list[dict]) -> dict:
             conn.execute(
                 "INSERT INTO inbox_messages(lead_no, channel, kind, from_addr, subject, body, received_at)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (no, channel, "auto" if robot else "reply", sender,
+                (no, channel, kind, sender,
                  (t.get("name") or sender)[:120], body, now))
             stored += 1
         if not robot:

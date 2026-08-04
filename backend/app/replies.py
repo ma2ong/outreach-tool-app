@@ -2,9 +2,11 @@
 
 Each fetched message is classified:
 - bounce   (mailer-daemon / delivery-failure with a permanent reason): extract the failed
-  recipient, mark that lead's email_status='invalid' so every send path skips it.
-- delayed  (same sender, temporary reason): shown in the inbox but never acted on —
-  the address is still good, the server was just slow.
+  recipient, mark that lead's email_status='invalid' so every send path skips it. The
+  notice itself is NOT filed in the inbox — the inbox is for messages worth reading, and
+  the only useful part of a bounce (never mail this address again) is already applied.
+- delayed  (same sender, temporary reason): counted in the poll summary and dropped —
+  the address is still good, the server was just slow, so there is nothing to read or do.
 - unsubscribe (remove me / stop ...): set lead.do_not_contact=1 (suppressed everywhere)
   and also mark replied (it IS a human answer, and must stop sequences).
 - reply    : store content, mark replied via repository.mark_replied, which stops any
@@ -230,8 +232,6 @@ def process_messages(conn, messages: list[dict]) -> dict:
                     bounces += 1
                 else:
                     delayed += 1
-                if _store(conn, no, "bounce" if permanent else "delayed", m):
-                    stored += 1
                 lead_nos.append(no)
             continue
         matched = _resolve_sender(sender, by_email, by_domain)

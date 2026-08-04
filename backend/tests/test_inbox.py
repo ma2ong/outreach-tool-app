@@ -55,8 +55,8 @@ def test_bounce_marks_email_invalid(conn):
     assert res["bounces"] == 1
     lead = conn.execute("SELECT email_status FROM leads WHERE no=2").fetchone()
     assert lead["email_status"] == "invalid"
-    row = conn.execute("SELECT kind FROM inbox_messages WHERE lead_no=2").fetchone()
-    assert row["kind"] == "bounce"
+    # the notice itself is noise — the inbox holds only what Allen has to read
+    assert conn.execute("SELECT COUNT(*) c FROM inbox_messages WHERE lead_no=2").fetchone()["c"] == 0
     # a bounce is NOT a reply — outreach status must stay 'messaged'
     st = conn.execute("SELECT status FROM outreach WHERE lead_no=2 AND channel='email'").fetchone()
     assert st["status"] == "messaged"

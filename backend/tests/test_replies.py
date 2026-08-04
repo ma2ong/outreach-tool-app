@@ -123,8 +123,8 @@ def test_delay_notice_never_burns_a_live_address(conn):
         conn, _bounce(_DELAY_CN, "Delivery Status Notification (Delay)"))
     assert res["delayed"] == 1 and res["bounces"] == 0
     assert conn.execute("SELECT email_status FROM leads WHERE no=3").fetchone()[0] is None
-    kind = conn.execute("SELECT kind FROM inbox_messages WHERE lead_no=3").fetchone()[0]
-    assert kind == "delayed"
+    # nothing to read and nothing to do — it must not land in the inbox either
+    assert conn.execute("SELECT COUNT(*) FROM inbox_messages WHERE lead_no=3").fetchone()[0] == 0
 
 
 def test_bounce_without_a_clear_reason_is_not_acted_on(conn):
