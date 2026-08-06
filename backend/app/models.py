@@ -72,6 +72,10 @@ class Lead(BaseModel):
     linkedin: str | None = None
     business: str | None = None
     target_fit: str | None = None
+    brief: str | None = None
+    hook: str | None = None
+    email_source: str | None = None
+    recheck_due: str | None = None
     whatsapp_verified: bool = False
     email_status: str | None = None
     do_not_contact: bool = False

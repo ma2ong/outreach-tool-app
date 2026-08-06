@@ -108,3 +108,61 @@ def test_blocked_page_raises_and_enrich_survives():
     # enrich treats a blocked page like an unreachable one: empty result, no crash
     info = enrich_mod.enrich_domain("blocked.com", fetch=blocked_fetch)
     assert info["email"] is None and info["icp_type"] == "unknown"
+
+
+def test_page_titles_that_name_the_page_are_not_company_names():
+    """The contact page is fetched first, so without this a quick-added website lands in
+    the book as a company called "Contact"."""
+    for title in ("# Contact", "# Contact Us", "# Inicio", "Title: Página não encontrada",
+                  "# 문의", "# 404"):
+        assert enrich.extract_company_name(title) is None
+
+
+def test_company_name_comes_from_the_homepage_not_the_contact_page():
+    pages = {
+        "https://acme.com/contact": "# Contact Us\ninfo@acme.com",
+        "https://acme.com": "# Acme Displays | LED walls",
+    }
+    out = enrich.enrich_domain("acme.com", fetch=lambda url: pages.get(url, ""))
+    assert out["company"] == "Acme Displays"
+
+
+def test_product_pages_are_read_when_the_contact_pass_found_no_spec():
+    """Pitches live on the product page, and 6 of 8 real customer sites published none
+    on the pages enrich used to read."""
+    pages = {
+        "https://acme.com/contact": "# Contact\ninfo@acme.com rental staging",
+        "https://acme.com": "# Acme\nrental staging",
+        "https://acme.com/products": "LED panel P2.5 and LED panel P4",
+    }
+    fetched = []
+
+    def fetch(url):
+        fetched.append(url)
+        return pages.get(url, "")
+
+    out = enrich.enrich_domain("acme.com", fetch=fetch)
+    assert out["hook"] == "Saw P2.5 and P4 panels listed on your site."
+    assert "https://acme.com/products" in fetched
+
+
+def test_product_pages_are_skipped_when_a_spec_is_already_in_hand():
+    pages = {"https://acme.com/contact": "LED panel P3.9 info@acme.com"}
+    fetched = []
+
+    def fetch(url):
+        fetched.append(url)
+        return pages.get(url, "")
+
+    enrich.enrich_domain("acme.com", fetch=fetch)
+    assert not [u for u in fetched if "product" in u]
+
+
+def test_enrich_reports_how_many_pages_answered():
+    pages = {"https://acme.com": "# Acme\ninfo@acme.com"}
+    assert enrich.enrich_domain("acme.com", fetch=lambda url: pages.get(url, ""))["pages"] > 0
+
+    def dead(url):
+        raise OSError("unreachable")
+
+    assert enrich.enrich_domain("dead.com", fetch=dead)["pages"] == 0

@@ -31,6 +31,10 @@ export interface Lead {
   do_not_contact: boolean;
   business: string | null;
   target_fit: string | null;
+  brief: string | null;
+  hook: string | null;
+  email_source: string | null;
+  recheck_due: string | null;
   stage: string;
   tags: string | null;
   follow_up_date: string | null;

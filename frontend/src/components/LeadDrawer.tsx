@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead, fetchActivities, createActivity, completeActivity, fetchLead, fetchContacts, createContact, updateContact, setPrimaryContact, deleteContact } from "../api";
+import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead, fetchActivities, createActivity, completeActivity, fetchLead, fetchContacts, createContact, updateContact, setPrimaryContact, deleteContact, recheckLead } from "../api";
 import type { Activity, Contact, Lead, Opportunity } from "../types";
 import { STAGES, STAGE_LABEL, OPPORTUNITY_STAGE_LABEL } from "../types";
 
@@ -8,6 +8,10 @@ const STATE_TEXT: Record<string, string> = { replied: "已回复", messaged: "�
 const ROLE_LABEL: Record<string, string> = {
   decision_maker: "决策人 / 采购", influencer: "影响人", technical: "技术",
   finance: "财务", other: "其他 / 未确认",
+};
+// 这个邮箱是官网联系页上写给买家的，还是页脚扒的，还是自己敲进去的——决定它值多少信任。
+const SOURCE_LABEL: Record<string, string> = {
+  "site.contact-page": "官网联系页", "site.homepage": "官网首页", manual: "手动录入",
 };
 
 function fmtTs(iso: string | null): string {
@@ -120,6 +124,20 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
   const [contactPhone, setContactPhone] = useState("");
   const [contactRole, setContactRole] = useState("other");
   const [contactBusy, setContactBusy] = useState(false);
+  const [rechecking, setRechecking] = useState(false);
+  const [recheckMsg, setRecheckMsg] = useState("");
+
+  async function runRecheck() {
+    setRechecking(true); setRecheckMsg(""); setErr("");
+    try {
+      const r = await recheckLead(lead.no);
+      setDraft(r.lead); onChange(r.lead);
+      setRecheckMsg(r.changed
+        ? `官网有更新：${(r.notes ?? []).join("；")}`
+        : `官网没有变化，下次 ${r.next_due} 再看`);
+    } catch (e) { setErr(`复检失败：${String(e)}`); }
+    finally { setRechecking(false); }
+  }
 
   async function loadTasks(leadNo: number) {
     const [open, done] = await Promise.all([
@@ -153,7 +171,7 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
         company_en: draft.company_en, country: draft.country, city: draft.city,
         website: draft.website, instagram: draft.instagram, facebook: draft.facebook,
         business: draft.business, stage: draft.stage,
-        tags: draft.tags,
+        tags: draft.tags, brief: draft.brief, hook: draft.hook,
       });
       setDraft(updated); setDirty(false); onChange(updated);
     } catch (e) { setErr(String(e)); } finally { setSaving(false); }
@@ -254,6 +272,29 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
         <button className="drawer-close" onClick={onClose} title="关闭">×</button>
         <h2>{draft.company_en}</h2>
         <div className="muted" style={{ marginBottom: 12 }}>#{lead.no} · {draft.country}{draft.city ? ` · ${draft.city}` : ""}</div>
+
+        <div className="section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>客户简介</span>
+          <button className="btn btn-sm" onClick={runRecheck} disabled={rechecking || !draft.website}
+            title={draft.website ? "重新读一遍官网：补上缺的联系方式，官网改了就提示" : "没有官网，无法复检"}>
+            {rechecking ? "复检中…" : "复检官网"}
+          </button>
+        </div>
+        {draft.brief
+          ? <div className="note-item" style={{ marginBottom: 8 }}>{draft.brief}</div>
+          : <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+              官网没写出可以引用的具体信息，简介留空——宁可空着，也不编一句发出去被客户看穿。
+            </div>}
+        <div className="field">
+          <label>开场白（消息模板里写 {"{hook}"}）</label>
+          <input className="input" value={draft.hook ?? ""} onChange={(e) => set("hook", e.target.value)}
+            placeholder="留空则消息里这句自动消失" />
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>
+          邮箱来源：{SOURCE_LABEL[draft.email_source ?? ""] ?? "未标注"}
+          {draft.recheck_due ? ` · 下次复检 ${draft.recheck_due}` : ""}
+        </div>
+        {recheckMsg && <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>{recheckMsg}</div>}
 
         <div className="field">
           <label>销售阶段</label>

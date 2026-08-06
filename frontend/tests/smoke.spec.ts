@@ -13,7 +13,7 @@ test.beforeEach(async ({ page }) => {
 
 test("shell loads with sidebar and leads table", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("Maxcolor")).toBeVisible();
+  await expect(page.getByText("MCVISUAL")).toBeVisible();
   await expect(page.locator(".nav-item", { hasText: "客户库" })).toBeVisible();
   // Dashboard is the daily-workbench default; open the customer library explicitly.
   await page.getByRole("button", { name: /客户库/ }).click();

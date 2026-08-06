@@ -37,6 +37,7 @@ from app.api import contacts as contacts_api
 BACKUP_KEEP = 14
 REPLY_POLL_SECONDS = 900   # steady-state inbox refresh
 REPLY_RETRY_SECONDS = 60   # until the first clean sweep — covers "network not up yet at logon"
+RECHECK_PER_DAY = 20       # website re-reads per day; each one is a live page fetch
 
 
 def backup_db(db_path: str = DB_PATH) -> str | None:
@@ -108,6 +109,29 @@ def auto_scan_social() -> None:
             conn.close()
 
 
+def auto_recheck() -> None:
+    """Once a day, re-read the websites of leads whose check has come round.
+
+    Capped at RECHECK_PER_DAY because every one is a real page fetch, and silent by
+    design: a check that found nothing writes nothing anywhere Allen has to look."""
+    if os.environ.get("OUTREACH_AUTO_RECHECK", "1") == "0":
+        return
+    from app import recheck, settings
+    conn = None
+    try:
+        conn = connect(DB_PATH)
+        today = datetime.date.today().isoformat()
+        if settings.get(conn, "recheck_last_run") == today:
+            return
+        settings.set_value(conn, "recheck_last_run", today)
+        recheck.sweep(conn, limit=RECHECK_PER_DAY)
+    except Exception:  # noqa: BLE001 — a dead site must not kill the poll loop
+        pass
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def reply_poll_loop() -> None:
     """Keep pulling for as long as the app runs.
 
@@ -120,6 +144,7 @@ def reply_poll_loop() -> None:
     while True:
         ok = auto_poll_replies()
         auto_scan_social()
+        auto_recheck()
         time.sleep(REPLY_POLL_SECONDS if ok else REPLY_RETRY_SECONDS)
 
 

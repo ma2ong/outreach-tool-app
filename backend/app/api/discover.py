@@ -41,6 +41,9 @@ class Candidate(BaseModel):
     source: str | None = None
     icp_type: str | None = None
     fit_score: int | None = None
+    brief: str | None = None
+    hook: str | None = None
+    email_source: str | None = None
 
 
 class ImportRequest(BaseModel):
@@ -130,7 +133,8 @@ def import_leads(req: ImportRequest, conn=Depends(get_conn)):
                 "company_en": c.company_en, "country": c.country or req.country, "city": c.city,
                 "website": c.website, "email": c.email, "phone": c.phone,
                 "instagram": c.instagram, "facebook": c.facebook, "linkedin": c.linkedin,
-                "target_fit": fit})
+                "target_fit": fit, "brief": c.brief, "hook": c.hook,
+                "email_source": c.email_source})
         except blocklist.BlockedLead as exc:
             skipped.append({"company_en": c.company_en, "website": c.website,
                             "blocked_domain": exc.domain})

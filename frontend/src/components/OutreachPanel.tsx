@@ -163,7 +163,7 @@ export function OutreachPanel({ selected, countries = [], firstCompany = "", onD
             </div>
           )}
           <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-            可用变量：{"{name}"}=公司名 · {"{contact}"}=联系人（缺失自动写 there）· {"{country}"} · {"{city}"}
+            可用变量：{"{name}"}=公司名 · {"{contact}"}=联系人（缺失自动写 there）· {"{country}"} · {"{city}"} · {"{hook}"}=按官网写的开场白（没有就自动省掉这句）
           </div>
         </>
       ) : (

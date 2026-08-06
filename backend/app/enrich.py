@@ -1,6 +1,7 @@
 import re
 from typing import Callable
 
+from app.brief import build as build_brief
 from app.icp import classify_text
 from app.jina import fetch as jina_fetch
 
@@ -78,30 +79,69 @@ def extract_socials(text: str) -> dict:
     return {"instagram": ig, "facebook": fb, "linkedin": li}
 
 
+# Page titles that name the page rather than the company. The contact page is fetched
+# first, so without this the company name came back as "Contact", "Inicio", "Contact Us"
+# — and on a site whose /contact 404s, "Página não encontrada".
+_GENERIC_TITLES = {
+    "contact", "contact us", "contacts", "contact-us", "contacto", "contáctanos",
+    "contactanos", "contato", "contate-nos", "kontakt", "문의", "연락처",
+    "home", "homepage", "inicio", "início", "início-2", "start",
+    "404", "page not found", "not found", "error", "página não encontrada",
+    "pagina nao encontrada", "página no encontrada", "error 404",
+    "about", "about us", "sobre", "nosotros", "quienes somos", "회사소개",
+}
+
+
 def extract_company_name(text: str) -> str | None:
-    """Best-effort company name from a page title / first markdown H1."""
+    """Best-effort company name from a page title / first markdown H1.
+
+    Returns None for titles that name the page instead of the company — a lead called
+    "Contact" is worse than one called after its own domain, because it looks like a
+    real answer."""
     m = _TITLE.search(text)
     if not m:
         return None
     name = _TITLE_SEP.split(m.group(1).strip())[0].strip()
-    return name or None
+    if not name or name.lower().strip(" -–—|") in _GENERIC_TITLES:
+        return None
+    return name
+
+
+# Which page an address was read off. Kept per-email so the address we end up choosing
+# can say where it came from: a contact page address and a footer address are both real,
+# but only one of them was put there for buyers to use.
+_PATH_SOURCE = {"/contact": "site.contact-page", "/contact-us": "site.contact-page",
+                "": "site.homepage"}
+_CONTACT_PATHS = ("/contact", "/contact-us", "")
+# Pitches live on product pages, not on the contact page. Tried only when the contact
+# pass turned up no spec at all, and abandoned as soon as one page yields something —
+# every path here is a live fetch, and the daily re-check sweep pays for all of them.
+_PRODUCT_PATHS = ("/products", "/productos", "/produtos", "/product")
 
 
 def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict:
+    from app.brief import _pitches
+
     emails: list[str] = []
+    email_sources: dict[str, str] = {}
     phones: list[str] = []
     socials = {"instagram": None, "facebook": None, "linkedin": None}
     company = None
+    home_company = None
     all_text: list[str] = []
-    for path in ("/contact", "/contact-us", ""):
+    for path in _CONTACT_PATHS:
         try:
             text = fetch(f"https://{domain}{path}")
         except Exception:  # noqa: BLE001
             continue
         all_text.append(text)
+        name = extract_company_name(text)
+        if path == "":
+            home_company = name
         if company is None:
-            company = extract_company_name(text)
+            company = name
         for e in extract_emails(text):
+            email_sources.setdefault(e.lower(), _PATH_SOURCE[path])
             if e not in emails:
                 emails.append(e)
         for p in extract_phones(text):
@@ -112,7 +152,19 @@ def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict
                 socials[k] = v
         if emails and phones and all(socials.values()):
             break
-    icp = classify_text("\n".join(all_text))
+    # The homepage titles itself after the company; a subpage titles itself after itself.
+    company = home_company or company
+    if not _pitches("\n".join(all_text)):
+        for path in _PRODUCT_PATHS:
+            try:
+                text = fetch(f"https://{domain}{path}")
+            except Exception:  # noqa: BLE001
+                continue
+            all_text.append(text)
+            if _pitches(text):
+                break
+    text = "\n".join(all_text)
+    icp = classify_text(text)
     best = None
     for e in emails:
         if any(e.lower().startswith(p) for p in _PREFER):
@@ -120,6 +172,15 @@ def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict
             break
     if best is None and emails:
         best = emails[0]
-    return {"domain": domain, "emails": emails, "email": best, "company": company,
+    written = build_brief(text, icp=icp)
+    # How many pages actually came back. Every fetch failure above is swallowed per-path
+    # so one dead URL cannot lose the others — which means an entirely unreachable site
+    # returns the same empty result as a site with nothing on it. Callers that care about
+    # the difference (the backfill writes one off permanently, the other it must retry)
+    # have no way to tell them apart without this.
+    return {"domain": domain, "pages": len(all_text),
+            "emails": emails, "email": best, "company": company,
+            "email_source": email_sources.get(best.lower()) if best else None,
             "phone": phones[0] if phones else None, "phones": phones,
-            "icp_type": icp["icp_type"], "fit_score": icp["fit_score"], **socials}
+            "icp_type": icp["icp_type"], "fit_score": icp["fit_score"],
+            "brief": written["brief"], "hook": written["hook"], **socials}

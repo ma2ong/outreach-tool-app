@@ -64,6 +64,14 @@ export async function updateLead(no: number, fields: Partial<Lead>): Promise<Lea
   return r.json();
 }
 
+export async function recheckLead(no: number): Promise<{
+  changed: boolean; next_due: string; notes?: string[]; lead: Lead;
+}> {
+  const r = await fetch(`/api/leads/${no}/recheck`, { method: "POST" });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `recheck ${r.status}`);
+  return r.json();
+}
+
 export async function deleteLead(no: number, block = false): Promise<{ blocked_domain: string | null }> {
   const r = await fetch(`/api/leads/${no}?block=${block ? 1 : 0}`, { method: "DELETE" });
   if (!r.ok) throw new Error(`delete ${r.status}`);

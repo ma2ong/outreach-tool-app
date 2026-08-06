@@ -61,7 +61,7 @@ function LoginGate({ onSuccess }: { onSuccess: () => void }) {
         <div className="brand" style={{ justifyContent: "center", marginBottom: 14 }}>
           <span className="pixel-logo"><i /><i /><i /><i /></span>
           <span>
-            <div className="brand-name">Maxcolor</div>
+            <div className="brand-name">MCVISUAL</div>
             <div className="brand-sub">客户开发系统</div>
           </span>
         </div>
@@ -264,7 +264,7 @@ export function App() {
         <div className="brand">
           <span className="pixel-logo"><i /><i /><i /><i /></span>
           <span>
-            <div className="brand-name">Maxcolor</div>
+            <div className="brand-name">MCVISUAL</div>
             <div className="brand-sub">客户开发系统</div>
           </span>
         </div>

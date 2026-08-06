@@ -20,3 +20,7 @@ bin/
 cf-token*
 *.pem
 .cloudflared/
+
+# 存量回填的运行日志（本地跑，不进仓库）
+backend/backfill*.log
+backend/backfill*.log.err

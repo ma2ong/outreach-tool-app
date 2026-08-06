@@ -179,13 +179,19 @@ def get_lead(conn, no: int) -> Lead | None:
 _EDITABLE = {"company_en", "company_local", "country", "region", "city", "contact_name",
              "title", "email", "phone", "website", "instagram", "facebook", "linkedin",
              "business", "target_fit", "stage", "tags", "follow_up_date", "next_action",
-             "do_not_contact"}
-
+             "do_not_contact", "brief", "hook"}
 
 def update_lead(conn, no: int, fields: dict) -> bool:
     cols = {k: v for k, v in fields.items() if k in _EDITABLE}
     if not cols:
         return conn.execute("SELECT 1 FROM leads WHERE no = ?", (no,)).fetchone() is not None
+    # Typed by Allen beats scraped off a footer, and the record should say which it is.
+    # Stamped here rather than at each caller so no edit path can forget.
+    if "email" in cols:
+        cols["email_source"] = "manual"
+    if "country" in cols:
+        from app import countries
+        cols["country"] = countries.normalize(cols["country"])
     sets = ", ".join(f"{k} = ?" for k in cols) + ", updated_at = ?"
     params = [*cols.values(), _dt.datetime.now(_dt.UTC).isoformat(), no]
     cur = conn.execute(f"UPDATE leads SET {sets} WHERE no = ?", params)
@@ -327,7 +333,7 @@ import datetime as _dt
 
 _INSERT_COLS = ["company_en", "company_local", "country", "region", "city",
                 "email", "phone", "website", "instagram", "facebook", "linkedin",
-                "business", "target_fit"]
+                "business", "target_fit", "brief", "hook", "email_source"]
 
 
 def next_no(conn) -> int:
@@ -338,7 +344,7 @@ def next_no(conn) -> int:
 def insert_lead(conn, data: dict) -> int:
     """Raises blocklist.BlockedLead when the domain is on the never-collect-again list —
     checked here rather than at each caller so a new import path cannot forget it."""
-    from app import blocklist
+    from app import blocklist, countries
     from app.dedupe import normalize_website
     hit = blocklist.is_blocked(conn, data.get("website"), data.get("email"))
     if hit:
@@ -346,7 +352,8 @@ def insert_lead(conn, data: dict) -> int:
     no = next_no(conn)
     cols = ["no"] + _INSERT_COLS + ["created_at", "updated_at"]
     now = _dt.datetime.now(_dt.UTC).isoformat()
-    data = {**data, "website": normalize_website(data.get("website"))}
+    data = {**data, "website": normalize_website(data.get("website")),
+            "country": countries.normalize(data.get("country"))}
     vals = [no] + [data.get(c) for c in _INSERT_COLS] + [now, now]
     placeholders = ",".join("?" * len(cols))
     conn.execute(f"INSERT INTO leads({','.join(cols)}) VALUES ({placeholders})", vals)

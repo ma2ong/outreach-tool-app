@@ -29,6 +29,9 @@ def _enrich_candidates(conn, domains: list[dict], enrich_fn: Callable,
             "linkedin": info.get("linkedin"),
             "icp_type": info.get("icp_type", "unknown"),
             "fit_score": info.get("fit_score", 0),
+            "brief": info.get("brief") or None,
+            "hook": info.get("hook") or None,
+            "email_source": info.get("email_source"),
             "source": source,
         }
         # Re-screen with the enriched phone/email: +86 in the contact details is the

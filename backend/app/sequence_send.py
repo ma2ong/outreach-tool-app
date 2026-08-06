@@ -20,7 +20,7 @@ from app.personalize import render
 def _contact(conn, lead_no: int) -> dict:
     r = conn.execute(
         "SELECT no, company_en, contact_name, country, city, email, email_status,"
-        " phone, instagram"
+        " phone, instagram, hook, brief"
         " FROM leads WHERE no=?", (lead_no,)).fetchone()
     return dict(r) if r else {}
 

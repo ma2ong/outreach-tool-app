@@ -40,7 +40,7 @@ def eligible(conn, lead_nos: list[int], channel: str) -> list[dict]:
     placeholders = ",".join("?" * len(lead_nos))
     rows = conn.execute(
         f"""SELECT l.no, l.company_en, l.contact_name, l.country, l.city,
-                   l.phone, l.instagram, l.facebook
+                   l.phone, l.instagram, l.facebook, l.hook, l.brief
             FROM leads l
             WHERE l.no IN ({placeholders})
               AND l.{col} IS NOT NULL AND l.{col} != ''
@@ -57,7 +57,7 @@ def eligible(conn, lead_nos: list[int], channel: str) -> list[dict]:
 
 
 def _mark_messaged(conn, lead_no: int, channel: str, date: str) -> None:
-    from app import repository
+    from app import recheck, repository
     conn.execute(
         "INSERT INTO outreach(lead_no, channel, status, touch_count, message_sent_date)"
         " VALUES (?, ?, 'messaged', 1, ?)"
@@ -67,6 +67,7 @@ def _mark_messaged(conn, lead_no: int, channel: str, date: str) -> None:
     )
     conn.commit()
     repository.advance_stage(conn, lead_no, "contacted")
+    recheck.schedule_after_send(conn, lead_no)
 
 
 def send_channel_campaign(conn, lead_nos: list[int], channel: str, message: str,

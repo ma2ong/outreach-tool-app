@@ -37,6 +37,8 @@ class LeadUpdate(BaseModel):
     facebook: str | None = None
     linkedin: str | None = None
     business: str | None = None
+    brief: str | None = None
+    hook: str | None = None
     stage: str | None = None
     tags: str | None = None
     follow_up_date: str | None = None
@@ -103,7 +105,8 @@ def quick_add_lead(req: QuickAddRequest, conn=Depends(get_conn)):
             info = enrich(fields["website"]) or {}
         except Exception:  # noqa: BLE001 — enrich failure must not block a manual add
             info = {}
-        for k in ("email", "phone", "instagram", "facebook", "linkedin"):
+        for k in ("email", "phone", "instagram", "facebook", "linkedin",
+                  "brief", "hook", "email_source"):
             data.setdefault(k, info.get(k))
         company_from_site = info.get("company")
         if info.get("icp_type") and info["icp_type"] != "unknown":
@@ -206,6 +209,19 @@ def add_note(no: int, req: NoteRequest, conn=Depends(get_conn)):
         raise HTTPException(status_code=400, detail="empty note")
     repo.add_note(conn, no, text)
     return repo.get_lead(conn, no)
+
+
+@router.post("/leads/{no}/recheck")
+def recheck_lead(no: int, conn=Depends(get_conn)):
+    """Re-read this company's website now. Fills fields we never had, and reports — but
+    never silently applies — anything that disagrees with what is already on the record."""
+    from app import recheck
+    if repo.get_lead(conn, no) is None:
+        raise HTTPException(status_code=404, detail="lead not found")
+    result = recheck.run(conn, no, enrich_fn=ENRICH_FN)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error") or "复检失败")
+    return {**result, "lead": repo.get_lead(conn, no)}
 
 
 @router.post("/leads/{no}/reply")
