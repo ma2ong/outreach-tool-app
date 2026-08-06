@@ -127,3 +127,13 @@ def test_two_spellings_of_the_same_word_are_quoted_once():
     out = build("locação e locacao de paineis para eventos",
                 icp={"icp_type": "rental", "hits": ["locação", "locacao", "eventos"]})
     assert out["brief"] == 'The site mentions "locação" (rental) and "eventos" (events).'
+
+
+def test_every_icp_keyword_has_an_english_gloss():
+    """Adding a keyword without a gloss silently keeps it out of the hook — which is how
+    Korean integrators stayed invisible while the category matched."""
+    from app.brief import _TERM
+    from app.icp import _CATEGORIES
+
+    missing = [k for _, keywords in _CATEGORIES.values() for k in keywords if k not in _TERM]
+    assert missing == [], f"缺释义：{missing}"

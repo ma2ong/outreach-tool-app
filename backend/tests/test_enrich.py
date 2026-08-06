@@ -127,13 +127,15 @@ def test_company_name_comes_from_the_homepage_not_the_contact_page():
     assert out["company"] == "Acme Displays"
 
 
-def test_product_pages_are_read_when_the_contact_pass_found_no_spec():
-    """Pitches live on the product page, and 6 of 8 real customer sites published none
-    on the pages enrich used to read."""
+def test_the_page_s_own_links_are_followed_when_no_spec_was_found():
+    """Guessing paths does not work: rgbkorea.com keeps every word about itself at
+    /shopinfo/company.html, a convention no list of English guesses would contain. The
+    navigation shell links to it, so the link is read instead of guessed."""
     pages = {
-        "https://acme.com/contact": "# Contact\ninfo@acme.com rental staging",
-        "https://acme.com": "# Acme\nrental staging",
-        "https://acme.com/products": "LED panel P2.5 and LED panel P4",
+        "https://acme.co.kr": ("# Acme\n"
+                               "[About Us](https://acme.co.kr/shopinfo/company.html)\n"
+                               "[Instagram](https://instagram.com/acme)"),
+        "https://acme.co.kr/shopinfo/company.html": "LED panel P2.5 and LED panel P4",
     }
     fetched = []
 
@@ -141,9 +143,27 @@ def test_product_pages_are_read_when_the_contact_pass_found_no_spec():
         fetched.append(url)
         return pages.get(url, "")
 
-    out = enrich.enrich_domain("acme.com", fetch=fetch)
+    out = enrich.enrich_domain("acme.co.kr", fetch=fetch)
     assert out["hook"] == "Saw P2.5 and P4 panels listed on your site."
-    assert "https://acme.com/products" in fetched
+    assert "https://acme.co.kr/shopinfo/company.html" in fetched
+
+
+def test_korean_navigation_is_scored_by_the_same_table_as_english():
+    """No per-country branch: 회사소개 scores exactly the way "about" does."""
+    pages = {
+        "https://hanul.co.kr": "# Hanul\n[회사소개](https://hanul.co.kr/sub/intro.html)",
+        "https://hanul.co.kr/sub/intro.html": "LED 전광판 P6 패널",
+    }
+    out = enrich.enrich_domain("hanul.co.kr", fetch=lambda u: pages.get(u, ""))
+    assert out["hook"] == "Saw P6 panels listed on your site."
+
+
+def test_links_to_other_companies_are_never_followed():
+    """A partner's catalogue would describe the wrong company."""
+    page = ("# Acme\n[Products](https://supplier-partner.com/products)\n"
+            "[Products](https://acme.com/products)")
+    links = enrich._content_links(page, "acme.com", set())
+    assert links == ["https://acme.com/products"]
 
 
 def test_product_pages_are_skipped_when_a_spec_is_already_in_hand():

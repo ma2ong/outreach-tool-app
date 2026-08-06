@@ -61,6 +61,9 @@ _TERM: dict[str, str | None] = {
     "instalación de pantallas": "screen installation",
     "instalacion de pantallas": "screen installation",
     "instalação de painéis": "panel installation",
+    "시공": "installation", "통합제어": "integrated control",
+    "통합배선": "structured cabling", "영상시스템": "video systems",
+    "음향영상": "audio visual",
     # reseller
     "distributor": "distribution", "wholesale": "wholesale", "reseller": "resale",
     "supplier of led": "LED supply", "led screen supplier": "LED screen supply",
@@ -69,6 +72,7 @@ _TERM: dict[str, str | None] = {
     "venta de pantallas": "screen sales", "venda de painéis": "panel sales",
     "venda de paineis": "panel sales",
     "대리점": "dealership", "유통": "distribution",
+    "총판": "distribution", "납품": "supply",
     # signage
     "signage": "signage", "sign company": "signage", "sign shop": "signage",
     "billboard": "billboard", "custom signs": "custom signs",
@@ -78,6 +82,7 @@ _TERM: dict[str, str | None] = {
     "publicidad exterior": "outdoor advertising",
     "painel de led": "LED panels", "painéis de led": "LED panels",
     "전광판": "LED signage", "사이니지": "signage",
+    "옥외광고": "outdoor advertising", "미디어월": "media wall",
     # end-user — all self-references, readable here, unsendable
     "our venue": None, "our church": None, "our stadium": None, "our store": None,
     "retail chain": None, "shopping mall": None, "casino": None,

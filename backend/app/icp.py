@@ -25,27 +25,36 @@ _CATEGORIES: dict[str, tuple[int, tuple[str, ...]]] = {
         "concert", "festival", "touring",
         # es/pt: alquiler(ES) / renta(MX) / arriendo(CL) / locação(BR)
         "alquiler", "renta de pantallas", "arriendo", "locação", "locacao", "eventos",
-        # ko: 렌탈/대여/임대 = rental/lease
+        # ko: 렌탈/대여/임대 = rental/lease. 무대(stage), 행사(event) and 공연(performance)
+        # were tried and taken back out: they describe a project, not a business model,
+        # and an integrator's case studies are full of them. 공연 alone was enough to file
+        # winmedi.co.kr — a 통합배선/통합제어 house — as a rental company.
         "렌탈", "대여", "임대",
     )),
     "integrator": (85, (
         "av integrat", "system integrat", "audiovisual integrat", "integration services",
         "installation services", "audio visual solutions", "av solutions", "integrador",
         "instalación de pantallas", "instalacion de pantallas", "instalação de painéis",
+        # ko: this category had no Korean at all, which is why Korean integrators — the
+        # 시공/통합제어 companies — all came back unknown. 시공 = installation work,
+        # 통합제어 = integrated control, 통합배선 = structured cabling, 영상시스템 = video system.
+        "시공", "통합제어", "통합배선", "영상시스템", "음향영상",
     )),
     "reseller": (80, (
         "distributor", "wholesale", "reseller", "supplier of led", "led screen supplier",
         "we supply", "dealer", "distribuidor", "mayorista", "atacado",
         "venta de pantallas", "venda de painéis", "venda de paineis",
-        # ko: 대리점=dealer, 유통=distribution, 제조=manufacture(생산)
-        "대리점", "유통",
+        # ko: 대리점=dealer, 유통=distribution, 총판=general distributor, 납품=supply.
+        # 제조/생산 (manufacture) stays out on purpose — that is a competitor, not a buyer.
+        "대리점", "유통", "총판", "납품",
     )),
     "signage": (75, (
         "signage", "sign company", "sign shop", "billboard", "custom signs",
         "digital sign", "led sign", "letreros", "rotulos", "comunicação visual",
         "publicidad exterior", "painel de led", "painéis de led",
-        # ko: 전광판 = LED sign board (the dominant Korean term)
-        "전광판", "사이니지",
+        # ko: 전광판 = LED sign board (the dominant Korean term), 옥외광고 = outdoor
+        # advertising, 미디어월 = media wall
+        "전광판", "사이니지", "옥외광고", "미디어월",
     )),
     "end-user": (50, (
         "our venue", "our church", "our stadium", "our store", "retail chain",
