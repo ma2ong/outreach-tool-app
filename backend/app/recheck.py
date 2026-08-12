@@ -206,6 +206,9 @@ def run(conn: sqlite3.Connection, lead_no: int, enrich_fn=None,
     repo.add_note(conn, lead_no, ("首次读取官网：" if first_read else "官网复检：")
                   + "；".join(notes))
     if not first_read:
+        from app import sales_intelligence
+        sales_intelligence.record_site_change(
+            conn, lead_no, website, notes, hook=info.get("hook"))
         activities.ensure_schema(conn)
         activities._upsert_source(
             conn, lead_no=lead_no, opportunity_id=None, source="recheck",

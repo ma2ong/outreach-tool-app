@@ -1,6 +1,6 @@
 # Spec 17 — 公司与多联系人
 
-> 状态：Approved / Implementing
+> 状态：Implemented / Verified
 > 日期：2026-08-04
 
 ## 1. 业务问题

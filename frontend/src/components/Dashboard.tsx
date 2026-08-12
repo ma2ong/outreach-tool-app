@@ -93,8 +93,12 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
   const stages = [
     { label: "客户总数", value: f?.total ?? stats.total },
     { label: "有联系方式", value: f?.with_contact ?? 0 },
+    { label: "邮箱已验证", value: f?.verified ?? 0 },
     { label: "已触达", value: f?.touched ?? 0 },
     { label: "已回复", value: f?.replied ?? 0 },
+    { label: "形成商机", value: f?.opportunity ?? 0 },
+    { label: "正式报价", value: f?.quoted ?? 0 },
+    { label: "生成订单", value: f?.ordered ?? 0 },
   ];
 
   const countries = Object.entries(stats.by_country).sort((a, b) => b[1] - a[1]).slice(0, 15);

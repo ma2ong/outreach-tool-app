@@ -113,7 +113,7 @@ export interface Stats {
   by_country: Record<string, number>;
   by_channel_status: Record<string, Record<string, number>>;
   reach: Record<string, ChannelReach>;
-  funnel: { total: number; with_contact: number; touched: number; replied: number; follow_up_due: number };
+  funnel: { total: number; with_contact: number; verified: number; touched: number; replied: number; opportunity: number; quoted: number; ordered: number; follow_up_due: number };
 }
 export interface SendJob {
   id: string;
@@ -384,4 +384,57 @@ export interface DiscoverJob {
   done: number;
   total: number;
   result: { candidates: Candidate[] } | { error: string } | null;
+}
+export interface IntelligenceComponent {
+  key: "fit" | "contact" | "intent" | "engagement" | "freshness";
+  label: string;
+  score: number;
+  max: number;
+  reasons: string[];
+}
+export interface BuyingSignal {
+  id: number;
+  lead_no: number;
+  opportunity_id: number | null;
+  signal_type: string;
+  headline: string;
+  evidence: string;
+  source_url: string;
+  occurred_at: string | null;
+  captured_at: string;
+  confidence: number;
+  use_case: string | null;
+  product_fit: string | null;
+  suggested_angle: string | null;
+  status: "new" | "reviewed" | "actioned" | "dismissed";
+  fingerprint: string;
+  created_at: string;
+  updated_at: string;
+  company_en: string;
+  country: string | null;
+  opportunity_title: string | null;
+}
+export interface SalesIntelligenceAccount {
+  lead_no: number;
+  company_en: string;
+  country: string | null;
+  target_fit: string | null;
+  score: number;
+  grade: "A" | "B" | "C" | "D";
+  components: IntelligenceComponent[];
+  warnings: string[];
+  next_action: string;
+  best_signal: Record<string, unknown> | null;
+  missing_decision_maker: boolean;
+  data_incomplete: boolean;
+}
+export interface LeadIntelligence extends SalesIntelligenceAccount {
+  signals: BuyingSignal[];
+}
+export interface SalesIntelligenceSummary {
+  ranked_accounts: number;
+  grade_a: number;
+  new_signals: number;
+  missing_decision_maker: number;
+  data_incomplete: number;
 }

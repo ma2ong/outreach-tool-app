@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead, fetchActivities, createActivity, completeActivity, fetchLead, fetchContacts, createContact, updateContact, setPrimaryContact, deleteContact, recheckLead } from "../api";
-import type { Activity, Contact, Lead, Opportunity } from "../types";
+import type { Activity, Contact, Lead, LeadIntelligence, Opportunity } from "../types";
+import { fetchLeadIntelligence } from "../salesIntelligenceApi";
 import { STAGES, STAGE_LABEL, OPPORTUNITY_STAGE_LABEL } from "../types";
 
 const CH_LABEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", instagram: "Instagram" };
@@ -126,12 +127,14 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
   const [contactBusy, setContactBusy] = useState(false);
   const [rechecking, setRechecking] = useState(false);
   const [recheckMsg, setRecheckMsg] = useState("");
+  const [intelligence, setIntelligence] = useState<LeadIntelligence | null>(null);
 
   async function runRecheck() {
     setRechecking(true); setRecheckMsg(""); setErr("");
     try {
       const r = await recheckLead(lead.no);
       setDraft(r.lead); onChange(r.lead);
+      fetchLeadIntelligence(lead.no).then(setIntelligence).catch(() => undefined);
       setRecheckMsg(r.changed
         ? `官网有更新：${(r.notes ?? []).join("；")}`
         : `官网没有变化，下次 ${r.next_due} 再看`);
@@ -159,7 +162,9 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
       .catch((e) => setErr(`商机加载失败：${String(e)}`));
     loadTasks(lead.no).catch((e) => setErr(`任务加载失败：${String(e)}`));
     fetchContacts(lead.no).then(setContacts)
-      .catch((e) => setErr(`联系人加载失败：${String(e)}`));
+      .catch((e) => setErr("联系人加载失败：" + String(e)));
+    fetchLeadIntelligence(lead.no).then(setIntelligence)
+      .catch((e) => setErr("销售评分加载失败：" + String(e)));
   }, [lead.no]);
 
   const set = (k: keyof Lead, v: string) => { setDraft((d) => ({ ...d, [k]: v })); setDirty(true); };
@@ -295,6 +300,30 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
           {draft.recheck_due ? ` · 下次复检 ${draft.recheck_due}` : ""}
         </div>
         {recheckMsg && <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>{recheckMsg}</div>}
+
+        <div className="section-title">销售优先级</div>
+        {intelligence ? <div className="card" style={{ padding: 10, marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
+            <b style={{ fontSize: 22 }}>{intelligence.score}</b>
+            <span>{intelligence.grade} 级</span>
+            <span className="muted">不是成交概率</span>
+          </div>
+          <div style={{ marginBottom: 7 }}><b>下一步：</b>{intelligence.next_action}</div>
+          <div className="muted" style={{ fontSize: 12 }}>
+            {intelligence.components.map((component) =>
+              component.label + " " + component.score + "/" + component.max).join(" · ")}
+          </div>
+          {intelligence.warnings.map((warning) =>
+            <div className="error-text" key={warning} style={{ marginTop: 4 }}>{warning}</div>)}
+          {intelligence.signals.length > 0 && <div style={{ marginTop: 9 }}>
+            <b>采购信号与证据</b>
+            {intelligence.signals.slice(0, 5).map((signal) => <div className="note-item" key={signal.id} style={{ marginTop: 6 }}>
+              <b>{signal.headline}</b> · 可信度 {signal.confidence}/100
+              <div className="muted" style={{ marginTop: 3 }}>{signal.evidence}</div>
+              <a href={signal.source_url} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>查看来源 ↗</a>
+            </div>)}
+          </div>}
+        </div> : <div className="muted" style={{ marginBottom: 8 }}>正在计算可解释销售优先级…</div>}
 
         <div className="field">
           <label>销售阶段</label>

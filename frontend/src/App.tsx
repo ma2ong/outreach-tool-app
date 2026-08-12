@@ -16,8 +16,9 @@ import { HealthPanel } from "./components/HealthPanel";
 import { OpportunityPipeline } from "./components/OpportunityPipeline";
 import { ActivitiesPanel } from "./components/ActivitiesPanel";
 import { SalesDocumentsPanel } from "./components/SalesDocumentsPanel";
+import { SalesIntelligencePanel } from "./components/SalesIntelligencePanel";
 
-type Page = "dashboard" | "activities" | "leads" | "opportunities" | "inbox" | "sequences" | "discovery" | "products" | "channels";
+type Page = "dashboard" | "intelligence" | "activities" | "leads" | "opportunities" | "inbox" | "sequences" | "discovery" | "products" | "channels";
 
 function exportQuery(params: Record<string, string>): string {
   const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
@@ -26,6 +27,7 @@ function exportQuery(params: Record<string, string>): string {
 
 const PAGES: { id: Page; label: string; ico: string }[] = [
   { id: "dashboard", label: "仪表盘", ico: "▦" },
+  { id: "intelligence", label: "销售雷达", ico: "◎" },
   { id: "activities", label: "销售任务", ico: "✓" },
   { id: "leads", label: "客户库", ico: "☰" },
   { id: "opportunities", label: "商机管道", ico: "◇" },
@@ -402,6 +404,7 @@ export function App() {
               )}
             </>
           )}
+          {page === "intelligence" && <SalesIntelligencePanel onOpenLead={openLead} onChanged={() => { refreshActivityStats(); reload(); }} />}
           {page === "opportunities" && <OpportunityPipeline onOpenLead={openLead} onChanged={refreshActivityStats} />}
           {page === "activities" && <ActivitiesPanel onOpenLead={openLead} onChanged={refreshActivityStats} />}
           {page === "inbox" && <InboxPanel onOpenLead={openLead} onPendingChange={() => { refreshPending(); refreshActivityStats(); reload(); }} />}

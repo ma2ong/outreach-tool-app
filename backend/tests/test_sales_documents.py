@@ -91,6 +91,14 @@ def test_quote_calculation_send_and_order_flow(conn, monkeypatch):
     })
     assert complete["balance"] == 0
 
+    contacts.update(conn, contact["id"], {"email_status": "valid"})
+    funnel = repository.stats(conn).funnel
+    assert funnel["with_contact"] >= 1
+    assert funnel["verified"] >= 1
+    assert funnel["opportunity"] >= 1
+    assert funnel["quoted"] >= 1
+    assert funnel["ordered"] >= 1
+
 
 def test_quote_validation_and_state_guards(conn):
     contact, opportunity = _setup(conn)

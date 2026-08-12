@@ -51,6 +51,8 @@ test("clicking a lead row opens detail drawer with stage and notes", async ({ pa
   await expect(page.getByRole("button", { name: "安排任务" })).toBeVisible();
   await expect(page.getByText(/联系人（\d+）/)).toBeVisible();
   await expect(page.getByRole("button", { name: "＋ 新建联系人" })).toBeVisible();
+  await expect(page.getByText("销售优先级")).toBeVisible();
+  await expect(page.getByText(/不是成交概率/)).toBeVisible();
   await expect(page.getByText("LED 项目 / 商机")).toBeVisible();
   await expect(page.getByText("跟进记录", { exact: true })).toBeVisible();
   await page.locator(".drawer-close").click();
@@ -63,6 +65,7 @@ test("dashboard shows stats", async ({ page }) => {
   await expect(page.getByText("客户总数").first()).toBeVisible();
   await expect(page.getByText(/国家分布/)).toBeVisible();
   await expect(page.getByText("今日销售任务")).toBeVisible();
+  await expect(page.getByText("生成订单")).toBeVisible();
 });
 
 // SAFETY: reads the task workbench and creation controls, but does not create or complete anything.
@@ -174,6 +177,20 @@ test("formal quotation and order workbench is ready for LED projects", async ({ 
   await expect(page.getByText(/金额由系统根据尺寸、数量和单价重新计算/)).toBeVisible();
   await page.getByRole("button", { name: "关闭" }).click();
   await expect(page.getByPlaceholder("输入并选择客户")).toHaveCount(0);
+});
+
+// SAFETY: reads ranking and signal workbench only; never creates tasks, deals or signals.
+test("sales intelligence radar explains priority and protects signal actions", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /销售雷达/ }).click();
+  await expect(page.locator(".card h3", { hasText: "客户优先级（可解释评分）" })).toBeVisible();
+  await expect(page.locator(".card h3", { hasText: "LED 采购信号" })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "五项分数" })).toBeVisible();
+  await expect(page.getByText(/没有来源和证据就不能保存/)).toBeVisible();
+  await page.getByRole("button", { name: /录入采购信号/ }).click();
+  await expect(page.getByPlaceholder("来源 URL（必填）")).toBeVisible();
+  await expect(page.getByPlaceholder(/证据原文/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "保存信号" })).toBeVisible();
 });
 
 test("theme toggle switches to light and persists attribute", async ({ page }) => {

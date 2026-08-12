@@ -208,7 +208,8 @@ def update_lead(conn, no: int, fields: dict) -> bool:
 # Everything that hangs off a lead. SQLite has no cascade here, and an orphan row would
 # keep a deleted company alive in the inbox, the send log and the pipeline counts.
 _LEAD_CHILDREN = ("outreach", "notes", "sequence_enrollments", "send_log",
-                  "inbox_messages", "activities", "orders", "quotes", "opportunities", "contacts")
+                  "inbox_messages", "activities", "buying_signals", "orders", "quotes",
+                  "opportunities", "contacts")
 
 
 def delete_lead(conn, no: int) -> bool:
@@ -219,10 +220,12 @@ def delete_lead(conn, no: int) -> bool:
     from app.activities import ensure_schema as ensure_activity_schema
     from app.contacts import ensure_schema as ensure_contact_schema
     from app.sales_documents import ensure_schema as ensure_sales_document_schema
+    from app.sales_intelligence import ensure_schema as ensure_sales_intelligence_schema
     ensure_opportunity_schema(conn)
     ensure_activity_schema(conn)
     ensure_contact_schema(conn)
     ensure_sales_document_schema(conn)
+    ensure_sales_intelligence_schema(conn)
     if conn.execute("SELECT 1 FROM leads WHERE no = ?", (no,)).fetchone() is None:
         return False
     for table in _LEAD_CHILDREN:
@@ -290,6 +293,12 @@ def find_duplicate(conn, website=None, instagram=None, company_en=None) -> int |
 
 
 def stats(conn) -> Stats:
+    from app.contacts import ensure_schema as ensure_contact_schema
+    from app.opportunities import ensure_schema as ensure_opportunity_schema
+    from app.sales_documents import ensure_schema as ensure_sales_document_schema
+    ensure_contact_schema(conn)
+    ensure_opportunity_schema(conn)
+    ensure_sales_document_schema(conn)
     total = conn.execute("SELECT COUNT(*) c FROM leads").fetchone()["c"]
     by_country = {r["country"]: r["c"] for r in conn.execute(
         "SELECT country, COUNT(*) c FROM leads WHERE country IS NOT NULL GROUP BY country"
@@ -319,11 +328,24 @@ def stats(conn) -> Stats:
     funnel = {
         "total": total,
         "with_contact": _count(
-            "SELECT COUNT(*) c FROM leads WHERE (email IS NOT NULL AND email != '')"
-            " OR (phone IS NOT NULL AND phone != '') OR (instagram IS NOT NULL AND instagram != '')"),
+            "SELECT COUNT(*) c FROM leads l WHERE"
+            " (COALESCE(l.email,'')!='' OR COALESCE(l.phone,'')!=''"
+            " OR COALESCE(l.instagram,'')!='' OR COALESCE(l.facebook,'')!='')"
+            " OR EXISTS (SELECT 1 FROM contacts c WHERE c.lead_no=l.no"
+            " AND (COALESCE(c.email,'')!='' OR COALESCE(c.phone,'')!=''"
+            " OR COALESCE(c.linkedin,'')!=''))"),
+        "verified": _count(
+            "SELECT COUNT(*) c FROM leads l WHERE l.email_status IN ('valid','role')"
+            " OR EXISTS (SELECT 1 FROM contacts c WHERE c.lead_no=l.no"
+            " AND c.email_status IN ('valid','role'))"),
         "touched": _count("SELECT COUNT(DISTINCT lead_no) c FROM outreach"
                           " WHERE status IN ('messaged','replied')"),
         "replied": _count("SELECT COUNT(DISTINCT lead_no) c FROM outreach WHERE status='replied'"),
+        "opportunity": _count("SELECT COUNT(DISTINCT lead_no) c FROM opportunities"),
+        "quoted": _count(
+            "SELECT COUNT(DISTINCT lead_no) c FROM quotes WHERE status!='draft'"),
+        "ordered": _count(
+            "SELECT COUNT(DISTINCT lead_no) c FROM orders WHERE status!='cancelled'"),
     }
     _due_c, _due_p = _due_clause(7)
     funnel["follow_up_due"] = _count(f"SELECT COUNT(*) c FROM leads l WHERE {_due_c}", _due_p)

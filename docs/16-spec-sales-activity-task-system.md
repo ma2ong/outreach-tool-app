@@ -1,6 +1,6 @@
 # Spec 16 — 销售活动与任务闭环
 
-> 状态：Approved / Implementing
+> 状态：Implemented / Verified
 > 日期：2026-08-04
 > 需求完整度：96/100（角色、问题、主数据、触发规则、优先级和验收标准已明确）
 
