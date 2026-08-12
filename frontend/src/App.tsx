@@ -15,6 +15,7 @@ import { InboxPanel } from "./components/InboxPanel";
 import { HealthPanel } from "./components/HealthPanel";
 import { OpportunityPipeline } from "./components/OpportunityPipeline";
 import { ActivitiesPanel } from "./components/ActivitiesPanel";
+import { SalesDocumentsPanel } from "./components/SalesDocumentsPanel";
 
 type Page = "dashboard" | "activities" | "leads" | "opportunities" | "inbox" | "sequences" | "discovery" | "products" | "channels";
 
@@ -31,7 +32,7 @@ const PAGES: { id: Page; label: string; ico: string }[] = [
   { id: "inbox", label: "收件箱", ico: "✉" },
   { id: "sequences", label: "跟进序列", ico: "⇉" },
   { id: "discovery", label: "客户开发", ico: "⌕" },
-  { id: "products", label: "产品报价", ico: "▤" },
+  { id: "products", label: "报价订单", ico: "▤" },
   { id: "channels", label: "渠道连接", ico: "⇄" },
 ];
 
@@ -406,7 +407,7 @@ export function App() {
           {page === "inbox" && <InboxPanel onOpenLead={openLead} onPendingChange={() => { refreshPending(); refreshActivityStats(); reload(); }} />}
           {page === "sequences" && <SequencesPanel onChanged={() => { reload(); refreshPending(); }} />}
           {page === "discovery" && <><DiscoveryPanel onImported={reload} /><BlocklistPanel /></>}
-          {page === "products" && <ProductsPanel />}
+          {page === "products" && <><SalesDocumentsPanel /><ProductsPanel /></>}
           {page === "channels" && <><ConnectionPanel /><MailboxPanel /></>}
         </div>
       </div>

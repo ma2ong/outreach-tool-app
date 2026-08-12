@@ -81,9 +81,9 @@ export function ProductsPanel() {
       </div>
 
       <div className="card">
-        <h3>生成报价卡</h3>
+        <h3>快速产品报价卡</h3>
         <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
-          勾选上方产品 → 生成英文报价卡图片 → 复制路径，粘贴到发送面板的「附件」框，随邮件 / WhatsApp / IG 一起发给客户。
+          用于开发初期快速展示产品范围，不记录客户、版本和成交状态。正式报价请使用上方“正式报价”工作台。
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <input className="input" placeholder="备注（可选，印在卡上），如 MOQ 10 sqm" value={note} onChange={(e) => setNote(e.target.value)} style={{ minWidth: 300 }} />

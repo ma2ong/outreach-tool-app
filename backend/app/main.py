@@ -33,6 +33,7 @@ from app.api import autosend as autosend_api
 from app.api import readiness as readiness_api
 from app.api import activities as activities_api
 from app.api import contacts as contacts_api
+from app.api import sales_documents as sales_documents_api
 
 BACKUP_KEEP = 14
 REPLY_POLL_SECONDS = 900   # steady-state inbox refresh
@@ -156,6 +157,7 @@ async def lifespan(app: FastAPI):
     from app.opportunities import ensure_schema as ensure_opportunity_schema
     from app.activities import ensure_schema as ensure_activity_schema, migrate_existing
     from app.contacts import ensure_schema as ensure_contact_schema, migrate_existing as migrate_contacts
+    from app.sales_documents import ensure_schema as ensure_sales_document_schema
     backup_db()  # the lead base is the business asset — snapshot before touching it
     conn = connect(DB_PATH)
     try:
@@ -163,6 +165,7 @@ async def lifespan(app: FastAPI):
         ensure_contact_schema(conn)
         migrate_contacts(conn)
         ensure_opportunity_schema(conn)
+        ensure_sales_document_schema(conn)
         ensure_activity_schema(conn)
         migrate_existing(conn)
         normalize_all_websites(conn)  # idempotent data fix: consistent website form
@@ -210,6 +213,7 @@ app.include_router(autosend_api.router)
 app.include_router(readiness_api.router)
 app.include_router(activities_api.router)
 app.include_router(contacts_api.router)
+app.include_router(sales_documents_api.router)
 from app.api import auth as auth_api  # noqa: E402
 from app.api import health as health_api  # noqa: E402
 app.include_router(auth_api.router)

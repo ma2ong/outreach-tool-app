@@ -59,9 +59,11 @@ def cleanable(conn) -> list[dict]:
     from app.opportunities import ensure_schema as ensure_opportunity_schema
     from app.activities import ensure_schema as ensure_activity_schema
     from app.contacts import ensure_schema as ensure_contact_schema
+    from app.sales_documents import ensure_schema as ensure_sales_document_schema
     ensure_opportunity_schema(conn)
     ensure_activity_schema(conn)
     ensure_contact_schema(conn)
+    ensure_sales_document_schema(conn)
     return [dict(r) for r in conn.execute("""
         SELECT no, company_en, website, country FROM leads l
          WHERE COALESCE(email,'')='' AND COALESCE(phone,'')=''
@@ -73,6 +75,8 @@ def cleanable(conn) -> list[dict]:
            AND NOT EXISTS (SELECT 1 FROM activities a WHERE a.lead_no=l.no)
            AND NOT EXISTS (SELECT 1 FROM contacts c WHERE c.lead_no=l.no)
            AND NOT EXISTS (SELECT 1 FROM opportunities p WHERE p.lead_no=l.no)
+           AND NOT EXISTS (SELECT 1 FROM quotes q WHERE q.lead_no=l.no)
+           AND NOT EXISTS (SELECT 1 FROM orders ord WHERE ord.lead_no=l.no)
          ORDER BY no""")]
 
 

@@ -419,6 +419,14 @@ def merge_lead_contacts(conn: sqlite3.Connection, keep: int, duplicate: int) -> 
                 )
             conn.execute("UPDATE inbox_messages SET contact_id=? WHERE contact_id=?",
                          (existing["id"], row["id"]))
+            # Formal documents keep the exact addressee when duplicate companies merge.
+            if conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='quotes'"
+            ).fetchone():
+                conn.execute("UPDATE quotes SET contact_id=? WHERE contact_id=?",
+                             (existing["id"], row["id"]))
+                conn.execute("UPDATE orders SET contact_id=? WHERE contact_id=?",
+                             (existing["id"], row["id"]))
             conn.execute("DELETE FROM contacts WHERE id=?", (row["id"],))
             continue
         if row["is_primary"] and keep_primary:

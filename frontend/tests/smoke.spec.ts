@@ -159,6 +159,23 @@ test("opportunity pipeline shows forecast and LED project context", async ({ pag
   await expect(page.getByText(/共 \d+ 个项目/)).toBeVisible();
 });
 
+// SAFETY: opens a blank quotation form and reads controls, but never saves real sales data.
+test("formal quotation and order workbench is ready for LED projects", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /报价订单/ }).click();
+  await expect(page.locator(".card h3", { hasText: "正式报价" })).toBeVisible();
+  await expect(page.locator(".card h3", { hasText: "订单履约与收款" })).toBeVisible();
+  await expect(page.locator(".card h3", { hasText: "快速产品报价卡" })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "报价号 / 项目" })).toBeVisible();
+  await page.getByRole("button", { name: "＋ 新建正式报价" }).click();
+  await expect(page.getByPlaceholder("输入并选择客户")).toBeVisible();
+  await expect(page.getByPlaceholder("例如：Church P2.5 LED wall")).toBeVisible();
+  await expect(page.getByRole("button", { name: "创建报价草稿" })).toBeVisible();
+  await expect(page.getByText(/金额由系统根据尺寸、数量和单价重新计算/)).toBeVisible();
+  await page.getByRole("button", { name: "关闭" }).click();
+  await expect(page.getByPlaceholder("输入并选择客户")).toHaveCount(0);
+});
+
 test("theme toggle switches to light and persists attribute", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /浅色/ }).click();

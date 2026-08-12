@@ -243,6 +243,88 @@ export interface ActivityStats {
   no_due: number;
   open_count: number;
 }
+export interface QuoteItem {
+  id: number;
+  quote_id: number;
+  description: string;
+  model: string | null;
+  pixel_pitch: string | null;
+  width_m: number | null;
+  height_m: number | null;
+  quantity: number;
+  pricing_unit: "sqm" | "unit";
+  unit_price: number;
+  area_sqm: number;
+  line_total: number;
+  note: string | null;
+  sort_order: number;
+}
+export interface QuoteSummary {
+  id: number;
+  quote_no: string;
+  lead_no: number;
+  opportunity_id: number | null;
+  contact_id: number | null;
+  title: string;
+  status: "draft" | "sent" | "accepted" | "rejected" | "expired";
+  currency: string;
+  incoterm: string | null;
+  destination: string | null;
+  valid_until: string | null;
+  payment_terms: string | null;
+  lead_time: string | null;
+  warranty: string | null;
+  subtotal: number;
+  shipping: number;
+  discount: number;
+  total: number;
+  created_at: string;
+  updated_at: string;
+  sent_at: string | null;
+  accepted_at: string | null;
+  company_en: string;
+  country: string | null;
+  opportunity_title: string | null;
+  contact_name: string | null;
+  order_id?: number | null;
+  order_no?: string | null;
+  order_status?: string | null;
+}
+export interface Quote extends QuoteSummary {
+  company_local: string | null;
+  website: string | null;
+  contact_title: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  items: QuoteItem[];
+  order: { id: number; order_no: string; status: string } | null;
+}
+export interface SalesOrder {
+  id: number;
+  order_no: string;
+  quote_id: number;
+  quote_no: string;
+  lead_no: number;
+  opportunity_id: number | null;
+  contact_id: number | null;
+  title: string;
+  status: "confirmed" | "deposit" | "production" | "inspection" | "shipped" | "completed" | "cancelled";
+  currency: string;
+  total: number;
+  deposit_amount: number;
+  paid_amount: number;
+  balance: number;
+  expected_ship_date: string | null;
+  shipped_at: string | null;
+  tracking_no: string | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+  company_en: string;
+  country: string | null;
+  opportunity_title: string | null;
+  contact_name: string | null;
+}
 export interface ReadinessCheck {
   id: string;
   label: string;
