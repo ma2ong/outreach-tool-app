@@ -88,3 +88,54 @@ def test_mailbox_test_endpoint_ok(tmp_path, monkeypatch):
 def test_mailbox_test_404(tmp_path):
     client, _ = _client(tmp_path)
     assert client.post("/api/mailboxes/999/test").status_code == 404
+
+
+def test_send_only_mailbox_is_skipped_by_the_reply_poll(tmp_path):
+    """A mailbox whose plan withholds IMAP must not turn every sweep into an error."""
+    from app import mailboxes as mb, replies
+    _, db = _client(tmp_path)
+    conn = connect(db)
+    mb.add_mailbox(conn, "send@only.com", "smtp.only.com", 465, "send@only.com", "pw",
+                   imap_enabled=False)
+    mb.add_mailbox(conn, "both@ok.com", "smtp.ok.com", 465, "both@ok.com", "pw")
+    polled = []
+
+    def fetcher(mailbox, since_days):
+        polled.append(mailbox["email"])
+        return []
+
+    result = replies.poll_all_replies(conn, fetcher=fetcher)
+    assert polled == ["both@ok.com"]
+    assert result["errors"] == [] and result["mailboxes_checked"] == 1
+
+
+def test_only_send_only_mailboxes_falls_back_to_the_legacy_gmail(tmp_path, monkeypatch):
+    """Otherwise configuring a send-only box would silently stop all reply detection."""
+    from app import mailboxes as mb, replies
+    from app.channels.email_adapter import GMAIL_USER
+    _, db = _client(tmp_path)
+    conn = connect(db)
+    mb.add_mailbox(conn, "send@only.com", "smtp.only.com", 465, "send@only.com", "pw",
+                   imap_enabled=False)
+    monkeypatch.setattr("app.replies.get_password", lambda: "gmail-pw")
+    polled = []
+
+    def fetcher(mailbox, since_days):
+        polled.append(mailbox["email"])
+        return []
+
+    replies.poll_all_replies(conn, fetcher=fetcher)
+    assert polled == [GMAIL_USER]
+
+
+def test_test_endpoint_skips_imap_for_a_send_only_mailbox(tmp_path, monkeypatch):
+    from app import mailboxes as mb
+    client, db = _client(tmp_path)
+    monkeypatch.setattr("app.channels.email_adapter.test_mailbox", lambda box: None)
+    monkeypatch.setattr("app.replies.test_mailbox",
+                        lambda box: (_ for _ in ()).throw(AssertionError("must not run")))
+    conn = connect(db)
+    mid = mb.add_mailbox(conn, "send@only.com", "smtp.only.com", 465, "send@only.com",
+                         "pw", imap_enabled=False)
+    r = client.post(f"/api/mailboxes/{mid}/test")
+    assert r.status_code == 200 and r.json() == {"ok": True, "smtp": True, "imap": False}

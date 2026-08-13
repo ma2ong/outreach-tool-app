@@ -4,7 +4,7 @@ import type { Mailbox } from "../types";
 
 const BLANK = {
   email: "", smtp_host: "", port: 465, imap_host: "", imap_port: 993,
-  username: "", password: "", daily_cap: 40,
+  username: "", password: "", daily_cap: 40, imap_enabled: true,
 };
 
 export function MailboxPanel() {
@@ -26,7 +26,12 @@ export function MailboxPanel() {
   const [testing, setTesting] = useState<number | null>(null);
   async function test(b: Mailbox) {
     setTesting(b.id); setMsg(`正在登录 ${b.email} …`);
-    try { await testMailbox(b.id); setMsg(`✓ ${b.email} SMTP/IMAP 登录成功，可正常发信和同步回复`); }
+    try {
+      const r = await testMailbox(b.id);
+      setMsg(r.imap
+        ? `✓ ${b.email} SMTP/IMAP 登录成功，可正常发信和同步回复`
+        : `✓ ${b.email} SMTP 登录成功（只发信邮箱，未测 IMAP）—— 回复和退信要靠转发到能收信的邮箱`);
+    }
     catch (e) { setMsg(`✗ ${b.email} ${String(e instanceof Error ? e.message : e)}`); }
     finally { setTesting(null); }
   }
@@ -53,7 +58,10 @@ export function MailboxPanel() {
               <tr key={b.id}>
                 <td>{b.email}</td>
                 <td className="muted">
-                  {b.smtp_host}:{b.port}<br />{b.imap_host || "未配置"}:{b.imap_port}
+                  {b.smtp_host}:{b.port}<br />
+                  {b.imap_enabled
+                    ? `${b.imap_host || "未配置"}:${b.imap_port}`
+                    : "只发信 · 不收信"}
                 </td>
                 <td className="num">{b.sent_today} / {b.daily_cap}</td>
                 <td>
@@ -84,6 +92,12 @@ export function MailboxPanel() {
         <input className="input" placeholder="用户名（默认同邮箱）" value={form.username} onChange={(e) => set("username", e.target.value)} style={{ width: 160 }} />
         <input className="input" placeholder="密码 / 应用专用码" type="password" value={form.password} onChange={(e) => set("password", e.target.value)} style={{ width: 160 }} />
         <input className="input" placeholder="日上限" type="number" value={form.daily_cap} onChange={(e) => set("daily_cap", Number(e.target.value))} style={{ width: 90 }} />
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}
+          title="勾上代表这个邮箱只负责发信，不去拉它的收件箱。适用于 SMTP 能用但 IMAP 未开通的邮箱（如 Zoho 免费版）——回复和退信要另配转发到一个能收信的邮箱。">
+          <input type="checkbox" checked={!form.imap_enabled}
+            onChange={(e) => setForm((f) => ({ ...f, imap_enabled: !e.target.checked }))} />
+          只发信（不收信）
+        </label>
         <button className="btn btn-primary" onClick={add}>添加</button>
       </div>
       {msg && <div className="muted" style={{ marginTop: 8 }}>{msg}</div>}

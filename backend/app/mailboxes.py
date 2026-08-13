@@ -30,13 +30,13 @@ def _today() -> str:
 
 def add_mailbox(conn, email: str, smtp_host: str, port: int, username: str,
                 password: str, daily_cap: int = 40, imap_host: str | None = None,
-                imap_port: int = 993) -> int:
+                imap_port: int = 993, imap_enabled: bool = True) -> int:
     cur = conn.execute(
         "INSERT INTO mailboxes(email, smtp_host, port, imap_host, imap_port,"
-        " username, password, daily_cap, active, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+        " username, password, daily_cap, active, created_at, imap_enabled)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
         (email, smtp_host, port, imap_host, imap_port, username, password,
-         daily_cap, _dt.datetime.now(_dt.UTC).isoformat()))
+         daily_cap, _dt.datetime.now(_dt.UTC).isoformat(), 1 if imap_enabled else 0))
     conn.commit()
     return cur.lastrowid
 
@@ -44,11 +44,12 @@ def add_mailbox(conn, email: str, smtp_host: str, port: int, username: str,
 def list_mailboxes(conn, include_secrets: bool = False) -> list[dict]:
     rows = conn.execute(
         "SELECT id, email, smtp_host, port, imap_host, imap_port, username,"
-        " password, daily_cap, active FROM mailboxes ORDER BY id")
+        " password, daily_cap, active, imap_enabled FROM mailboxes ORDER BY id")
     out = []
     for r in rows:
         d = dict(r)
         d["active"] = bool(d["active"])
+        d["imap_enabled"] = bool(d["imap_enabled"])
         d["sent_today"] = sent_today(conn, d["id"])
         if not include_secrets:
             d.pop("password", None)

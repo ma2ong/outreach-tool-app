@@ -17,6 +17,7 @@ class MailboxCreate(BaseModel):
     username: str
     password: str
     daily_cap: int = 40
+    imap_enabled: bool = True
 
 
 class ActiveUpdate(BaseModel):
@@ -37,22 +38,29 @@ def create_mailbox(req: MailboxCreate, conn=Depends(get_conn)):
     mid = mb.add_mailbox(conn, req.email.strip(), req.smtp_host.strip(), req.port,
                          (req.username or req.email).strip(), req.password, req.daily_cap,
                          (req.imap_host or mb.infer_imap_host(req.smtp_host)),
-                         req.imap_port)
+                         req.imap_port, req.imap_enabled)
     return next(m for m in mb.list_mailboxes(conn) if m["id"] == mid)
 
 
 @router.post("/{mid}/test")
 def test_mailbox(mid: int, conn=Depends(get_conn)):
-    """Verify both sending and reply-sync credentials without sending or reading mail."""
+    """Verify the credentials this mailbox actually uses, without sending or reading mail.
+
+    A send-only mailbox is not tested for IMAP: it is configured not to have any, so
+    failing it there would report a broken mailbox that is working exactly as set up."""
     row = conn.execute("SELECT * FROM mailboxes WHERE id=?", (mid,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="mailbox not found")
+    box = dict(row)
+    imap = bool(box.get("imap_enabled", 1))
     try:
-        email_adapter.test_mailbox(dict(row))
-        replies.test_mailbox(dict(row))
+        email_adapter.test_mailbox(box)
+        if imap:
+            replies.test_mailbox(box)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=f"SMTP/IMAP 登录失败：{exc}")
-    return {"ok": True, "smtp": True, "imap": True}
+        raise HTTPException(status_code=400,
+                            detail=f"{'SMTP/IMAP' if imap else 'SMTP'} 登录失败：{exc}")
+    return {"ok": True, "smtp": True, "imap": imap}
 
 
 @router.patch("/{mid}")

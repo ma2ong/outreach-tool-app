@@ -101,6 +101,7 @@ export interface Mailbox {
   daily_cap: number;
   active: boolean;
   sent_today: number;
+  imap_enabled: boolean;
 }
 export interface ChannelReach {
   have: number;

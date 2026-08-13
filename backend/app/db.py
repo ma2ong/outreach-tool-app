@@ -182,6 +182,10 @@ _TABLE_COLUMNS = {
     "mailboxes": {
         "imap_host": "TEXT",
         "imap_port": "INTEGER NOT NULL DEFAULT 993",
+        # Send-only mailboxes exist: a domain can be authenticated for sending while
+        # its plan withholds IMAP. Polling one is a guaranteed error that would mask
+        # the healthy mailboxes' status and keep the whole sync reading 'partial'.
+        "imap_enabled": "INTEGER NOT NULL DEFAULT 1",
     },
     "inbox_messages": {
         "handled_at": "TEXT",

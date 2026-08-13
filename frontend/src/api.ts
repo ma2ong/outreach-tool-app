@@ -597,7 +597,7 @@ export async function fetchMailboxes(): Promise<import("./types").Mailbox[]> {
 
 export async function createMailbox(m: {
   email: string; smtp_host: string; port: number; imap_host?: string; imap_port?: number;
-  username: string; password: string; daily_cap: number;
+  username: string; password: string; daily_cap: number; imap_enabled?: boolean;
 }): Promise<import("./types").Mailbox> {
   const r = await fetch("/api/mailboxes", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(m),
@@ -613,12 +613,13 @@ export async function setMailboxActive(id: number, active: boolean): Promise<voi
   if (!r.ok) throw new Error(`mailbox ${r.status}`);
 }
 
-export async function testMailbox(id: number): Promise<void> {
+export async function testMailbox(id: number): Promise<{ ok: boolean; smtp: boolean; imap: boolean }> {
   const r = await fetch(`/api/mailboxes/${id}/test`, { method: "POST" });
   if (!r.ok) {
     const detail = (await r.json().catch(() => null))?.detail;
     throw new Error(detail || `test ${r.status}`);
   }
+  return r.json();
 }
 
 export async function deleteMailbox(id: number): Promise<void> {

@@ -331,7 +331,12 @@ def poll_all_replies(conn, fetcher=fetch_mailbox_messages, since_days: int | Non
     since_days=None widens the window to cover however long polling has been down."""
     if since_days is None:
         since_days = adaptive_since_days(conn)
-    configured = [m for m in mailboxes.list_mailboxes(conn, include_secrets=True) if m["active"]]
+    # Send-only mailboxes are skipped rather than polled: a mailbox whose plan withholds
+    # IMAP fails every round, and one guaranteed failure turns the whole sweep 'partial'
+    # for good — which suppresses the look-back window from ever narrowing and makes the
+    # deliverability meter report itself blind while the other mailboxes are fine.
+    configured = [m for m in mailboxes.list_mailboxes(conn, include_secrets=True)
+                  if m["active"] and m.get("imap_enabled", True)]
     targets = configured
     if not targets:
         pw = get_password()
