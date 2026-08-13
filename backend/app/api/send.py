@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app import jobs, outreach, channel_outreach, mailboxes
 from app.api import channels as channels_api
@@ -18,12 +18,22 @@ DELAY_RANGE = (16, 28)
 DEFAULT_ATTACHMENT = r"C:\Users\Administrator\Desktop\Recent-led-projects-poster-4k.jpg"
 
 
+def clean_path(value: str | None) -> str | None:
+    """Windows「复制文件地址」会给路径包一对双引号，粘进来会让文件判定失败。"""
+    if value is None:
+        return None
+    cleaned = value.strip().strip('"').strip("'").strip()
+    return cleaned or None
+
+
 class EmailSendRequest(BaseModel):
     lead_nos: list[int]
     subject: str
     body: str
     attachment: str | None = DEFAULT_ATTACHMENT
     campaign: str | None = None
+
+    _clean_attachment = field_validator("attachment")(clean_path)
 
 
 def _rotating_sender(conn):
@@ -90,6 +100,8 @@ class ChannelSendRequest(BaseModel):
     message: str
     image: str | None = DEFAULT_ATTACHMENT  # 规矩：DM 必须同步发案例图
     campaign: str | None = None
+
+    _clean_image = field_validator("image")(clean_path)
 
 
 def _run_channel(job_id: str, req: ChannelSendRequest):

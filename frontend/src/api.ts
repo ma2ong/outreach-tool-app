@@ -179,7 +179,7 @@ export async function startEmailSend(body: { lead_nos: number[]; subject: string
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!r.ok) throw new Error(`send ${r.status}`);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `send ${r.status}`);
   return r.json();
 }
 
@@ -253,7 +253,7 @@ export async function startChannelSend(channel: string, lead_nos: number[], mess
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!r.ok) throw new Error(`send ${r.status}`);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `send ${r.status}`);
   return r.json();
 }
 

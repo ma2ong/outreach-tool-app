@@ -89,7 +89,18 @@ export function OutreachPanel({ selected, countries = [], firstCompany = "", onD
         ? await startEmailSend({ lead_nos: selected, subject, body, ...(att ? { attachment: att } : {}), ...(camp ? { campaign: camp } : {}) })
         : await startChannelSend(channel, selected, dm, att, camp);
       const unit = isEmail ? "有邮箱" : channel === "whatsapp" ? "有电话" : "有IG";
+      if (start.eligible === 0) {
+        setMsg(`已选 ${start.selected} 家，没有一家可发：这些客户要么缺${unit}，要么今天已被触达过，要么之前已发过 ${CH_NAME[channel]}。` +
+          `请在上方筛选「渠道=${CH_NAME[channel]}、状态=未触达、联系方式=${unit}」再挑一批。`);
+        setSending(false);
+        return;
+      }
       const willSend = (start as { will_send?: number }).will_send;
+      if (willSend === 0) {
+        setMsg(`符合条件 ${start.eligible} 家，但今日 ${CH_NAME[channel]} 发送额度已用完，明天再发。`);
+        setSending(false);
+        return;
+      }
       const capNote = !isEmail && willSend !== undefined && willSend < start.eligible
         ? `，本批只发前 ${willSend} 家（防封号上限），其余 ${start.eligible - willSend} 家下次再发`
         : "";
