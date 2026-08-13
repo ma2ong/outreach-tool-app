@@ -47,7 +47,12 @@ _PERMANENT_RE = re.compile(
     r"找不到地址|地址不存在|无法接收邮件", re.I)
 _UNSUB_RE = re.compile(
     r"unsubscribe|remove me|take me off|stop (contacting|emailing|sending|messaging)|"
-    r"do( not|n'?t) (contact|email)", re.I)
+    r"do( not|n'?t) (contact|email)|"
+    # Korean. The Korean templates deliberately carry no opt-out line, which makes
+    # reading one in a reply the only way a Korean customer can be suppressed —
+    # they will write it in Korean, and none of the patterns above would match.
+    r"수신\s*거부|수신을?\s*원하지\s*않|광고\s*거부|연락\s*(하지|주지)\s*마|"
+    r"보내지\s*마|그만\s*보내", re.I)
 
 _BODY_LIMIT = 4000
 

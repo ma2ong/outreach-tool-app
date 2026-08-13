@@ -184,3 +184,27 @@ def test_backfill_recovers_dates_from_old_inbox_notices(conn):
     row = conn.execute("SELECT bounced_at FROM leads WHERE no=1").fetchone()
     assert row["bounced_at"] == "2026-07-02T00:00:00+00:00"   # earliest notice wins
     assert replies.backfill_bounced_at(conn) == 0             # idempotent
+
+
+def test_korean_opt_out_suppresses_the_lead(conn):
+    """The Korean mail carries no opt-out line, so reading one in a reply is the only
+    way a Korean customer can ask to be left alone."""
+    for phrase in ("수신거부 부탁드립니다", "앞으로 연락하지 마세요", "메일 그만 보내주세요"):
+        conn.execute("UPDATE leads SET do_not_contact=0 WHERE no=1")
+        conn.commit()
+        replies.process_messages(conn, [{
+            "from_addr": "sales@alpha.com", "subject": "RE: LED",
+            "body": phrase, "received_at": "2026-08-13T00:00:00+00:00"}])
+        row = conn.execute("SELECT do_not_contact FROM leads WHERE no=1").fetchone()
+        assert row["do_not_contact"] == 1, phrase
+
+
+def test_an_ordinary_korean_reply_is_not_read_as_an_opt_out(conn):
+    conn.execute("UPDATE leads SET do_not_contact=0 WHERE no=1")
+    conn.commit()
+    replies.process_messages(conn, [{
+        "from_addr": "sales@alpha.com", "subject": "RE: LED",
+        "body": "안녕하세요, 견적 부탁드립니다. P2.5 실내용으로 검토 중입니다.",
+        "received_at": "2026-08-13T00:00:00+00:00"}])
+    row = conn.execute("SELECT do_not_contact FROM leads WHERE no=1").fetchone()
+    assert row["do_not_contact"] == 0

@@ -98,7 +98,7 @@ def test_a_self_referring_term_is_readable_but_never_sent():
 def test_render_drops_an_empty_hook_without_leaving_a_gap():
     lead = {"company_en": "Acme", "contact_name": "", "hook": ""}
     assert personalize.render("Hi {contact}, {hook} We build LED panels.", lead) == \
-        "Hi there, We build LED panels."
+        "Hi, We build LED panels."
 
 
 def test_render_inserts_the_hook_when_there_is_one():

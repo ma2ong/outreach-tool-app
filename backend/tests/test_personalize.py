@@ -13,9 +13,12 @@ def test_company_alias():
     assert render("{company}", LEAD) == "Alpha AV"
 
 
-def test_contact_falls_back_to_there():
-    assert render("Hi {contact}", {"company_en": "X"}) == "Hi there"
-    assert render("Hi {contact}", {"company_en": "X", "contact_name": "  "}) == "Hi there"
+def test_a_missing_contact_leaves_a_clean_greeting():
+    """"Hi there," announced a mass send on every lead with no contact name, which is
+    most of them. Dropping the token pulls the comma back to the greeting instead."""
+    assert render("Hi {contact},", {"company_en": "X"}) == "Hi,"
+    assert render("Hi {contact},", {"company_en": "X", "contact_name": "  "}) == "Hi,"
+    assert render("Hi {contact},", {"company_en": "X", "contact_name": "Dave Miller"}) == "Hi Dave,"
 
 
 def test_missing_fields_render_empty():

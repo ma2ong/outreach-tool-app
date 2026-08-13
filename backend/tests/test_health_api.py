@@ -53,15 +53,34 @@ def test_seed_loads_templates_and_sequences(tmp_path):
     for s in seqs:
         assert [st["day_offset"] for st in s["steps"]] == [0, 3, 8]
     ko = next(s for s in seqs if "韩语" in s["name"])
-    assert "안녕하세요" in ko["steps"][0]["body"] and "LED 디스플레이" in ko["steps"][0]["subject"]
-    # Korean business register, not English structure in Korean words: address the
-    # company's 담당자 (never {contact}, which falls back to the English "there"),
-    # keep 격식체 throughout, and sign off in Korean.
+    en = next(s for s in seqs if "英语" in s["name"])
+    assert "안녕하세요" in ko["steps"][0]["body"]
+    assert "LED 디스플레이" in ko["steps"][0]["subject"]
+    # Allen's own voice, not a cold-email formula translated into it. The Korean mail
+    # greets without a name (so {contact} can never leak into it), quotes the pixel
+    # pitches actually delivered, and points at KakaoTalk rather than WhatsApp.
     for step in ko["steps"]:
-        assert "담당자님" in step["body"] and "{contact}" not in step["body"]
-        assert "감사합니다" in step["body"]
-        assert "습니다" in step["body"] or "십시오" in step["body"]
-    assert "수신거부" in ko["steps"][0]["body"]  # opt-out in Korean, not "unsubscribe"
+        assert "{contact}" not in step["body"]
+        assert "Kakaotalk" in step["body"] and "WhatsApp" not in step["body"]
+    assert "P1.53" in ko["steps"][0]["body"]
+    # Neither language carries an opt-out paragraph; suppression comes from the reply.
+    for s_ in seqs:
+        for step in s_["steps"]:
+            assert "unsubscribe" not in step["body"].lower()
+            assert "수신거부" not in step["body"]
+    assert "P1.86" in en["steps"][0]["body"]
+
+
+def test_seeded_greeting_never_says_hi_there(tmp_path):
+    """The greeting has to survive a lead with no contact name — most of them."""
+    from app.personalize import render
+    from app import seeds
+    body = next(b for n, l, s_, b in seeds.EMAIL_TEMPLATES if l == "en")
+    named = render(body, {"company_en": "Acme", "contact_name": "Dave Miller"})
+    bare = render(body, {"company_en": "Acme", "contact_name": None})
+    assert named.startswith("Hi Dave,")
+    assert bare.startswith("Hi,")          # not "Hi there," and not "Hi ,"
+    assert "there" not in bare.splitlines()[0]
 
 
 def test_seed_is_idempotent(tmp_path):

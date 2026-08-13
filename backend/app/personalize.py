@@ -18,6 +18,11 @@ _TOKEN_RE = re.compile(r"\{(name|company|contact|country|city|hook)\}")
 # Closes the gap an empty token leaves behind. Only applied when something did render
 # empty, so a template that spaces itself deliberately is left alone.
 _GAP_RE = re.compile(r"[^\S\n]{2,}")
+# "Hi {contact}," with no contact name used to render "Hi there," — a greeting that
+# announces a mass send on the majority of leads, which have no contact name. Dropping
+# the token instead leaves "Hi ," so the punctuation is pulled back up to the word.
+_ORPHAN_PUNCT_RE = re.compile(r"[^\S\n]+([,.!?;:])")
+_TRAILING_SPACE_RE = re.compile(r"[^\S\n]+$", re.M)
 
 
 def render(text: str | None, lead: dict) -> str:
@@ -28,7 +33,7 @@ def render(text: str | None, lead: dict) -> str:
     values = {
         "name": company,
         "company": company,
-        "contact": contact.split()[0] if contact else "there",
+        "contact": contact.split()[0] if contact else "",
         "country": lead.get("country") or "",
         "city": lead.get("city") or "",
         "hook": (lead.get("hook") or "").strip(),
@@ -42,4 +47,8 @@ def render(text: str | None, lead: dict) -> str:
         return value
 
     out = _TOKEN_RE.sub(_sub, text)
-    return _GAP_RE.sub(" ", out) if dropped else out
+    if not dropped:
+        return out
+    out = _GAP_RE.sub(" ", out)
+    out = _ORPHAN_PUNCT_RE.sub(r"\1", out)
+    return _TRAILING_SPACE_RE.sub("", out)
