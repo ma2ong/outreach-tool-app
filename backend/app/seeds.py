@@ -52,7 +52,7 @@ Just following up on the LED display projects I shared earlier.
 
 Are you working on a specific project at the moment, or keeping a supplier on file for when one comes up? Either way, let me know and I'll send only what is actually useful to you.
 
-Feel free to reply anytime.
+Looking forward to hearing from you.
 
 {SIGNOFF}"""),
     ("跟进3：最后一封（英语）", "en", "Re: LED Displays — whenever you need them",
@@ -62,7 +62,7 @@ This is my last note — I don't want to fill up your inbox.
 
 If LED displays aren't on your plan right now, no problem at all. Whenever a project comes up, just contact me anytime and I'll send specs and pricing the same day.
 
-Hope we can work together some day!
+Hope we can have a good opportunity to work together in the future!
 
 {SIGNOFF}"""),
     ("首次触达（韩语）", "ko", "한국 LED 디스플레이 납품 사례 공유드립니다",
@@ -85,7 +85,7 @@ P1.53, P1.86, P2.5, P3.91, P10 등 실내/실외 다양한 프로젝트를 진�
 혹시 지금 검토 중이신 현장이 있으실까요? 아니면 나중을 위해 공급처를 미리 알아두시는 단계이신지요.
 어느 쪽이든 알려주시면 거기에 맞는 자료만 정리해서 보내드리겠습니다.
 
-편하게 답 주세요~
+회신 기다리겠습니다.
 
 {KO_SIGNOFF}"""),
     ("跟进3：最后一封（韩语）", "ko", "Re: 한국 LED 디스플레이 — 필요하실 때 언제든지",

@@ -152,7 +152,7 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
       <div className="card" style={{ marginBottom: 16 }}>
         <h3>新建跟进序列</h3>
         <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
-          冷触达发一次基本没人回，回复几乎都在第 2–4 次跟进。设定几步话术和间隔天数，到期后系统会把这一步放进上面的待发队列，仍由你手动确认发送（守住防封）。正文里可用变量：{"{name}"}=公司名、{"{contact}"}=联系人（缺失时自动写 there）、{"{country}"}、{"{city}"}、{"{hook}"}=按客户官网写的开场白（这家没抓到就自动省掉这句）。
+          冷触达发一次基本没人回，回复几乎都在第 2–4 次跟进。设定几步话术和间隔天数，到期后系统会把这一步放进上面的待发队列，仍由你手动确认发送（守住防封）。正文里可用变量：{"{name}"}=公司名、{"{contact}"}=联系人（没有就只留 "Hi,"）、{"{country}"}、{"{city}"}、{"{hook}"}=按客户官网写的开场白（这家没抓到就自动省掉这句）。
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
           <input className="input" placeholder="序列名称，如「冷触达 3 步」" value={name} onChange={(e) => setName(e.target.value)} style={{ minWidth: 220 }} />

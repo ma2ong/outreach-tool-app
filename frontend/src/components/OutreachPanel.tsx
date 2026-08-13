@@ -2,22 +2,22 @@ import { useEffect, useRef, useState } from "react";
 import { startEmailSend, startChannelSend, fetchJob, fetchQuota, fetchTemplates, createTemplate, loadSeeds } from "../api";
 import type { SendJob, Template } from "../types";
 
-const DEFAULT_SUBJECT = "Recent LED Display Project References";
-const DEFAULT_BODY = `Hi {name},
+// 与 backend/app/seeds.py 的首触模板保持一致：先给案例再谈需求，写真实点距，自然收尾。
+const DEFAULT_SUBJECT = "Recent LED Display Projects — Shenzhen Maxcolor Visual";
+const DEFAULT_BODY = `Hi {contact},
 
-I'm Allen, from an LED display manufacturing factory in Shenzhen, China.
+I'd like to share some recent LED display projects we delivered in Korea.
 
-I came across your LED video wall and display work and wanted to share some recent project references. The attached sheet includes indoor fine-pitch LED walls, outdoor LED screens, and commercial installations.
+We have completed various indoor and outdoor projects including P1.86, P2.5, P3.91, and P10 LED displays.
 
-If you ever need LED panels or full displays, I can recommend options based on size, viewing distance, pixel pitch, and indoor/outdoor use.
+If you have any upcoming projects, please feel free to contact me anytime. We would be happy to recommend suitable products and provide you with competitive pricing based on your project needs.
 
-If you'd prefer not to receive these emails, just reply "unsubscribe" and I won't contact you again.
+Hope we can have a good opportunity to work together!
 
 Best regards,
 Allen Ma
 Shenzhen Maxcolor Visual Co., Ltd.
-WhatsApp/WeChat: +86 135-7087-1001
-Email: allenma2ong@gmail.com`;
+WhatsApp/WeChat: +86 135-7087-1001`;
 
 const DM_BODY = `Hi {name}, this is Allen from an LED display factory in Shenzhen, China. We supply P0.7–P10 indoor and outdoor LED panels at factory-direct pricing. Happy to share recent project references if you have upcoming LED display needs.`;
 
@@ -166,7 +166,7 @@ export function OutreachPanel({ selected, countries = [], firstCompany = "", onD
             </div>
           )}
           <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-            可用变量：{"{name}"}=公司名 · {"{contact}"}=联系人（缺失自动写 there）· {"{country}"} · {"{city}"} · {"{hook}"}=按官网写的开场白（没有就自动省掉这句）
+            可用变量：{"{name}"}=公司名 · {"{contact}"}=联系人（没有就只留 "Hi,"）· {"{country}"} · {"{city}"} · {"{hook}"}=按官网写的开场白（没有就自动省掉这句）
           </div>
         </>
       ) : (
