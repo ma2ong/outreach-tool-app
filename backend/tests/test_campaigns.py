@@ -147,7 +147,7 @@ def test_deliverability_admits_when_it_cannot_see_bounces(conn):
     assert campaigns.deliverability(conn)["blind"] is True
 
 
-def test_deliverability_is_blind_while_a_send_only_mailbox_is_active(conn):
+def test_deliverability_goes_blind_once_a_send_only_mailbox_has_sent(conn):
     """The trap: replies still arrive via Reply-To so the sweep reads 'success', while
     every bounce goes to the envelope sender's unreadable mailbox."""
     from app import mailboxes, settings
@@ -158,9 +158,30 @@ def test_deliverability_is_blind_while_a_send_only_mailbox_is_active(conn):
 
     mid = mailboxes.add_mailbox(conn, "send@only.com", "smtp.only.com", 465,
                                 "send@only.com", "pw", imap_enabled=False)
-    assert campaigns.deliverability(conn)["blind"] is True
-    mailboxes.set_active(conn, mid, False)
+    # Configured but idle: nothing has been sent through it, so no bounce is missing
+    # and the number on screen is still true.
     assert campaigns.deliverability(conn)["blind"] is False
+
+    mailboxes.record_send(conn, mid)
+    d = campaigns.deliverability(conn)
+    assert d["blind"] is True and d["unmeasured"] == 1
+
+    # Switching the sender away does not bring those bounces back — the window is
+    # still short by them, so the warning has to survive the mailbox being turned off.
+    mailboxes.set_active(conn, mid, False)
+    assert campaigns.deliverability(conn)["blind"] is True
+
+
+def test_a_send_only_mailbox_that_last_sent_long_ago_does_not_blind_the_window(conn):
+    """Blindness is about the window being measured, not about all of history."""
+    from app import mailboxes, settings
+    settings.set_value(conn, "reply_sync_last_status", "success")
+    mid = mailboxes.add_mailbox(conn, "send@only.com", "smtp.only.com", 465,
+                                "send@only.com", "pw", imap_enabled=False)
+    conn.execute("INSERT INTO mailbox_sends(mailbox_id, date, count) VALUES (?, ?, 5)",
+                 (mid, "2026-01-01"))
+    conn.commit()
+    assert campaigns.deliverability(conn, days=30)["blind"] is False
 
 
 def test_a_mailbox_that_can_receive_does_not_blind_the_meter(conn):

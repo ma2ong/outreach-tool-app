@@ -106,16 +106,27 @@ def deliverability(conn, days: int = 30) -> dict:
     # separate ways to go blind, and the second one leaves the reply sync reporting
     # perfect health:
     #   1. the sync itself is failing
-    #   2. mail goes out from a send-only mailbox. Bounces follow the envelope sender,
-    #      never the Reply-To, so they land in a mailbox nothing can read — replies
-    #      still arrive through the forward or reply-to and the sweep stays 'success'.
-    from app import mailboxes, settings
+    #   2. mail went out from a send-only mailbox inside the window. Bounces follow the
+    #      envelope sender, never the Reply-To, so they land in a mailbox nothing can
+    #      read — replies still arrive through the reply-to and the sweep stays 'success'.
+    #
+    # The second check counts sends, not configuration. A send-only mailbox that has not
+    # sent anything yet is hiding no bounces, and warning about it would put a permanent
+    # unfixable banner over a number that is, for now, accurate — which is how a real
+    # alarm gets trained away.
+    # Deliberately not scoped to mailboxes still active: switching the sender away does
+    # not bring back the bounces for mail already sent through it. Those stay missing
+    # for as long as the window covers the sends, and the rate stays understated by them.
+    from app import settings
     sync_broken = settings.get(conn, "reply_sync_last_status") not in (None, "success")
-    unseen_sender = any(m["active"] and not m["imap_enabled"]
-                        for m in mailboxes.list_mailboxes(conn))
-    blind = sync_broken or unseen_sender
+    unmeasured = conn.execute(
+        "SELECT COALESCE(SUM(s.count), 0) c FROM mailbox_sends s"
+        " JOIN mailboxes m ON m.id = s.mailbox_id"
+        " WHERE m.imap_enabled = 0 AND s.date >= ?", (since,)).fetchone()["c"]
     return {"days": days, "sends": sends, "bounced": bounced,
-            "bounce_rate": rate, "danger": rate > BOUNCE_DANGER_PCT, "blind": blind}
+            "bounce_rate": rate, "danger": rate > BOUNCE_DANGER_PCT,
+            "blind": sync_broken or unmeasured > 0,
+            "sync_broken": sync_broken, "unmeasured": unmeasured}
 
 
 def country_stats(conn, min_touched: int = 3) -> list[dict]:
