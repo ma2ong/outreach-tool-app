@@ -145,3 +145,26 @@ def test_deliverability_admits_when_it_cannot_see_bounces(conn):
     assert campaigns.deliverability(conn)["blind"] is False
     settings.set_value(conn, "reply_sync_last_status", "error")
     assert campaigns.deliverability(conn)["blind"] is True
+
+
+def test_deliverability_is_blind_while_a_send_only_mailbox_is_active(conn):
+    """The trap: replies still arrive via Reply-To so the sweep reads 'success', while
+    every bounce goes to the envelope sender's unreadable mailbox."""
+    from app import mailboxes, settings
+    outreach.send_campaign(conn, [1, 2, 3, 4], subject="S", body="B", attachment=None,
+                           sender=lambda *a: None, delay_range=(0, 0))
+    settings.set_value(conn, "reply_sync_last_status", "success")
+    assert campaigns.deliverability(conn)["blind"] is False
+
+    mid = mailboxes.add_mailbox(conn, "send@only.com", "smtp.only.com", 465,
+                                "send@only.com", "pw", imap_enabled=False)
+    assert campaigns.deliverability(conn)["blind"] is True
+    mailboxes.set_active(conn, mid, False)
+    assert campaigns.deliverability(conn)["blind"] is False
+
+
+def test_a_mailbox_that_can_receive_does_not_blind_the_meter(conn):
+    from app import mailboxes, settings
+    settings.set_value(conn, "reply_sync_last_status", "success")
+    mailboxes.add_mailbox(conn, "both@ok.com", "smtp.ok.com", 465, "both@ok.com", "pw")
+    assert campaigns.deliverability(conn)["blind"] is False

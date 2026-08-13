@@ -101,11 +101,19 @@ def deliverability(conn, days: int = 30) -> dict:
     bounced = conn.execute(
         "SELECT COUNT(*) c FROM leads WHERE bounced_at >= ?", (since,)).fetchone()["c"]
     rate = round(bounced / sends * 100, 1) if sends else 0.0
-    # Bounces only arrive over IMAP. When that is down — a mailbox without IMAP access,
-    # an expired password — no new bounce is ever recorded and this rate decays towards
-    # a healthy-looking 0 on a list that is getting worse. Say "unmeasured" instead.
-    from app import settings
-    blind = settings.get(conn, "reply_sync_last_status") not in (None, "success")
+    # Bounces only arrive over IMAP, and this rate decays towards a healthy-looking 0
+    # whenever they stop arriving — on a list that is getting worse, not better. Two
+    # separate ways to go blind, and the second one leaves the reply sync reporting
+    # perfect health:
+    #   1. the sync itself is failing
+    #   2. mail goes out from a send-only mailbox. Bounces follow the envelope sender,
+    #      never the Reply-To, so they land in a mailbox nothing can read — replies
+    #      still arrive through the forward or reply-to and the sweep stays 'success'.
+    from app import mailboxes, settings
+    sync_broken = settings.get(conn, "reply_sync_last_status") not in (None, "success")
+    unseen_sender = any(m["active"] and not m["imap_enabled"]
+                        for m in mailboxes.list_mailboxes(conn))
+    blind = sync_broken or unseen_sender
     return {"days": days, "sends": sends, "bounced": bounced,
             "bounce_rate": rate, "danger": rate > BOUNCE_DANGER_PCT, "blind": blind}
 
