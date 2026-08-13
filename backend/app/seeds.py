@@ -14,6 +14,23 @@ Email: allenma2ong@gmail.com"""
 
 OPT_OUT = 'If you\'d prefer not to receive these emails, just reply "unsubscribe" and I won\'t contact you again.'
 
+# Korean business mail is its own register, not the English one translated. Three things
+# it needs that a translation does not give you:
+#   - the greeting addresses the company's 담당자 (the person in charge), not a first name.
+#     Cold B2B mail in Korea rarely uses one, and {contact} falls back to "there", which
+#     would render "안녕하세요, there님" — {name} is always present and reads correctly.
+#   - 격식체 (-습니다/-십시오) throughout. Anything softer reads as a consumer ad.
+#   - a Korean sign-off. A bare English block under Korean body text reads as a mass mail.
+KO_SIGNOFF = """감사합니다.
+
+Allen Ma | 해외영업
+Shenzhen Maxcolor Visual Co., Ltd. (중국 선전)
+WhatsApp/WeChat: +86 135-7087-1001
+Email: allenma2ong@gmail.com"""
+
+KO_OPT_OUT = ('메일 수신을 원하지 않으시면 "수신거부"라고 회신해 주십시오. '
+              '이후로는 연락드리지 않겠습니다.')
+
 EMAIL_TEMPLATES = [
     ("首次触达（英语）", "en", "LED Display Panels — Factory Direct from Shenzhen",
      f"""Hi {{contact}},
@@ -25,30 +42,6 @@ I came across {{name}} and your LED display work. We supply P0.7–P10 indoor an
 If you have an upcoming LED display need, I can recommend options based on size, viewing distance, pixel pitch, and indoor/outdoor use.
 
 {OPT_OUT}
-
-{SIGNOFF}"""),
-    ("首次触达（西语）", "es", "Pantallas LED — Precio directo de fábrica (Shenzhen)",
-     f"""Hola {{contact}}:
-
-Soy Allen, de una fábrica de pantallas LED en Shenzhen, China.
-
-Vi el trabajo de {{name}} en pantallas LED. Fabricamos paneles LED P0.7–P10 para interior y exterior a precio directo de fábrica. Adjunto una hoja con proyectos recientes.
-
-Si tienen algún proyecto de pantalla LED, puedo recomendarles opciones según tamaño, distancia de visión, pixel pitch y uso interior/exterior.
-
-Si prefiere no recibir estos correos, responda "unsubscribe" y no volveré a escribirle.
-
-{SIGNOFF}"""),
-    ("首次触达（葡语）", "pt", "Painéis LED — Preço direto de fábrica (Shenzhen)",
-     f"""Olá {{contact}},
-
-Sou o Allen, de uma fábrica de painéis LED em Shenzhen, China.
-
-Vi o trabalho da {{name}} com painéis LED. Fornecemos painéis LED P0.7–P10 para interior e exterior a preço direto de fábrica. Segue em anexo uma folha com projetos recentes.
-
-Se tiver algum projeto de painel LED, posso recomendar opções conforme tamanho, distância de visão, pixel pitch e uso interno/externo.
-
-Se preferir não receber estes e-mails, responda "unsubscribe" e não entrarei mais em contato.
 
 {SIGNOFF}"""),
     ("跟进2：案例+提问（英语）", "en", "Re: LED Display Panels — quick question",
@@ -69,86 +62,54 @@ Last note from me — I don't want to clutter your inbox.
 If LED displays aren't on your radar, no problem at all. If they come up later, my details are below and I'll send pricing the same day you ask.
 
 {SIGNOFF}"""),
-    ("跟进2：案例+提问（西语）", "es", "Re: Pantallas LED — una pregunta rápida",
-     f"""Hola {{contact}}:
+    ("首次触达（韩语）", "ko", "[LED 디스플레이] 중국 선전 제조사 직접 공급 안내",
+     f"""안녕하세요, {{name}} 담당자님.
 
-Le escribo de nuevo sobre los paneles LED para {{name}}.
+중국 선전에서 LED 디스플레이를 제조하는 Allen이라고 합니다.
 
-Una pregunta rápida para no hacerle perder tiempo: ¿está cotizando para un proyecto concreto ahora mismo, o busca tener un proveedor a mano para cuando surja? Cualquiera de las dos respuestas me sirve — le enviaré solo lo que realmente le convenga.
+{{name}}에서 LED 디스플레이를 취급하시는 것을 보고 연락드렸습니다. 저희는 실내외용 P0.7~P10 LED 패널을 제조사에서 직접 공급하고 있으며, 최근 납품 사례를 정리한 자료를 첨부해 드립니다.
 
-Si prefiere no recibir estos correos, responda "unsubscribe" y no volveré a escribirle.
+검토 중이신 건이 있으시면 설치 환경과 화면 크기, 시야 거리에 맞춰 사양과 단가를 정리해 보내드리겠습니다.
 
-{SIGNOFF}"""),
-    ("跟进3：最后一封（西语）", "es", "Re: Pantallas LED — cierro el tema",
-     f"""Hola {{contact}}:
+당장 필요하지 않으시더라도 첨부 자료만 참고용으로 보관해 주시면 감사하겠습니다.
 
-Este es mi último correo, no quiero llenarle la bandeja de entrada.
+{KO_OPT_OUT}
 
-Si las pantallas LED no están entre sus prioridades ahora, no hay problema. Si surge algo más adelante, aquí abajo están mis datos y le envío precios el mismo día que me escriba.
+{KO_SIGNOFF}"""),
+    ("跟进2：案例+提问（韩语）", "ko", "Re: [LED 디스플레이] 진행 중인 건이 있으신지요",
+     f"""안녕하세요, {{name}} 담당자님.
 
-{SIGNOFF}"""),
-    ("跟进2：案例+提问（葡语）", "pt", "Re: Painéis LED — uma pergunta rápida",
-     f"""Olá {{contact}},
+지난번 보내드린 LED 패널 건으로 다시 연락드립니다.
 
-Retomando o assunto dos painéis LED para a {{name}}.
+바쁘실 테니 한 가지만 여쭙겠습니다. 지금 구체적으로 진행 중인 프로젝트가 있으신가요, 아니면 필요하실 때를 대비해 거래처를 미리 알아보시는 단계이신가요?
 
-Uma pergunta rápida para não tomar seu tempo: você está cotando para um projeto específico agora, ou quer manter um fornecedor à mão para quando surgir? Qualquer resposta me ajuda — envio só o que realmente faz sentido.
+어느 쪽인지만 알려주시면 그에 맞는 자료만 간단히 보내드리겠습니다. 답변이 어려우시면 이 메일은 넘기셔도 괜찮습니다.
 
-Se preferir não receber estes e-mails, responda "unsubscribe" e não entrarei mais em contato.
+{KO_OPT_OUT}
 
-{SIGNOFF}"""),
-    ("跟进3：最后一封（葡语）", "pt", "Re: Painéis LED — encerrando o assunto",
-     f"""Olá {{contact}},
+{KO_SIGNOFF}"""),
+    ("跟进3：最后一封（韩语）", "ko", "Re: [LED 디스플레이] 마지막으로 인사드립니다",
+     f"""안녕하세요, {{name}} 담당자님.
 
-Este é meu último e-mail, não quero lotar sua caixa de entrada.
+계속 메일을 드리는 것이 부담이 되실 것 같아 이번을 마지막으로 하겠습니다.
 
-Se painéis LED não estão na sua pauta agora, sem problema. Se aparecer algo mais à frente, meus contatos estão abaixo e envio preços no mesmo dia em que você pedir.
+지금은 LED 디스플레이 도입 계획이 없으시더라도 전혀 괜찮습니다. 다만 나중에 필요하신 일이 생기면 아래 연락처로 편하게 문의해 주십시오. 요청 주신 날 안에 사양과 견적을 정리해 보내드리겠습니다.
 
-{SIGNOFF}"""),
-    ("首次触达（韩语）", "ko", "LED 디스플레이 패널 — 심천 공장 직거래",
-     f"""안녕하세요 {{contact}}님,
+그동안 시간 내주셔서 감사합니다.
 
-저는 중국 심천의 LED 디스플레이 제조 공장에서 근무하는 Allen이라고 합니다.
-
-{{name}}의 LED 디스플레이 관련 업무를 보고 연락드립니다. 저희는 P0.7–P10 실내외 LED 패널을 공장 직거래 가격으로 공급하고 있으며, 최근 프로젝트 자료를 첨부해 드립니다.
-
-진행 중이거나 예정된 LED 디스플레이 건이 있으시면, 크기·시청 거리·픽셀 피치·실내외 용도에 맞춰 적합한 사양을 추천해 드리겠습니다.
-
-이 메일 수신을 원치 않으시면 "unsubscribe"라고 회신해 주시면 더 이상 연락드리지 않겠습니다.
-
-{SIGNOFF}"""),
-    ("跟进2：案例+提问（韩语）", "ko", "Re: LED 디스플레이 패널 — 간단한 문의",
-     f"""안녕하세요 {{contact}}님,
-
-{{name}} 관련 LED 패널 건으로 다시 연락드립니다.
-
-시간을 뺏지 않도록 간단히 여쭙겠습니다. 지금 특정 프로젝트를 위해 공급처를 찾고 계신가요, 아니면 필요할 때를 대비해 거래처를 확보해 두시려는 건가요? 어느 쪽이든 알려주시면 실제로 도움이 될 만한 자료만 보내드리겠습니다.
-
-이 메일 수신을 원치 않으시면 "unsubscribe"라고 회신해 주십시오.
-
-{SIGNOFF}"""),
-    ("跟进3：最后一封（韩语）", "ko", "Re: LED 디스플레이 패널 — 마지막 안내",
-     f"""안녕하세요 {{contact}}님,
-
-받은 편지함을 어지럽히고 싶지 않아 이번이 마지막 메일입니다.
-
-지금 LED 디스플레이가 검토 대상이 아니시라면 전혀 괜찮습니다. 추후 필요하시면 아래 연락처로 문의해 주시면, 요청하신 당일에 견적을 보내드리겠습니다.
-
-{SIGNOFF}"""),
+{KO_SIGNOFF}"""),
 ]
 
 # DM 规矩：不提公司名、只说 from Shenzhen China、必带案例图（发送端自动附图）
 DM_TEMPLATES = [
     ("DM 首次触达（英语）", "en",
      "Hi {name}, this is Allen from an LED display factory in Shenzhen, China. We supply P0.7–P10 indoor and outdoor LED panels at factory-direct pricing. Happy to share recent project references if you have upcoming LED display needs."),
-    ("DM 首次触达（西语）", "es",
-     "Hola {name}, soy Allen, de una fábrica de pantallas LED en Shenzhen, China. Fabricamos paneles LED P0.7–P10 para interior y exterior a precio directo de fábrica. Con gusto le comparto referencias de proyectos recientes si tienen algún proyecto de pantalla LED."),
-    ("DM 首次触达（葡语）", "pt",
-     "Olá {name}, sou o Allen, de uma fábrica de painéis LED em Shenzhen, China. Fornecemos painéis LED P0.7–P10 para interior e exterior a preço direto de fábrica. Posso enviar referências de projetos recentes se tiver alguma necessidade de painel LED."),
     ("DM 首次触达（韩语）", "ko",
-     "안녕하세요 {name}님, 저는 중국 심천의 LED 디스플레이 공장에서 근무하는 Allen입니다. P0.7–P10 실내외 LED 패널을 공장 직거래 가격으로 공급하고 있습니다. 예정된 LED 디스플레이 건이 있으시면 최근 프로젝트 자료를 기꺼이 공유해 드리겠습니다."),
+     "안녕하세요, {name} 담당자님. 중국 선전에서 LED 디스플레이를 만드는 Allen이라고 합니다. 실내외용 P0.7~P10 LED 패널을 제조사 직접 가격으로 공급하고 있습니다. 진행 중이거나 예정된 LED 건이 있으시면 최근 납품 사례 보내드리겠습니다."),
     ("DM 跟进（英语）", "en",
      "Hi {name}, following up on my last message. Are you working on an LED display project right now, or should I check back later? Either way, happy to send specs and pricing whenever it's useful."),
+    ("DM 跟进（韩语）", "ko",
+     "안녕하세요, {name} 담당자님. 지난번 보내드린 메시지 관련해 한 번만 더 여쭙습니다. 현재 진행 중인 LED 건이 있으신가요? 없으시면 나중에 필요하실 때 연락 주셔도 괜찮습니다. 사양과 단가는 언제든 정리해 드리겠습니다."),
 ]
 
 def _by_lang(lang: str) -> dict[str, tuple[str, str]]:
@@ -163,8 +124,9 @@ def _by_lang(lang: str) -> dict[str, tuple[str, str]]:
 
 
 # 冷邮件的回复几乎都在第 2–4 触，所以每个序列都是 3 步：第 0 / 3 / 8 天。
-# 一语一序列：西语国家用英语话术回复率腰斩，所以不共用一个序列。
-SEQUENCE_LANGS = [("en", "英语"), ("es", "西语"), ("pt", "葡语"), ("ko", "韩语")]
+# 只留英语和韩语：韩国客户用韩语，其余市场一律英语。西语/葡语话术已下线——维护四套
+# 文案的成本没有换来回复，而半吊子的本地化比一封干净的英文信更伤信任。
+SEQUENCE_LANGS = [("en", "英语"), ("ko", "韩语")]
 
 EMAIL_SEQUENCES = [
     {
@@ -199,7 +161,7 @@ def seed_templates(conn) -> int:
 
 
 def seed_sequences(conn) -> list[int]:
-    """Add the 3-step cold-email sequences (EN/ES/PT); skips ones already there."""
+    """Add the 3-step cold-email sequences (EN/KO); skips ones already there."""
     from app import sequences
     added = []
     for seq in EMAIL_SEQUENCES:

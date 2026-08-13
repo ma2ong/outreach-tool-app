@@ -41,23 +41,27 @@ def test_fix_endpoint_suppresses(tmp_path):
 def test_seed_loads_templates_and_sequences(tmp_path):
     client, _ = _client(tmp_path)
     r = client.post("/api/seeds/load").json()
-    assert r["templates"] > 0 and len(r["sequence_ids"]) == 4  # EN / ES / PT / KO
+    assert r["templates"] > 0 and len(r["sequence_ids"]) == 2  # EN / KO only
     email_tpls = client.get("/api/templates?channel=email").json()
     assert any("首次触达" in t["name"] for t in email_tpls)
-    assert {t["lang"] for t in email_tpls} >= {"en", "es", "pt", "ko"}
+    # Korea gets Korean, every other market gets English — and nothing else ships.
+    assert {t["lang"] for t in email_tpls} == {"en", "ko"}
     wa = client.get("/api/templates?channel=whatsapp").json()
     assert wa and "Shenzhen" in wa[0]["body"] and "Maxcolor" not in wa[0]["body"]  # DM 规矩：不提公司名
     seqs = client.get("/api/sequences").json()
-    assert len(seqs) == 4
+    assert len(seqs) == 2
     for s in seqs:
         assert [st["day_offset"] for st in s["steps"]] == [0, 3, 8]
-    # each language sequence must actually be in that language, not English copy-paste
-    es = next(s for s in seqs if "西语" in s["name"])
-    pt = next(s for s in seqs if "葡语" in s["name"])
     ko = next(s for s in seqs if "韩语" in s["name"])
-    assert "Hola" in es["steps"][0]["body"] and "pregunta" in es["steps"][1]["subject"]
-    assert "Olá" in pt["steps"][0]["body"] and "pergunta" in pt["steps"][1]["subject"]
     assert "안녕하세요" in ko["steps"][0]["body"] and "LED 디스플레이" in ko["steps"][0]["subject"]
+    # Korean business register, not English structure in Korean words: address the
+    # company's 담당자 (never {contact}, which falls back to the English "there"),
+    # keep 격식체 throughout, and sign off in Korean.
+    for step in ko["steps"]:
+        assert "담당자님" in step["body"] and "{contact}" not in step["body"]
+        assert "감사합니다" in step["body"]
+        assert "습니다" in step["body"] or "십시오" in step["body"]
+    assert "수신거부" in ko["steps"][0]["body"]  # opt-out in Korean, not "unsubscribe"
 
 
 def test_seed_is_idempotent(tmp_path):
@@ -66,4 +70,4 @@ def test_seed_is_idempotent(tmp_path):
     second = client.post("/api/seeds/load").json()
     assert second["templates"] == 0 and second["sequence_ids"] == []
     assert len(client.get("/api/templates").json()) == first["templates"]
-    assert len(client.get("/api/sequences").json()) == 4
+    assert len(client.get("/api/sequences").json()) == 2
