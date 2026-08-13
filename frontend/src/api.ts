@@ -48,6 +48,15 @@ export async function fetchCampaignStats(): Promise<{ campaigns: CampaignStat[];
   return r.json();
 }
 
+export interface QualityStat { quality: string; touched: number; replied: number; reply_rate: number }
+export interface Deliverability { days: number; sends: number; bounced: number; bounce_rate: number; danger: boolean }
+
+export async function fetchQualityStats(): Promise<{ quality: QualityStat[]; deliverability: Deliverability; danger_pct: number }> {
+  const r = await fetch("/api/stats/quality");
+  if (!r.ok) throw new Error(`quality stats ${r.status}`);
+  return r.json();
+}
+
 export async function fetchQuota(): Promise<Record<string, { sent_today: number; cap: number; batch?: number; mailboxes?: boolean }>> {
   const r = await fetch("/api/send/quota");
   if (!r.ok) throw new Error(`quota ${r.status}`);

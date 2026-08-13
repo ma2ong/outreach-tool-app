@@ -131,3 +131,56 @@ def test_bounce_without_a_clear_reason_is_not_acted_on(conn):
     res = replies.process_messages(conn, _bounce("Could not deliver to g@gamma.com\n"))
     assert res["bounces"] == 0 and res["delayed"] == 1
     assert conn.execute("SELECT email_status FROM leads WHERE no=3").fetchone()[0] is None
+
+
+def _bounce_for(addr, subject="Delivery Status Notification (Failure)", body=None):
+    return {"from_addr": "mailer-daemon@googlemail.com", "subject": subject,
+            "body": body or f"550 5.1.1 user unknown: {addr}",
+            "received_at": "2026-08-10T00:00:00+00:00"}
+
+
+def test_hard_bounce_records_a_durable_date(conn):
+    """email_status alone does not survive re-verification; bounced_at does."""
+    conn.execute("UPDATE leads SET email = 'dead@acme.com' WHERE no = 1")
+    conn.commit()
+    replies.process_messages(conn, [_bounce_for("dead@acme.com")])
+    row = conn.execute("SELECT email_status, bounced_at FROM leads WHERE no=1").fetchone()
+    assert row["email_status"] == "invalid"
+    assert row["bounced_at"] == "2026-08-10T00:00:00+00:00"
+
+
+def test_a_second_bounce_keeps_the_first_date(conn):
+    conn.execute("UPDATE leads SET email = 'dead@acme.com' WHERE no = 1")
+    conn.commit()
+    replies.process_messages(conn, [_bounce_for("dead@acme.com")])
+    later = _bounce_for("dead@acme.com")
+    later["received_at"] = "2026-08-12T00:00:00+00:00"
+    replies.process_messages(conn, [later])
+    row = conn.execute("SELECT bounced_at FROM leads WHERE no=1").fetchone()
+    assert row["bounced_at"] == "2026-08-10T00:00:00+00:00"
+
+
+def test_a_soft_bounce_records_no_date(conn):
+    """A delay notice must not burn the address — nor look like a deliverability hit."""
+    conn.execute("UPDATE leads SET email = 'slow@acme.com' WHERE no = 1")
+    conn.commit()
+    replies.process_messages(conn, [_bounce_for(
+        "slow@acme.com", body="4.4.1 will keep trying for 44 hours: slow@acme.com")])
+    row = conn.execute("SELECT email_status, bounced_at FROM leads WHERE no=1").fetchone()
+    assert row["bounced_at"] is None and row["email_status"] != "invalid"
+
+
+def test_backfill_recovers_dates_from_old_inbox_notices(conn):
+    conn.execute(
+        "INSERT INTO inbox_messages(lead_no, channel, kind, from_addr, subject, body,"
+        " received_at) VALUES (1, 'email', 'bounce', 'mailer-daemon@x.com', 'Undeliverable',"
+        " '5.1.1', '2026-07-02T00:00:00+00:00')")
+    conn.execute(
+        "INSERT INTO inbox_messages(lead_no, channel, kind, from_addr, subject, body,"
+        " received_at) VALUES (1, 'email', 'bounce', 'mailer-daemon@x.com', 'Undeliverable',"
+        " '5.1.1', '2026-07-09T00:00:00+00:00')")
+    conn.commit()
+    assert replies.backfill_bounced_at(conn) == 1
+    row = conn.execute("SELECT bounced_at FROM leads WHERE no=1").fetchone()
+    assert row["bounced_at"] == "2026-07-02T00:00:00+00:00"   # earliest notice wins
+    assert replies.backfill_bounced_at(conn) == 0             # idempotent

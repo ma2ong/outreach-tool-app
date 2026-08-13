@@ -3,6 +3,24 @@ from app.db import connect, init_schema
 
 
 @pytest.fixture(autouse=True)
+def _never_touch_the_live_db(tmp_path, monkeypatch):
+    """No test may reach the real outreach.db.
+
+    DB_PATH defaults to a bare 'outreach.db' and pytest runs from backend/, so any code
+    path that connects by DB_PATH instead of the injected connection lands on the live
+    lead base. That is not hypothetical: the poll-loop timing test ran auto_recheck and
+    auto_scan_social against production on every single run — real website fetches, and
+    a browser window whenever a channel happened to be logged in. Overriding the module
+    attributes (not just the env var) closes it for good, whatever a test forgets.
+    """
+    from app import main, main_deps
+    sandbox = str(tmp_path / "sandbox.db")
+    monkeypatch.setenv("OUTREACH_DB", sandbox)
+    monkeypatch.setattr(main_deps, "DB_PATH", sandbox)
+    monkeypatch.setattr(main, "DB_PATH", sandbox)
+
+
+@pytest.fixture(autouse=True)
 def _auth_disabled(tmp_path, monkeypatch):
     """Tests run in local no-password mode; test_auth.py opts back in via its own paths."""
     from app import auth

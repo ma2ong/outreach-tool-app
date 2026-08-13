@@ -134,6 +134,26 @@ def auto_recheck() -> None:
             conn.close()
 
 
+def auto_prune_sequences() -> None:
+    """Keep the follow-up queue matched to who can actually be reached, both ways.
+
+    Cheap and idempotent, so it runs every round rather than once a day: the moment a
+    bounce burns an address that lead drops out of tomorrow's queue instead of being
+    silently skipped there every morning, and the moment a re-verification repairs one
+    it rejoins. Parking without the reopen would cost more leads than it saves."""
+    from app import sequences
+    conn = None
+    try:
+        conn = connect(DB_PATH)
+        sequences.block_unsendable(conn)
+        sequences.reopen_sendable(conn)
+    except Exception:  # noqa: BLE001 — housekeeping must not kill the poll loop
+        pass
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def reply_poll_loop() -> None:
     """Keep pulling for as long as the app runs.
 
@@ -147,6 +167,7 @@ def reply_poll_loop() -> None:
         ok = auto_poll_replies()
         auto_scan_social()
         auto_recheck()
+        auto_prune_sequences()  # after the poll: a fresh bounce parks its enrollment now
         time.sleep(REPLY_POLL_SECONDS if ok else REPLY_RETRY_SECONDS)
 
 
@@ -172,6 +193,8 @@ async def lifespan(app: FastAPI):
         ensure_sales_intelligence_schema(conn)
         migrate_existing(conn)
         normalize_all_websites(conn)  # idempotent data fix: consistent website form
+        from app.replies import backfill_bounced_at
+        backfill_bounced_at(conn)  # idempotent: bounce dates the inbox still remembers
     finally:
         conn.close()
     # background so a slow IMAP never delays the app coming up

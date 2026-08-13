@@ -8,6 +8,10 @@ hard bounces and wreck sender reputation):
 - valid   : valid domain, personal-looking local part
 - unknown : DNS lookup failed transiently -> keep (never penalize a lead on a hiccup)
 
+An address that has already hard-bounced is never re-classified: DNS would clear it
+(the domain resolves and has MX, which is how the bounce reached us) and the send
+path would burn sender reputation on it a second time. leads.bounced_at holds that.
+
 MX resolution is injected so tests stay offline; the default uses dnspython.
 """
 import re
@@ -69,11 +73,13 @@ def verify_leads(conn, lead_nos: list[int] | None = None, resolve_domain=default
     if lead_nos:
         ph = ",".join("?" * len(lead_nos))
         rows = conn.execute(
-            f"SELECT no, email FROM leads WHERE email IS NOT NULL AND email != '' AND no IN ({ph})",
+            f"SELECT no, email, bounced_at FROM leads"
+            f" WHERE email IS NOT NULL AND email != '' AND no IN ({ph})",
             lead_nos).fetchall()
     else:
         rows = conn.execute(
-            "SELECT no, email FROM leads WHERE email IS NOT NULL AND email != ''").fetchall()
+            "SELECT no, email, bounced_at FROM leads"
+            " WHERE email IS NOT NULL AND email != ''").fetchall()
     counts = {"valid": 0, "role": 0, "invalid": 0, "unknown": 0}
     cache: dict[str, bool | None] = {}
 
@@ -83,6 +89,13 @@ def verify_leads(conn, lead_nos: list[int] | None = None, resolve_domain=default
         return cache[domain]
 
     for r in rows:
+        # A hard bounce outranks DNS. The domain of a bounced address resolves fine and
+        # has MX — that is how the bounce got back to us — so re-classifying it would
+        # read 'valid' and hand a known-dead address back to the send path, where it
+        # bounces again and costs sender reputation a second time.
+        if r["bounced_at"]:
+            counts["invalid"] = counts.get("invalid", 0) + 1
+            continue
         status, _ = classify_email(r["email"], _resolve)
         conn.execute("UPDATE leads SET email_status=? WHERE no=?", (status, r["no"]))
         conn.execute(

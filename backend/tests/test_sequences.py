@@ -109,3 +109,93 @@ def test_due_queue_filters_by_channel(conn):
     sequences.enroll_leads(conn, wa_sid, [2])
     assert {d["lead_no"] for d in sequences.due_queue(conn, "email")} == {1}
     assert {d["lead_no"] for d in sequences.due_queue(conn, "whatsapp")} == {2}
+
+
+def test_block_unsendable_parks_dead_email_enrollments(conn):
+    sid = _seq(conn)
+    sequences.enroll_leads(conn, sid, [1, 2, 3])
+    conn.execute("UPDATE leads SET email_status='invalid' WHERE no=2")
+    conn.execute("UPDATE leads SET email='' WHERE no=3")
+    conn.commit()
+    assert sequences.block_unsendable(conn) == 2
+    # only the lead we can still mail stays in today's work
+    assert {d["lead_no"] for d in sequences.due_queue(conn)} == {1}
+    parked = conn.execute(
+        "SELECT lead_no FROM sequence_enrollments WHERE status='blocked'").fetchall()
+    assert {r["lead_no"] for r in parked} == {2, 3}
+
+
+def test_block_unsendable_is_channel_aware(conn):
+    """A missing phone must not park an email enrollment (and vice versa)."""
+    email_sid = _seq(conn, "email")
+    wa_sid = sequences.create_sequence(conn, "WA", "whatsapp", [{"day_offset": 0, "body": "hi"}])
+    sequences.enroll_leads(conn, email_sid, [1])
+    sequences.enroll_leads(conn, wa_sid, [2])   # lead 2 has an email but no phone
+    assert sequences.block_unsendable(conn) == 1
+    assert {d["lead_no"] for d in sequences.due_queue(conn)} == {1}
+
+
+def test_block_unsendable_is_idempotent(conn):
+    sid = _seq(conn)
+    sequences.enroll_leads(conn, sid, [1, 2])
+    conn.execute("UPDATE leads SET email_status='invalid' WHERE no=2")
+    conn.commit()
+    assert sequences.block_unsendable(conn) == 1
+    assert sequences.block_unsendable(conn) == 0
+
+
+def test_blocked_enrollment_is_not_counted_as_enrolled(conn):
+    sid = _seq(conn)
+    sequences.enroll_leads(conn, sid, [1, 2])
+    conn.execute("UPDATE leads SET email_status='invalid' WHERE no=2")
+    conn.commit()
+    sequences.block_unsendable(conn)
+    assert sequences.get_sequence(conn, sid)["enrolled"] == 1
+
+
+def test_reopen_sendable_restores_a_repaired_address(conn):
+    """A transient DNS failure parks an enrollment; re-verification must free it again."""
+    sid = _seq(conn)
+    sequences.enroll_leads(conn, sid, [1, 2])
+    conn.execute("UPDATE leads SET email_status='invalid' WHERE no=2")
+    conn.commit()
+    sequences.block_unsendable(conn)
+    assert {d["lead_no"] for d in sequences.due_queue(conn)} == {1}
+
+    conn.execute("UPDATE leads SET email_status='valid' WHERE no=2")   # re-verified good
+    conn.commit()
+    assert sequences.reopen_sendable(conn) == 1
+    assert {d["lead_no"] for d in sequences.due_queue(conn)} == {1, 2}
+
+
+def test_reopen_never_revives_a_replied_or_completed_enrollment(conn):
+    sid = _seq(conn)
+    sequences.enroll_leads(conn, sid, [1, 2])
+    repository.mark_replied(conn, 1, "email")          # -> 'replied'
+    conn.execute("UPDATE sequence_enrollments SET status='completed' WHERE lead_no=2")
+    conn.commit()
+    assert sequences.reopen_sendable(conn) == 0
+    assert sequences.due_queue(conn) == []
+
+
+def test_reopen_leaves_a_still_dead_address_parked(conn):
+    sid = _seq(conn)
+    sequences.enroll_leads(conn, sid, [1, 2])
+    conn.execute("UPDATE leads SET email='' WHERE no=1")
+    conn.execute("UPDATE leads SET email_status='invalid' WHERE no=2")
+    conn.commit()
+    sequences.block_unsendable(conn)
+    assert sequences.reopen_sendable(conn) == 0
+    assert sequences.due_queue(conn) == []
+
+
+def test_park_and_reopen_together_settle(conn):
+    """Running both every round must reach a fixed point, not flip rows back and forth."""
+    sid = _seq(conn)
+    sequences.enroll_leads(conn, sid, [1, 2, 3])
+    conn.execute("UPDATE leads SET email_status='invalid' WHERE no=2")
+    conn.commit()
+    for _ in range(3):
+        sequences.block_unsendable(conn)
+        sequences.reopen_sendable(conn)
+    assert {d["lead_no"] for d in sequences.due_queue(conn)} == {1, 3}

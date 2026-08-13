@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchQuota, fetchCampaignStats, fetchDue, sendDue, fetchJob, fetchOpportunityStats, fetchActivityStats, type CampaignStat, type CountryStat } from "../api";
+import { fetchQuota, fetchCampaignStats, fetchQualityStats, fetchDue, sendDue, fetchJob, fetchOpportunityStats, fetchActivityStats, type CampaignStat, type CountryStat, type QualityStat, type Deliverability } from "../api";
 import type { Stats, ChannelReach, DueItem, SendJob, OpportunityStats, ActivityStats } from "../types";
 import { StatCards } from "./StatCards";
 import { ReadinessPanel } from "./ReadinessPanel";
 
 const CH_LABEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook" };
+
+// 邮箱质量分层：决定「这封信有没有人读」。role = info@/sales@ 这类公共邮箱。
+const QUALITY_LABEL: Record<string, string> = {
+  valid: "个人邮箱", role: "公共邮箱 info@/sales@", invalid: "已退信", unknown: "DNS 查不到", unverified: "未验证",
+};
 
 function ReachRow({ channel, r }: { channel: string; r: ChannelReach }) {
   const base = Math.max(r.have, 1);
@@ -33,6 +38,8 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
   const [sending, setSending] = useState(false);
   const [sendJob, setSendJob] = useState<SendJob | null>(null);
   const [sendMsg, setSendMsg] = useState("");
+  const [quality, setQuality] = useState<QualityStat[]>([]);
+  const [deliver, setDeliver] = useState<Deliverability | null>(null);
   const [opportunityStats, setOpportunityStats] = useState<OpportunityStats | null>(null);
   const [activityStats, setActivityStats] = useState<ActivityStats | null>(null);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
@@ -48,6 +55,8 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
     refreshDue();
     fetchCampaignStats().then((r) => { setCamps(r.campaigns); setCountryStats(r.countries); })
       .catch((e) => reportLoadError("回复率分析", e));
+    fetchQualityStats().then((r) => { setQuality(r.quality); setDeliver(r.deliverability); })
+      .catch((e) => reportLoadError("送达质量", e));
     fetchOpportunityStats().then(setOpportunityStats)
       .catch((e) => reportLoadError("商机统计", e));
     fetchActivityStats().then(setActivityStats)
@@ -112,6 +121,22 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
           <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
             {loadErrors.join("；")}。请刷新页面；若持续出现，请检查后端服务。
           </div>
+        </div>
+      )}
+      {deliver?.danger && (
+        <div className="card" style={{ marginBottom: 16, borderColor: "var(--danger)" }}>
+          <div className="stat-label">⚠️ 邮件送达率告警</div>
+          <div className="stat-value" style={{ color: "var(--danger)" }}>
+            硬退信率 {deliver.bounce_rate}%
+            <span className="muted" style={{ fontSize: 14, marginLeft: 10 }}>
+              近 {deliver.days} 天 {deliver.bounced} / {deliver.sends} 家
+            </span>
+          </div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+            超过 2% 之后 Gmail 会限制你的发信、把后面的邮件投进垃圾箱 —— 那时候回复率再低，也不是话术的问题。
+            先去客户库跑一遍邮箱验证，把验不过的排除掉再继续发。
+          </div>
+          <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => onGoto("leads")}>去验证邮箱 →</button>
         </div>
       )}
       <div className="card" style={{ marginBottom: 16, cursor: "pointer", borderColor: (activityStats?.overdue ?? 0) > 0 ? "var(--danger)" : undefined }}
@@ -245,9 +270,30 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
         </div>
       </div>
 
-      {(camps.length > 0 || countryStats.length > 0) && (
+      {(camps.length > 0 || countryStats.length > 0 || quality.length > 0) && (
         <div className="card" style={{ marginBottom: 16 }}>
           <h3>回复率分析</h3>
+          {quality.length > 0 && (
+            <>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+                按邮箱质量拆分 —— 公共邮箱（info@/sales@）很少有人认真读冷邮件。
+                两边样本都攒够之后，回复率会直接告诉你还值不值得继续发。
+              </div>
+              <table className="lead-table" style={{ marginBottom: 14 }}>
+                <thead><tr><th>邮箱类型</th><th>触达客户</th><th>已回复</th><th>回复率</th></tr></thead>
+                <tbody>
+                  {quality.map((q) => (
+                    <tr key={q.quality}>
+                      <td>{QUALITY_LABEL[q.quality] ?? q.quality}</td>
+                      <td className="num">{q.touched}</td>
+                      <td className="num">{q.replied}</td>
+                      <td className="num" style={{ color: q.reply_rate >= 10 ? "var(--green)" : undefined }}>{q.reply_rate}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
           {camps.length > 0 && (
             <>
               <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>各批发送（Campaign）效果 —— 哪个话术/批次回复率高，下次就用它</div>

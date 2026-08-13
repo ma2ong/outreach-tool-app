@@ -78,3 +78,58 @@ def test_one_bulk_touch_per_lead_per_day_across_channels(conn):
         conn, [1], "whatsapp", "Hi", FakeEngine(), delay_range=(0, 0),
     )
     assert result["sent"] == 0
+
+
+def test_quality_stats_splits_reply_rate_by_email_quality(conn):
+    conn.execute("UPDATE leads SET email_status='role' WHERE no IN (1,2)")
+    conn.execute("UPDATE leads SET email_status='valid' WHERE no IN (3,4)")
+    conn.commit()
+    outreach.send_campaign(conn, [1, 2, 3, 4], subject="S", body="B", attachment=None,
+                           sender=lambda *a: None, delay_range=(0, 0))
+    repository.mark_replied(conn, 3, "email")
+    rows = {r["quality"]: r for r in campaigns.quality_stats(conn)}
+    assert rows["role"]["touched"] == 2 and rows["role"]["replied"] == 0
+    assert rows["role"]["reply_rate"] == 0.0
+    assert rows["valid"]["touched"] == 2 and rows["valid"]["replied"] == 1
+    assert rows["valid"]["reply_rate"] == 50.0
+
+
+def test_quality_stats_buckets_never_verified_separately(conn):
+    outreach.send_campaign(conn, [1], subject="S", body="B", attachment=None,
+                           sender=lambda *a: None, delay_range=(0, 0))
+    assert campaigns.quality_stats(conn)[0]["quality"] == "unverified"
+
+
+def test_quality_stats_ignores_browser_channels(conn):
+    """email_status says nothing about a WhatsApp send — counting those would
+    make the role/valid split read as better than it is."""
+    conn.execute("UPDATE leads SET email_status='role', phone='+1 555 100 2000' WHERE no=1")
+    conn.commit()
+    channel_outreach.send_channel_campaign(
+        conn, [1], "whatsapp", "Hi", FakeEngine(), delay_range=(0, 0))
+    assert campaigns.quality_stats(conn) == []
+
+
+def test_deliverability_flags_a_reputation_risk(conn):
+    outreach.send_campaign(conn, [1, 2, 3, 4], subject="S", body="B", attachment=None,
+                           sender=lambda *a: None, delay_range=(0, 0))
+    conn.execute("UPDATE leads SET bounced_at=datetime('now') WHERE no=1")
+    conn.commit()
+    d = campaigns.deliverability(conn)
+    assert d["sends"] == 4 and d["bounced"] == 1
+    assert d["bounce_rate"] == 25.0 and d["danger"] is True
+
+
+def test_deliverability_ignores_a_bounce_older_than_the_window(conn):
+    """The alarm is about the list being sent now, not one cleaned up months ago."""
+    outreach.send_campaign(conn, [1, 2, 3, 4], subject="S", body="B", attachment=None,
+                           sender=lambda *a: None, delay_range=(0, 0))
+    conn.execute("UPDATE leads SET bounced_at='2026-01-01T00:00:00+00:00' WHERE no=1")
+    conn.commit()
+    d = campaigns.deliverability(conn, days=30)
+    assert d["bounced"] == 0 and d["danger"] is False
+
+
+def test_deliverability_quiet_when_nothing_sent(conn):
+    d = campaigns.deliverability(conn)
+    assert d["sends"] == 0 and d["bounce_rate"] == 0.0 and d["danger"] is False

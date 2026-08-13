@@ -63,3 +63,18 @@ def test_verify_scoped_to_lead_nos(conn):
     res = verify.verify_leads(conn, lead_nos=[1], resolve_domain=_resolver({"good.com"}))
     assert res["checked"] == 1
     assert conn.execute("SELECT email_status FROM leads WHERE no=3").fetchone()["email_status"] is None
+
+
+def test_reverify_never_revives_a_bounced_address(tmp_path):
+    """A bounced address keeps resolving — DNS alone would hand it straight back."""
+    c = connect(str(tmp_path / "t.db"))
+    init_schema(c)
+    c.execute("INSERT INTO leads(no, company_en, email, email_status, bounced_at)"
+              " VALUES (1, 'A', 'john@acme.com', 'invalid', '2026-08-01T00:00:00+00:00')")
+    c.execute("INSERT INTO leads(no, company_en, email) VALUES (2, 'B', 'jane@acme.com')")
+    c.commit()
+    result = verify.verify_leads(c, resolve_domain=_resolver({"acme.com"}))
+    rows = {r["no"]: r["email_status"] for r in c.execute("SELECT no, email_status FROM leads")}
+    assert rows[1] == "invalid"      # untouched despite a healthy domain
+    assert rows[2] == "valid"        # the un-bounced address is classified normally
+    assert result["invalid"] == 1 and result["valid"] == 1

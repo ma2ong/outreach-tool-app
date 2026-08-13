@@ -229,7 +229,13 @@ def process_messages(conn, messages: list[dict]) -> dict:
                 # Unproven failures are shown, never acted on — a wrongly burned address
                 # costs a real lead, a retained dead one only costs one more send.
                 if permanent:
-                    conn.execute("UPDATE leads SET email_status='invalid' WHERE no=?", (no,))
+                    # bounced_at is the durable record: the notice itself is not filed
+                    # in the inbox, and email_status alone does not survive the next
+                    # DNS re-verification, which would silently revive the address.
+                    conn.execute(
+                        "UPDATE leads SET email_status='invalid',"
+                        " bounced_at=COALESCE(bounced_at, ?) WHERE no=?",
+                        (m.get("received_at") or _dt.datetime.now(_dt.UTC).isoformat(), no))
                     contacts.sync_primary_email_status(conn, no, "invalid")
                     bounces += 1
                 else:
@@ -277,6 +283,22 @@ def process_messages(conn, messages: list[dict]) -> dict:
     conn.commit()
     return {"replies": replies_n, "bounces": bounces, "delayed": delayed,
             "unsubscribes": unsubs, "stored": stored, "lead_nos": lead_nos}
+
+
+def backfill_bounced_at(conn) -> int:
+    """Recover bounce dates from the inbox notices filed before they stopped being filed.
+
+    Without this the deliverability alarm starts from an empty history and reads a
+    healthy 0% on a list that is already burnt. Idempotent: COALESCE leaves any date
+    already recorded alone."""
+    cur = conn.execute(
+        "UPDATE leads SET bounced_at = COALESCE(bounced_at, ("
+        "  SELECT MIN(received_at) FROM inbox_messages i"
+        "  WHERE i.lead_no = leads.no AND i.kind = 'bounce' AND i.received_at != ''))"
+        " WHERE bounced_at IS NULL AND no IN ("
+        "  SELECT lead_no FROM inbox_messages WHERE kind = 'bounce' AND received_at != '')")
+    conn.commit()
+    return cur.rowcount
 
 
 def match_and_mark(conn, sender_emails: list[str]) -> dict:

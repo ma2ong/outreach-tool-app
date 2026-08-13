@@ -170,6 +170,11 @@ _TABLE_COLUMNS = {
         "email_source": "TEXT",
         "recheck_due": "TEXT",
         "recheck_count": "INTEGER DEFAULT 0",
+        # When this address hard-bounced. A durable fact, unlike email_status, which
+        # a DNS re-verification overwrites — the domain of a bounced address still
+        # resolves and still has MX (that is how the bounce reached us), so without
+        # this the address is handed straight back to the send path.
+        "bounced_at": "TEXT",
     },
     "templates": {
         "lang": "TEXT",

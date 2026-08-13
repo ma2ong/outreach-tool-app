@@ -118,6 +118,60 @@ def due_queue(conn, channel: str | None = None) -> list[dict]:
     return [dict(r) for r in conn.execute(sql, params)]
 
 
+# The lead column a sequence needs an address in, per channel.
+_CHANNEL_ADDRESS = {"email": "email", "whatsapp": "phone",
+                    "instagram": "instagram", "facebook": "facebook"}
+
+
+def block_unsendable(conn) -> int:
+    """Park active enrollments that can never send, so the due queue tells the truth.
+
+    An enrollment whose lead holds no address on the sequence's channel — or an email
+    that has already hard-bounced — is skipped by the send path every single day and
+    never advances: it stays 'active' forever and pads today's queue with work nobody
+    can do. 'blocked' keeps the row for the record while dropping it out of due_queue.
+    """
+    blocked = 0
+    for channel, col in _CHANNEL_ADDRESS.items():
+        bounced = " OR email_status='invalid'" if channel == "email" else ""
+        cur = conn.execute(
+            f"""UPDATE sequence_enrollments SET status='blocked'
+                WHERE status='active'
+                  AND sequence_id IN (SELECT id FROM sequences WHERE channel=?)
+                  AND lead_no IN (SELECT no FROM leads
+                                  WHERE {col} IS NULL OR {col}='' {bounced})""",
+            (channel,))
+        blocked += cur.rowcount
+    conn.commit()
+    return blocked
+
+
+def reopen_sendable(conn) -> int:
+    """Un-park enrollments whose address came back, so a repaired lead rejoins follow-up.
+
+    block_unsendable on its own is a one-way door. A re-verification routinely recovers
+    addresses a transient DNS failure had marked invalid — 35 of them on the first real
+    run — and without this their enrollments would stay parked for good, quietly costing
+    more leads than the parking ever saved. 'blocked' is only ever written by
+    block_unsendable, so reversing it on the same condition cannot disturb a lead that
+    replied or completed. The past next_due_date puts them straight back in today's queue,
+    which is right: they are overdue.
+    """
+    reopened = 0
+    for channel, col in _CHANNEL_ADDRESS.items():
+        live = " AND COALESCE(email_status,'') != 'invalid'" if channel == "email" else ""
+        cur = conn.execute(
+            f"""UPDATE sequence_enrollments SET status='active'
+                WHERE status='blocked'
+                  AND sequence_id IN (SELECT id FROM sequences WHERE channel=?)
+                  AND lead_no IN (SELECT no FROM leads
+                                  WHERE {col} IS NOT NULL AND {col} != '' {live})""",
+            (channel,))
+        reopened += cur.rowcount
+    conn.commit()
+    return reopened
+
+
 def advance_enrollment(conn, enrollment_id: int) -> None:
     """Call after a step is sent: move to next step or complete the enrollment."""
     e = conn.execute(

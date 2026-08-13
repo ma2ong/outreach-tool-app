@@ -17,3 +17,11 @@ def get_stats(conn=Depends(get_conn)):
 def get_campaign_stats(conn=Depends(get_conn)):
     return {"campaigns": campaigns.campaign_stats(conn),
             "countries": campaigns.country_stats(conn)}
+
+
+@router.get("/stats/quality")
+def get_quality_stats(conn=Depends(get_conn)):
+    """Is the outreach reaching anyone worth reaching, and is it arriving at all?"""
+    return {"quality": campaigns.quality_stats(conn),
+            "deliverability": campaigns.deliverability(conn),
+            "danger_pct": campaigns.BOUNCE_DANGER_PCT}

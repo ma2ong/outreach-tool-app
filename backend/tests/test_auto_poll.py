@@ -59,6 +59,12 @@ def test_loop_retries_fast_until_first_success(monkeypatch):
             raise KeyboardInterrupt  # break out of the infinite loop
 
     monkeypatch.setattr(main, "auto_poll_replies", lambda: next(outcomes))
+    # The other three do real work against DB_PATH — website fetches, a browser window,
+    # a write to the enrollment table. This test is about retry timing, so stub them:
+    # left live they ran three rounds of production side effects on every test run.
+    monkeypatch.setattr(main, "auto_scan_social", lambda: None)
+    monkeypatch.setattr(main, "auto_recheck", lambda: None)
+    monkeypatch.setattr(main, "auto_prune_sequences", lambda: None)
     monkeypatch.setattr(main.time, "sleep", fake_sleep)
     with pytest.raises(KeyboardInterrupt):
         main.reply_poll_loop()

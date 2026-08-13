@@ -52,6 +52,59 @@ def campaign_stats(conn) -> list[dict]:
     return out
 
 
+def quality_stats(conn) -> list[dict]:
+    """Reply rate split by email quality — the one cut campaign labels cannot make.
+
+    Role mailboxes (info@, sales@) took 55% of every email ever sent from here, and
+    whether they are worth the send is the biggest single lever on the reply rate.
+    Date/sequence labels group straight across that split, so the question stays
+    unanswerable until it is grouped this way. Email only: email_status means nothing
+    on the browser channels.
+    """
+    rows = conn.execute(
+        """SELECT COALESCE(l.email_status, 'unverified') AS quality,
+                  COUNT(DISTINCT o.lead_no) AS touched,
+                  COUNT(DISTINCT CASE WHEN o.status = 'replied' THEN o.lead_no END) AS replied
+           FROM outreach o JOIN leads l ON l.no = o.lead_no
+           WHERE o.channel = 'email' AND o.status IN ('messaged', 'replied')
+           GROUP BY 1 ORDER BY touched DESC""").fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["reply_rate"] = round(d["replied"] / d["touched"] * 100, 1) if d["touched"] else 0.0
+        out.append(d)
+    return out
+
+
+# Above this, mailbox providers throttle the sender and start filing the rest as spam.
+BOUNCE_DANGER_PCT = 2.0
+
+
+def deliverability(conn, days: int = 30) -> dict:
+    """Hard-bounce rate over a recent window, with the reputation alarm attached.
+
+    Counted per lead on both sides (leads mailed vs leads that bounced) so one dead
+    address that bounces on every step does not read as several dead addresses.
+
+    The bounce side reads leads.bounced_at, not the inbox: bounce notices are
+    deliberately not filed there (nothing in one is worth reading), so counting inbox
+    rows would freeze this metric at whatever history happened to predate that rule.
+
+    This matters because a bounce rate past BOUNCE_DANGER_PCT gets the sending mailbox
+    throttled and quietly files the rest of the campaign in spam — on the dashboard
+    that is indistinguishable from bad copy, and rewriting the copy will not fix it.
+    """
+    since = (_dt.date.today() - _dt.timedelta(days=days)).isoformat()
+    sends = conn.execute(
+        "SELECT COUNT(DISTINCT lead_no) c FROM send_log"
+        " WHERE channel = 'email' AND sent_at >= ?", (since,)).fetchone()["c"]
+    bounced = conn.execute(
+        "SELECT COUNT(*) c FROM leads WHERE bounced_at >= ?", (since,)).fetchone()["c"]
+    rate = round(bounced / sends * 100, 1) if sends else 0.0
+    return {"days": days, "sends": sends, "bounced": bounced,
+            "bounce_rate": rate, "danger": rate > BOUNCE_DANGER_PCT}
+
+
 def country_stats(conn, min_touched: int = 3) -> list[dict]:
     rows = conn.execute(
         """SELECT l.country,
