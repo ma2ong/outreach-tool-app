@@ -101,8 +101,13 @@ def deliverability(conn, days: int = 30) -> dict:
     bounced = conn.execute(
         "SELECT COUNT(*) c FROM leads WHERE bounced_at >= ?", (since,)).fetchone()["c"]
     rate = round(bounced / sends * 100, 1) if sends else 0.0
+    # Bounces only arrive over IMAP. When that is down — a mailbox without IMAP access,
+    # an expired password — no new bounce is ever recorded and this rate decays towards
+    # a healthy-looking 0 on a list that is getting worse. Say "unmeasured" instead.
+    from app import settings
+    blind = settings.get(conn, "reply_sync_last_status") not in (None, "success")
     return {"days": days, "sends": sends, "bounced": bounced,
-            "bounce_rate": rate, "danger": rate > BOUNCE_DANGER_PCT}
+            "bounce_rate": rate, "danger": rate > BOUNCE_DANGER_PCT, "blind": blind}
 
 
 def country_stats(conn, min_touched: int = 3) -> list[dict]:

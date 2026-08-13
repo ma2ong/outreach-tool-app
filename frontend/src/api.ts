@@ -49,7 +49,7 @@ export async function fetchCampaignStats(): Promise<{ campaigns: CampaignStat[];
 }
 
 export interface QualityStat { quality: string; touched: number; replied: number; reply_rate: number }
-export interface Deliverability { days: number; sends: number; bounced: number; bounce_rate: number; danger: boolean }
+export interface Deliverability { days: number; sends: number; bounced: number; bounce_rate: number; danger: boolean; blind: boolean }
 
 export async function fetchQualityStats(): Promise<{ quality: QualityStat[]; deliverability: Deliverability; danger_pct: number }> {
   const r = await fetch("/api/stats/quality");

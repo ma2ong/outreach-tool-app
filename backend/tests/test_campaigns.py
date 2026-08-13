@@ -133,3 +133,15 @@ def test_deliverability_ignores_a_bounce_older_than_the_window(conn):
 def test_deliverability_quiet_when_nothing_sent(conn):
     d = campaigns.deliverability(conn)
     assert d["sends"] == 0 and d["bounce_rate"] == 0.0 and d["danger"] is False
+
+
+def test_deliverability_admits_when_it_cannot_see_bounces(conn):
+    """A broken inbox poll must not read as a clean bounce rate: no IMAP, no bounces."""
+    from app import settings
+    outreach.send_campaign(conn, [1, 2, 3, 4], subject="S", body="B", attachment=None,
+                           sender=lambda *a: None, delay_range=(0, 0))
+    assert campaigns.deliverability(conn)["blind"] is True   # never polled at all
+    settings.set_value(conn, "reply_sync_last_status", "success")
+    assert campaigns.deliverability(conn)["blind"] is False
+    settings.set_value(conn, "reply_sync_last_status", "error")
+    assert campaigns.deliverability(conn)["blind"] is True
