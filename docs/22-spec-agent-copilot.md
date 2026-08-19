@@ -1,10 +1,10 @@
 # Spec 22 — 销售助手 Agent：提议、审批、逐步放手
 
-> 状态：A·B 期 Implemented / C 期 Planned
+> 状态：A·B·C 期 Implemented
 > 日期：2026-08-19
 > 范围：A 期（会说话）/ B 期（会自己动）/ C 期（会学），按序实施
 > 代码：`backend/app/agent/`（llm / proposals / executors / classify / draft / memory /
-> social / world / plan / report / run）、
+> social / world / plan / report / learn / run）、
 > `backend/app/api/agent.py`、`frontend/src/components/AgentPanel.tsx`
 
 ## 1. 要解决的问题
@@ -202,13 +202,32 @@ Allen 的原话：「有报价的话你不要帮我报价，你告诉我有回�
 `backend/lark_webhook.txt`）——发了多少、收到几条回复、执行了几条、还有几条等你定。
 没配 webhook 就不自动推，只在 Agent 页显示，避免把「今天已发日报」标记白白用掉。
 
-## 6. C 期 · 会学
+## 6. C 期 · 会学（已实现）
 
 唯一的训练信号是 Allen 的决定：**驳回理由**和**改稿前后的 diff** 比任何评分都准。
 
-- 累积到一定量后，把「被改过的草稿对」作为 few-shot 注入草稿 prompt；
-- 按 Campaign / 国家 / 话术统计真实回复率，自动提议停掉跑不动的序列；
-- 用成交与丢单结果回头校准 ICP 分项权重（只提议调整，不自动改分）。
+**先修了一个数据丢失**：`approve()` 原来直接用改后的 payload 覆盖原稿，
+agent 写的那一版当场消失——注释还写着「这是 C 期最好的数据」。
+新增 `agent_proposals.original_payload`，改稿时把原稿存下来。
+
+`agent/learn.py`：
+
+- `edited_drafts()` —— 成对的（agent 写的 → Allen 发出去的）。
+- `draft_guidance()` —— 攒够 `MIN_EXAMPLES`（5）对之后，把最近 6 对作为 few-shot
+  附在起草提示词后面。**不到 5 对一个字都不加**：样本太少照着学只会更差，而且很难发现。
+- `rejections()` / `accuracy()` —— 驳回理由分布、确认率、改稿率。
+- `weak_campaigns()` —— 发够 25 家、0 回复的话术。**先过量级门槛**：
+  发了两条没回复不是证据，靠两个数据点提议砍东西只会训练 Allen 忽略它。
+
+**必须看得见。** Agent 页新增「学到了什么」页签：确认率/改稿率、
+正在参考的原稿→改后对照、驳回理由分布、跑不动的话术。
+学歪了要能一眼看出来并删掉，否则等于把提示词交给了一份没人读的数据。
+
+计划的世界状态里也加了 `weak_campaigns`，让它别继续往死话术里灌人。
+
+**实测**：喂 5 组「客套长句 → Allen 改成一句话」，参考自动生效，
+下一封草稿变成 `Yes, we do P2.5 indoor. … What size is the wall?`，
+同时「不编规格、没有就说确认后回复」的护栏没有被带偏。
 
 ## 7. 明确不做
 

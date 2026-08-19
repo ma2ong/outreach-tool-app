@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import {
   approveProposal, fetchAgentMeta, fetchAgentRunJob, fetchAgentStatus, fetchDailyReport,
   fetchProposals, rejectProposal, sendDailyReport, setAgentBackend, setAutonomy,
-  setPlanEnabled, startAgentRun, startPlanRun,
+  setPlanEnabled, startAgentRun, startPlanRun, fetchLearning,
 } from "../agentApi";
-import type { AgentMeta, AgentStatus, Proposal } from "../agentApi";
+import type { AgentMeta, AgentStatus, Learning, Proposal } from "../agentApi";
 
 const KIND_LABEL: Record<string, string> = {
   reply_draft: "回复草稿",
@@ -133,6 +133,76 @@ function ProposalCard({ p, meta, onDone }: { p: Proposal; meta: AgentMeta; onDon
   );
 }
 
+function LearningView({ data }: { data: Learning | null }) {
+  if (!data) return <div className="muted">加载中…</div>;
+  const a = data.accuracy;
+  return (
+    <div>
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="stat-label">它提的建议，你怎么处理的</div>
+        <div style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>
+          {a.decided ? `${a.accept_rate_pct}% 被你确认` : "还没有决定过任何建议"}
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+          确认 {a.executed} · 驳回 {a.rejected} · 过期 {a.expired} · 执行失败 {a.failed}
+          {a.executed ? ` · 其中 ${a.edited} 条是你改过才发的（${a.edit_rate_pct}%）` : ""}
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="stat-label">
+          它有没有在学你的写法
+        </div>
+        {data.guidance_active ? (
+          <>
+            <div style={{ fontWeight: 700, color: "var(--green)", marginTop: 4 }}>
+              已开始参考你改过的 {data.edited_examples.length} 个例子
+            </div>
+            <div className="muted" style={{ fontSize: 12, marginTop: 4, marginBottom: 8 }}>
+              下面这些「原稿 → 你发出去的」会附在起草提示词后面。觉得哪条教坏了它，
+              就在「已执行」里找到那条驳掉这个思路，或者直接告诉我删掉。
+            </div>
+            {data.edited_examples.map((e) => (
+              <div key={e.id} style={{ borderTop: "1px solid var(--border)", padding: "8px 0" }}>
+                <div className="muted" style={{ fontSize: 12 }}>{e.company ?? "某客户"}</div>
+                <div style={{ fontSize: 13, opacity: 0.7 }}>原稿：{e.agent}</div>
+                <div style={{ fontSize: 13, marginTop: 4 }}>你发的：{e.allen}</div>
+              </div>
+            ))}
+          </>
+        ) : (
+          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+            还没有。要再攒 {data.examples_needed} 个你改过的草稿才会开始参考——
+            样本太少就照着学，只会让它更差，而且很难发现。
+          </div>
+        )}
+      </div>
+
+      {data.rejections.length > 0 && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="stat-label">你驳回的理由（近 90 天）</div>
+          {data.rejections.map((r, i) => (
+            <div key={i} className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+              · {r.label} —— {r.count} 次（{r.kind}）
+            </div>
+          ))}
+        </div>
+      )}
+
+      {data.weak_campaigns.length > 0 && (
+        <div className="card">
+          <div className="stat-label">发够了量但一条回复都没有的话术</div>
+          {data.weak_campaigns.map((c, i) => (
+            <div key={i} className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+              · {c.campaign}（{c.channel}）—— 发了 {c.leads} 家，0 回复，最后一次 {c.last_sent}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }) {
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [meta, setMeta] = useState<AgentMeta | null>(null);
@@ -143,9 +213,15 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
   const [error, setError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [report, setReport] = useState<{ text: string; webhook_configured: boolean } | null>(null);
+  const [learning, setLearning] = useState<Learning | null>(null);
 
   function reload() {
     fetchAgentStatus().then(setStatus).catch((e) => setError(String(e)));
+    if (tab === "learning") {
+      fetchLearning().then(setLearning).catch((e) => setError(String(e)));
+      setItems([]);
+      return;
+    }
     fetchProposals({ status: tab }).then(setItems).catch((e) => setError(String(e)));
   }
   useEffect(() => { fetchAgentMeta().then(setMeta).catch((e) => setError(String(e))); }, []);
@@ -304,7 +380,7 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
 
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         {[["pending", "待确认"], ["executed", "已执行"], ["rejected", "已驳回"],
-          ["failed", "执行失败"], ["expired", "已过期"]].map(([id, label]) => (
+          ["failed", "执行失败"], ["expired", "已过期"], ["learning", "学到了什么"]].map(([id, label]) => (
           <button key={id} className={`btn btn-sm${tab === id ? " btn-green" : ""}`} onClick={() => setTab(id)}>
             {label}{id === "pending" && status.pending ? ` (${status.pending})` : ""}
           </button>
@@ -313,7 +389,9 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
 
       {error && <div className="error-text" style={{ marginBottom: 12 }}>{error}</div>}
 
-      {items.length === 0 ? (
+      {tab === "learning" ? (
+        <LearningView data={learning} />
+      ) : items.length === 0 ? (
         <div className="muted">这里没有内容。</div>
       ) : items.map((p) => (
         <div key={p.id}>

@@ -112,6 +112,11 @@ def _reply_rate(conn, days: int = 30) -> dict:
             "reply_rate_pct": round(replied * 100 / reached, 1) if reached else 0.0}
 
 
+def _weak(conn) -> list[dict]:
+    from app.agent import learn
+    return learn.weak_campaigns(conn)[:MAX_ROWS]
+
+
 def build(conn) -> dict:
     from app import activities, sequences
     from app.agent import proposals
@@ -125,6 +130,8 @@ def build(conn) -> dict:
         "sequence_due_today": len(sequences.due_queue(conn)),
         "capacity": _channel_capacity(conn),
         "reply_rate": _reply_rate(conn),
+        # What has demonstrably stopped working, with the volume to back it up.
+        "weak_campaigns": _weak(conn),
         "templates": _rows(conn, "SELECT id, name, channel FROM templates ORDER BY id"),
         "sequences": _rows(conn, "SELECT id, name, channel FROM sequences ORDER BY id"),
         # So the plan does not re-propose what is already waiting for a decision.

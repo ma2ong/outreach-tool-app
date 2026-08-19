@@ -187,6 +187,11 @@ _TABLE_COLUMNS = {
         # the healthy mailboxes' status and keep the whole sync reading 'partial'.
         "imap_enabled": "INTEGER NOT NULL DEFAULT 1",
     },
+    # agent_proposals is created by app.agent.proposals.ensure_schema, but a DB that
+    # already has the table predates this column.
+    "agent_proposals": {
+        "original_payload": "TEXT",
+    },
     "inbox_messages": {
         "handled_at": "TEXT",
         "contact_id": "INTEGER",
@@ -226,6 +231,11 @@ def connect(path: str) -> sqlite3.Connection:
 def _migrate_columns(conn: sqlite3.Connection) -> None:
     for table, cols in _TABLE_COLUMNS.items():
         existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        # A table owned by a module's own ensure_schema (agent_proposals) does not exist
+        # yet on a fresh DB; ALTER would fail before that module ever runs. Its CREATE
+        # already carries the column, so skipping here is correct, not a deferral.
+        if not existing:
+            continue
         for col, decl in cols.items():
             if col not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")

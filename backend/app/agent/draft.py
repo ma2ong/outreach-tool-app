@@ -188,8 +188,9 @@ def check_claims(body: str, ctx: dict) -> list[str]:
 def build(conn, message: dict) -> dict:
     """Draft one reply. Returns the parsed model output plus our own warnings."""
     ctx = build_context(conn, message)
-    data = llm.complete_json(conn, "draft", system_for(message.get("channel") or "email"),
-                             _render(ctx))
+    from app.agent import learn
+    system = system_for(message.get("channel") or "email") + learn.draft_guidance(conn)
+    data = llm.complete_json(conn, "draft", system, _render(ctx))
     body = str(data.get("body") or "").strip()
     if not body:
         raise llm.LLMError("模型没有返回正文")

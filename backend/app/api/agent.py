@@ -2,7 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from app import jobs
-from app.agent import classify, llm, proposals, report, run
+from app.agent import classify, learn, llm, proposals, report, run
 from app.main_deps import DB_PATH, get_conn
 
 router = APIRouter(prefix="/api/agent")
@@ -170,6 +170,12 @@ def daily_report(conn=Depends(get_conn)):
 @router.post("/report/send")
 def send_report(conn=Depends(get_conn)):
     return report.send_daily(conn)
+
+
+@router.get("/learning")
+def learning(conn=Depends(get_conn)):
+    """What Allen's decisions have taught the agent — and whether it is using it yet."""
+    return learn.summary(conn)
 
 
 @router.get("/memory/{lead_no}")

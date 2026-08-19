@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS agent_proposals (
     reasoning TEXT,
     evidence TEXT,
     payload TEXT,
+    original_payload TEXT,
     risk TEXT NOT NULL DEFAULT 'medium',
     status TEXT NOT NULL DEFAULT 'pending',
     decided_at TEXT,
@@ -118,7 +119,7 @@ def _fingerprint(kind: str, lead_no, inbox_message_id, key: str) -> str:
 
 def _row(r) -> dict:
     d = dict(r)
-    for field in ("evidence", "payload"):
+    for field in ("evidence", "payload", "original_payload"):
         try:
             d[field] = json.loads(d[field]) if d.get(field) else None
         except (TypeError, json.JSONDecodeError):
@@ -245,8 +246,13 @@ def approve(conn, proposal_id: int, payload: dict | None = None, note: str = "")
         raise ProposalError(f"提议已是 {p['status']}，不能重复确认")
     edited = payload is not None and payload != p["payload"]
     if edited:
-        conn.execute("UPDATE agent_proposals SET payload=?, updated_at=? WHERE id=?",
-                     (json.dumps(payload, ensure_ascii=False), _now(), proposal_id))
+        # Keep the agent's version. What Allen changed is the only real training signal
+        # phase C has, and overwriting the draft in place threw it away every time.
+        conn.execute(
+            "UPDATE agent_proposals SET payload=?, original_payload=?, updated_at=?"
+            " WHERE id=?",
+            (json.dumps(payload, ensure_ascii=False),
+             json.dumps(p["payload"], ensure_ascii=False), _now(), proposal_id))
         conn.commit()
         p = get(conn, proposal_id)
     conn.execute(

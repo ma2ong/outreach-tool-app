@@ -126,3 +126,19 @@ export async function fetchDailyReport(): Promise<{ text: string; webhook_config
 export async function sendDailyReport(): Promise<{ sent: boolean; reason: string; text?: string }> {
   return jsonOrThrow(await fetch("/api/agent/report/send", { method: "POST" }), "report send");
 }
+
+export type Learning = {
+  accuracy: {
+    decided: number; executed: number; rejected: number; expired: number;
+    failed: number; edited: number; accept_rate_pct: number; edit_rate_pct: number;
+  };
+  rejections: { kind: string; reason: string; label: string; count: number }[];
+  edited_examples: { id: number; company: string | null; decided_at: string; agent: string; allen: string }[];
+  examples_needed: number;
+  guidance_active: boolean;
+  weak_campaigns: { campaign: string; channel: string; leads: number; replied: number; last_sent: string }[];
+};
+
+export async function fetchLearning(): Promise<Learning> {
+  return jsonOrThrow(await fetch("/api/agent/learning"), "learning");
+}
