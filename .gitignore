@@ -13,6 +13,8 @@ backend/outreach_backup_*.db
 backend/quotes/
 backend/logs/
 backend/auth_password.txt
+backend/deepseek_key.txt
+backend/agent_key.txt
 backend/.session_key
 bin/
 .cf-token

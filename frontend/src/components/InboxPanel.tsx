@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchInbox, markInboxHandled, markInboxRead, pollReplies, scanSocial } from "../api";
+import { approveProposal, fetchAgentMeta, fetchProposals } from "../agentApi";
+import type { AgentMeta, Proposal } from "../agentApi";
 import type { InboxMessage } from "../types";
 
 const CH_NAME: Record<string, string> = { whatsapp: "WhatsApp", instagram: "Instagram", email: "邮件" };
@@ -10,6 +12,57 @@ function fmtTs(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
   return isNaN(+d) ? iso : d.toLocaleString();
+}
+
+function DraftBox({ p, onDone }: { p: Proposal; onDone: () => void }) {
+  const [body, setBody] = useState(String(p.payload?.body ?? ""));
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const edited = body !== String(p.payload?.body ?? "");
+
+  async function send(e: React.MouseEvent) {
+    e.stopPropagation();
+    setBusy(true); setErr("");
+    try {
+      await approveProposal(p.id, { ...p.payload, body });
+      onDone();
+    } catch (ex) {
+      setErr(String(ex instanceof Error ? ex.message : ex));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card" style={{ margin: "10px 0", borderColor: p.risk === "high" ? "var(--danger)" : undefined }}
+      onClick={(e) => e.stopPropagation()}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <span className="stat-label">AI 草稿</span>
+        {p.risk === "high" && <span className="warn-text" style={{ fontSize: 12 }}>需要你逐字看过</span>}
+      </div>
+      <div className="muted" style={{ fontSize: 12, margin: "4px 0 8px" }}>{p.reasoning}</div>
+      <textarea className="input" rows={8} value={body} onChange={(e) => setBody(e.target.value)}
+        style={{ width: "100%", fontFamily: "inherit" }} />
+      {!!p.evidence?.length && (
+        <div style={{ marginTop: 8 }}>
+          {p.evidence.map((ev, i) => (
+            <div key={i} className="muted" style={{ fontSize: 12 }}>· {ev.claim} —— {ev.source}</div>
+          ))}
+        </div>
+      )}
+      {err && <div className="error-text" style={{ marginTop: 8 }}>{err}</div>}
+      <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <button className="btn btn-green btn-sm" disabled={busy} onClick={send}>
+          {busy ? "发送中…" : edited ? "改后发送" : "确认发送"}
+        </button>
+        <span className="muted" style={{ fontSize: 12 }}>
+          发给 {String(p.payload?.to ?? "")}
+          {p.payload?.mailbox_email ? ` · 从 ${p.payload.mailbox_email} 发出` : ""}
+          　不想发就去 Agent 页驳回
+        </span>
+      </div>
+    </div>
+  );
 }
 
 export function InboxPanel({ onOpenLead, onPendingChange }: {
@@ -23,11 +76,20 @@ export function InboxPanel({ onOpenLead, onPendingChange }: {
   const [scanning, setScanning] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  const [drafts, setDrafts] = useState<Record<number, Proposal>>({});
+  const [meta, setMeta] = useState<AgentMeta | null>(null);
 
   function reload() {
     fetchInbox(pendingOnly).then(setMessages).catch((e) => setErr(String(e)));
+    // The draft belongs next to the reply it answers, so Allen never leaves this page
+    // to deal with the thing this page exists for.
+    fetchProposals({ status: "pending", kind: "reply_draft" })
+      .then((ps) => setDrafts(Object.fromEntries(
+        ps.filter((p) => p.inbox_message_id).map((p) => [p.inbox_message_id as number, p]))))
+      .catch(() => setDrafts({}));
   }
   useEffect(reload, [pendingOnly]);
+  useEffect(() => { fetchAgentMeta().then(setMeta).catch(() => setMeta(null)); }, []);
 
   async function poll() {
     setPolling(true); setMsg("正在拉取邮件…");
@@ -116,6 +178,8 @@ export function InboxPanel({ onOpenLead, onPendingChange }: {
                 <strong style={{ fontWeight: m.is_read ? 500 : 700 }}>{m.company_en}</strong>
                 {m.contact_name && <span className="muted">联系人：{m.contact_name}</span>}
                 {m.kind === "reply" && !m.handled_at && <span className="warn-text" style={{ fontSize: 12 }}>待处理</span>}
+                {m.intent && meta && <span className="tag">{meta.intents[m.intent] ?? m.intent}</span>}
+                {drafts[m.id] && <span className="tag" style={{ color: "var(--green)", borderColor: "var(--green)" }}>已起草</span>}
                 {m.kind === "reply" && m.handled_at && <span className="muted" style={{ fontSize: 12 }}>已处理</span>}
                 {m.country && <span className="muted">{m.country}</span>}
                 {m.channel !== "email" && <span className="muted" style={{ fontSize: 12 }}>{CH_NAME[m.channel] ?? m.channel}</span>}
@@ -137,6 +201,9 @@ export function InboxPanel({ onOpenLead, onPendingChange }: {
                       title="确认你已经回复客户、建了商机或安排了明确下一步">
                       ✓ 已回复客户 / 已安排下一步
                     </button>
+                  )}
+                  {drafts[m.id] && (
+                    <DraftBox p={drafts[m.id]} onDone={() => { reload(); onPendingChange?.(); }} />
                   )}
                   {m.channel === "email" && m.kind === "reply" && m.from_addr && (
                     <a className="btn btn-sm" target="_blank" rel="noreferrer"

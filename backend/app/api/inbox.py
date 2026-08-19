@@ -15,7 +15,8 @@ def list_inbox(unread_only: int = 0, pending_only: int = 0,
     contacts.ensure_schema(conn)
     sql = (
         "SELECT m.id, m.lead_no, m.contact_id, m.channel, m.kind, m.from_addr, m.subject, m.body,"
-        "       m.received_at, m.is_read, m.handled_at, l.company_en, l.country,"
+        "       m.received_at, m.is_read, m.handled_at, m.intent, m.intent_confidence,"
+        "       l.company_en, l.country,"
         "       c.name AS contact_name"
         " FROM inbox_messages m JOIN leads l ON l.no = m.lead_no"
         " LEFT JOIN contacts c ON c.id=m.contact_id"

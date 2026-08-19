@@ -1,0 +1,105 @@
+"""What an approved proposal actually does.
+
+Every handler delegates to the module that already owns the action, so agent-initiated
+work inherits the same guards as work Allen does by hand. Handlers return a short human
+sentence that lands in `execution_result` — the Agent page shows it verbatim, so it has
+to read like an answer to "what happened", not like a status code.
+
+Kinds without a handler here (send_outreach / enroll_sequence / stop_sequence /
+discover_run) belong to phase B; proposing one now fails loudly rather than silently
+doing nothing.
+"""
+from __future__ import annotations
+
+import datetime as dt
+
+from app import activities, mailboxes, opportunities, repository
+from app.channels import email_adapter
+
+
+class ExecutionRefused(RuntimeError):
+    """A guard said no. The proposal fails with this reason shown to Allen."""
+
+
+def _lead(conn, lead_no: int) -> dict:
+    row = conn.execute(
+        "SELECT no, company_en, do_not_contact FROM leads WHERE no=?", (lead_no,)).fetchone()
+    if row is None:
+        raise ExecutionRefused(f"客户 {lead_no} 不存在")
+    return dict(row)
+
+
+def _pick_mailbox(conn, preferred_email: str | None):
+    """Answer from the address the customer wrote to. Falls back to rotation only when
+    that mailbox is gone, because a reply from an unrelated address is worse than none."""
+    if preferred_email:
+        row = conn.execute(
+            "SELECT id, email, smtp_host, port, username, password FROM mailboxes"
+            " WHERE email=? AND active=1", (preferred_email,)).fetchone()
+        if row:
+            return dict(row)
+    box = mailboxes.pick_mailbox(conn)
+    if box is None:
+        raise ExecutionRefused("没有可用发件邮箱（全部停用或已达当日上限）")
+    return box
+
+
+def send_reply(conn, p: dict) -> str:
+    payload = p.get("payload") or {}
+    lead = _lead(conn, p["lead_no"])
+    if lead["do_not_contact"]:
+        raise ExecutionRefused("该客户已标记不再联系")
+    to = (payload.get("to") or "").strip()
+    body = (payload.get("body") or "").strip()
+    if not to or "@" not in to:
+        raise ExecutionRefused("收件地址缺失")
+    if not body:
+        raise ExecutionRefused("回复正文为空")
+    subject = (payload.get("subject") or "").strip() or "Re:"
+    box = _pick_mailbox(conn, payload.get("mailbox_email"))
+    email_adapter.send_via(box, to, subject, body, payload.get("attachment"))
+    if box.get("id"):
+        mailboxes.record_send(conn, box["id"])
+    if p.get("inbox_message_id"):
+        conn.execute(
+            "UPDATE inbox_messages SET handled_at=?, is_read=1 WHERE id=?",
+            (dt.datetime.now(dt.UTC).isoformat(), p["inbox_message_id"]))
+    repository.add_note(conn, p["lead_no"], f"回复 {to}（Agent 起草，已确认发送）：{body[:300]}")
+    conn.commit()
+    return f"已从 {box['email']} 回复 {to}"
+
+
+def create_task(conn, p: dict) -> str:
+    payload = p.get("payload") or {}
+    task = activities.create(conn, p["lead_no"], {
+        "title": payload.get("title") or p["title"],
+        "type": payload.get("type") or "task",
+        "due_at": payload.get("due_at"),
+        "priority": payload.get("priority") or "normal",
+        "note": payload.get("note"),
+    }, opportunity_id=p.get("opportunity_id"))
+    return f"已建销售任务 #{task['id']}：{task['title']}"
+
+
+def build_opportunity(conn, p: dict) -> str:
+    payload = dict(p.get("payload") or {})
+    payload.pop("lead_no", None)
+    opp = opportunities.create(conn, p["lead_no"], payload)
+    return f"已建商机 #{opp['id']}：{opp.get('title') or ''}".strip()
+
+
+def mark_do_not_contact(conn, p: dict) -> str:
+    lead = _lead(conn, p["lead_no"])
+    repository.update_lead(conn, p["lead_no"], {"do_not_contact": 1})
+    reason = (p.get("payload") or {}).get("reason") or "客户明确拒绝"
+    repository.add_note(conn, p["lead_no"], f"标记不再联系（Agent 提议，已确认）：{reason}")
+    conn.commit()
+    return f"{lead['company_en']} 已标记不再联系，全渠道停发"
+
+
+HANDLERS = {
+    "reply_draft": send_reply,
+    "create_task": create_task,
+    "build_opportunity": build_opportunity,
+    "mark_do_not_contact": mark_do_not_contact,
+}

@@ -190,6 +190,16 @@ _TABLE_COLUMNS = {
     "inbox_messages": {
         "handled_at": "TEXT",
         "contact_id": "INTEGER",
+        # Which of our addresses the customer wrote to. Needed to answer from that same
+        # address: replying to a thread from a different mailbox breaks threading and
+        # reads as a different company.
+        "mailbox_email": "TEXT",
+        # Agent intent classification. Kept on the message, not the lead: one customer
+        # can ask for a quote today and reject next month, and both stay true of the
+        # message that carried them.
+        "intent": "TEXT",
+        "intent_confidence": "INTEGER",
+        "intent_at": "TEXT",
     },
 }
 

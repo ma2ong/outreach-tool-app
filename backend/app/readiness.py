@@ -1,6 +1,7 @@
 import json
 
 from app import activities, autosend, contacts, mailboxes, settings
+from app.agent import run as agent_run
 from app.channels.email_adapter import get_password
 
 
@@ -119,6 +120,27 @@ def build(conn) -> dict:
         "已启用，每日只运行一次" if auto["enabled"] else "默认关闭，可确认预览后启用",
         "dashboard"))
 
+    # A model backend that quietly stops working looks exactly like "no replies worth
+    # drafting today", which is the one failure Allen would never notice on his own.
+    agent_status = agent_run.status(conn)
+    broken = [f"{t}：{v['reason']}" for t, v in agent_status["llm"]["tasks"].items()
+              if not v["ok"]]
+    if broken:
+        checks.append(_check("agent_llm", "Agent 模型接入", "attention",
+                             "；".join(broken), "agent"))
+    else:
+        checks.append(_check(
+            "agent_llm", "Agent 模型接入", "ok",
+            f"分类走 {agent_status['llm']['tasks']['classify']['backend']}，"
+            f"起草走 {agent_status['llm']['tasks']['draft']['backend']}", "agent"))
+
+    pending_proposals = agent_status["pending"]
+    checks.append(_check(
+        "agent_proposals", "Agent 待审批",
+        "attention" if pending_proposals else "ok",
+        f"{pending_proposals} 条提议等你确认" if pending_proposals else "没有待审批的提议",
+        "agent"))
+
     levels = {c["status"] for c in checks}
     overall = "blocked" if "blocked" in levels else ("attention" if "attention" in levels else "ready")
     return {
@@ -138,5 +160,6 @@ def build(conn) -> dict:
             "activities": activity_stats,
             "contacts": contact_stats,
             "autosend": auto,
+            "agent": agent_status,
         },
     }

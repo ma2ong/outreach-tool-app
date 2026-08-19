@@ -35,6 +35,7 @@ from app.api import activities as activities_api
 from app.api import contacts as contacts_api
 from app.api import sales_documents as sales_documents_api
 from app.api import sales_intelligence as sales_intelligence_api
+from app.api import agent as agent_api
 
 BACKUP_KEEP = 14
 REPLY_POLL_SECONDS = 900   # steady-state inbox refresh
@@ -154,6 +155,26 @@ def auto_prune_sequences() -> None:
             conn.close()
 
 
+def auto_agent_run() -> None:
+    """Classify new replies and draft what should be answered.
+
+    Runs right after the poll so a reply that lands at 09:00 has a draft waiting rather
+    than sitting until Allen opens the page. Nothing here sends: the output is proposals
+    (Spec 22). Off by default in tests, and silent when no model backend is configured."""
+    if os.environ.get("OUTREACH_AGENT", "1") == "0":
+        return
+    from app.agent import run as agent_run
+    conn = None
+    try:
+        conn = connect(DB_PATH)
+        agent_run.run_once(conn)
+    except Exception:  # noqa: BLE001 — the agent must not kill the poll loop
+        pass
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def reply_poll_loop() -> None:
     """Keep pulling for as long as the app runs.
 
@@ -168,6 +189,7 @@ def reply_poll_loop() -> None:
         auto_scan_social()
         auto_recheck()
         auto_prune_sequences()  # after the poll: a fresh bounce parks its enrollment now
+        auto_agent_run()        # last: it reads the replies the poll just stored
         time.sleep(REPLY_POLL_SECONDS if ok else REPLY_RETRY_SECONDS)
 
 
@@ -195,6 +217,8 @@ async def lifespan(app: FastAPI):
         normalize_all_websites(conn)  # idempotent data fix: consistent website form
         from app.replies import backfill_bounced_at
         backfill_bounced_at(conn)  # idempotent: bounce dates the inbox still remembers
+        from app.agent.proposals import ensure_schema as ensure_agent_schema
+        ensure_agent_schema(conn)
     finally:
         conn.close()
     # background so a slow IMAP never delays the app coming up
@@ -241,6 +265,7 @@ app.include_router(activities_api.router)
 app.include_router(contacts_api.router)
 app.include_router(sales_documents_api.router)
 app.include_router(sales_intelligence_api.router)
+app.include_router(agent_api.router)
 from app.api import auth as auth_api  # noqa: E402
 from app.api import health as health_api  # noqa: E402
 app.include_router(auth_api.router)

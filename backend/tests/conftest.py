@@ -29,6 +29,8 @@ def _auth_disabled(tmp_path, monkeypatch):
     # never let a test reach the real Gmail IMAP via the startup auto-poll
     monkeypatch.setenv("OUTREACH_AUTO_POLL", "0")
     monkeypatch.setenv("OUTREACH_AUTOSEND_SCHEDULER", "0")
+    # never let a test reach a real model backend via the startup poll loop
+    monkeypatch.setenv("OUTREACH_AGENT", "0")
 
 
 @pytest.fixture

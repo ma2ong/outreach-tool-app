@@ -155,6 +155,8 @@ export interface InboxMessage {
   received_at: string | null;
   is_read: number;
   handled_at: string | null;
+  intent: string | null;
+  intent_confidence: number | null;
   company_en: string;
   contact_name: string | null;
   country: string | null;

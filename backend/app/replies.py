@@ -172,10 +172,11 @@ def test_mailbox(mailbox: dict) -> None:
 def _store(conn, lead_no: int, kind: str, m: dict,
            contact_id: int | None = None) -> int | None:
     cur = conn.execute(
-        "INSERT OR IGNORE INTO inbox_messages(lead_no, contact_id, channel, kind, from_addr, subject, body, received_at)"
-        " VALUES (?, ?, 'email', ?, ?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO inbox_messages(lead_no, contact_id, channel, kind, from_addr,"
+        " subject, body, received_at, mailbox_email)"
+        " VALUES (?, ?, 'email', ?, ?, ?, ?, ?, ?)",
         (lead_no, contact_id, kind, _norm(m.get("from_addr")), m.get("subject") or "",
-         m.get("body") or "", m.get("received_at") or ""))
+         m.get("body") or "", m.get("received_at") or "", m.get("mailbox_email") or ""))
     return cur.lastrowid if cur.rowcount > 0 else None
 
 
@@ -361,7 +362,10 @@ def poll_all_replies(conn, fetcher=fetch_mailbox_messages, since_days: int | Non
     checked = 0
     for mailbox in targets:
         try:
-            result = process_messages(conn, fetcher(mailbox, since_days))
+            fetched = fetcher(mailbox, since_days)
+            for m in fetched:
+                m.setdefault("mailbox_email", mailbox.get("email", ""))
+            result = process_messages(conn, fetched)
         except Exception as exc:  # noqa: BLE001 — continue with the remaining accounts
             errors.append({"email": mailbox.get("email", ""), "error": str(exc)[:200]})
             continue

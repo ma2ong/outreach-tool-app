@@ -1,0 +1,350 @@
+import datetime as dt
+
+import pytest
+
+from app.agent import classify, draft, executors, llm, proposals, run
+
+
+def _reply(conn, lead_no=1, body="Please send price for 200sqm P2.5 indoor.",
+           channel="email", intent=None, from_addr="buyer@alpha.com", subject="Re: LED"):
+    cur = conn.execute(
+        "INSERT INTO inbox_messages(lead_no, channel, kind, from_addr, subject, body,"
+        " received_at, intent, mailbox_email)"
+        " VALUES (?,?,'reply',?,?,?,?,?,'allen@mc.com')",
+        (lead_no, channel, from_addr, subject, body,
+         dt.datetime.now(dt.UTC).isoformat(), intent))
+    conn.commit()
+    return cur.lastrowid
+
+
+# ---------------------------------------------------------------- autonomy dial
+
+def test_kinds_default_to_propose_so_nothing_acts_on_its_own(conn):
+    for kind in proposals.KINDS:
+        assert proposals.autonomy(conn, kind) == "propose"
+
+
+def test_off_produces_no_proposal_at_all(conn):
+    proposals.set_autonomy(conn, "create_task", "off")
+    assert proposals.create(conn, "create_task", lead_no=1, title="x", payload={}) is None
+    assert proposals.list_proposals(conn) == []
+
+
+def test_auto_executes_immediately_but_still_leaves_a_record(conn):
+    proposals.set_autonomy(conn, "create_task", "auto")
+    p = proposals.create(conn, "create_task", lead_no=1, title="Call them",
+                         payload={"title": "Call them", "due_at": "2026-09-01"})
+    assert p["status"] == "executed"
+    assert "已建销售任务" in p["execution_result"]
+    assert conn.execute("SELECT COUNT(*) c FROM activities").fetchone()["c"] == 1
+
+
+def test_the_dial_is_per_kind_not_a_master_switch(conn):
+    proposals.set_autonomy(conn, "create_task", "auto")
+    assert proposals.autonomy(conn, "reply_draft") == "propose"
+    assert proposals.autonomy(conn, "mark_do_not_contact") == "propose"
+
+
+def test_unknown_kind_or_level_is_refused(conn):
+    with pytest.raises(proposals.ProposalError):
+        proposals.set_autonomy(conn, "take_over_the_world", "auto")
+    with pytest.raises(proposals.ProposalError):
+        proposals.set_autonomy(conn, "create_task", "yolo")
+
+
+# ---------------------------------------------------------------- queue hygiene
+
+def test_the_same_proposal_is_not_made_twice(conn):
+    mid = _reply(conn)
+    first = proposals.create(conn, "reply_draft", lead_no=1, inbox_message_id=mid,
+                             title="Reply", payload={"body": "hi"}, dedupe_key="draft")
+    second = proposals.create(conn, "reply_draft", lead_no=1, inbox_message_id=mid,
+                              title="Reply", payload={"body": "hi again"},
+                              dedupe_key="draft")
+    assert first is not None and second is None
+
+
+def test_a_week_old_draft_is_retired_rather_than_left_to_be_approved(conn):
+    p = proposals.create(conn, "reply_draft", lead_no=1, title="Old", payload={})
+    conn.execute("UPDATE agent_proposals SET created_at=? WHERE id=?",
+                 ((dt.datetime.now(dt.UTC) - dt.timedelta(days=9)).isoformat(), p["id"]))
+    conn.commit()
+    assert proposals.expire_stale(conn) == 1
+    assert proposals.get(conn, p["id"])["status"] == "expired"
+
+
+def test_high_risk_proposals_sort_above_routine_ones(conn):
+    proposals.create(conn, "create_task", lead_no=1, title="routine",
+                     payload={}, risk="low", dedupe_key="a")
+    proposals.create(conn, "mark_do_not_contact", lead_no=2, title="stop",
+                     payload={}, risk="high", dedupe_key="b")
+    assert [p["risk"] for p in proposals.list_proposals(conn)] == ["high", "low"]
+
+
+# ---------------------------------------------------------------- deciding
+
+def test_rejecting_requires_a_reason_from_the_fixed_list(conn):
+    p = proposals.create(conn, "create_task", lead_no=1, title="x", payload={})
+    with pytest.raises(proposals.ProposalError):
+        proposals.reject(conn, p["id"], "because")
+    done = proposals.reject(conn, p["id"], "wrong_timing", "下个月再说")
+    assert done["status"] == "rejected" and done["reject_reason"] == "wrong_timing"
+
+
+def test_editing_before_approval_is_recorded_as_edited(conn, monkeypatch):
+    sent = {}
+    monkeypatch.setattr(executors.email_adapter, "send_via",
+                        lambda box, to, s, b, a=None: sent.update(to=to, subject=s, body=b))
+    conn.execute("INSERT INTO mailboxes(email, smtp_host, port, username, password,"
+                 " daily_cap, active) VALUES ('allen@mc.com','smtp.mc.com',465,"
+                 "'allen@mc.com','pw',40,1)")
+    conn.commit()
+    mid = _reply(conn)
+    p = proposals.create(conn, "reply_draft", lead_no=1, inbox_message_id=mid,
+                         title="Reply", payload={"to": "buyer@alpha.com",
+                                                 "subject": "Re: LED", "body": "draft text",
+                                                 "mailbox_email": "allen@mc.com"})
+    result = proposals.approve(conn, p["id"], {**p["payload"], "body": "Allen's own words"})
+    assert result["status"] == "executed"
+    assert sent["body"] == "Allen's own words"
+    assert proposals.get(conn, p["id"])["payload"]["body"] == "Allen's own words"
+
+
+def test_an_approved_proposal_cannot_be_approved_again(conn):
+    proposals.set_autonomy(conn, "create_task", "propose")
+    p = proposals.create(conn, "create_task", lead_no=1, title="x",
+                         payload={"title": "x", "due_at": "2026-09-01"})
+    proposals.approve(conn, p["id"])
+    with pytest.raises(proposals.ProposalError):
+        proposals.approve(conn, p["id"])
+
+
+def test_a_phase_b_kind_fails_loudly_instead_of_doing_nothing(conn):
+    p = proposals.create(conn, "discover_run", lead_no=None, title="find leads", payload={})
+    done = proposals.approve(conn, p["id"])
+    assert done["status"] == "failed" and "B 期" in done["execution_result"]
+
+
+# ---------------------------------------------------------------- executor guards
+
+def test_a_reply_to_a_do_not_contact_customer_is_refused(conn, monkeypatch):
+    monkeypatch.setattr(executors.email_adapter, "send_via",
+                        lambda *a, **k: pytest.fail("must not send"))
+    conn.execute("UPDATE leads SET do_not_contact=1 WHERE no=1")
+    conn.commit()
+    p = proposals.create(conn, "reply_draft", lead_no=1, title="Reply",
+                         payload={"to": "buyer@alpha.com", "body": "hi"})
+    done = proposals.approve(conn, p["id"])
+    assert done["status"] == "failed" and "不再联系" in done["execution_result"]
+
+
+def test_a_sent_reply_marks_the_message_handled_and_leaves_a_note(conn, monkeypatch):
+    monkeypatch.setattr(executors.email_adapter, "send_via", lambda *a, **k: None)
+    conn.execute("INSERT INTO mailboxes(email, smtp_host, port, username, password,"
+                 " daily_cap, active) VALUES ('allen@mc.com','smtp.mc.com',465,"
+                 "'allen@mc.com','pw',40,1)")
+    conn.commit()
+    mid = _reply(conn)
+    p = proposals.create(conn, "reply_draft", lead_no=1, inbox_message_id=mid,
+                         title="Reply", payload={"to": "buyer@alpha.com", "body": "ok",
+                                                 "mailbox_email": "allen@mc.com"})
+    proposals.approve(conn, p["id"])
+    msg = conn.execute("SELECT handled_at, is_read FROM inbox_messages WHERE id=?",
+                       (mid,)).fetchone()
+    assert msg["handled_at"] and msg["is_read"] == 1
+    assert conn.execute("SELECT COUNT(*) c FROM notes WHERE lead_no=1").fetchone()["c"] == 1
+
+
+def test_the_reply_goes_out_from_the_address_the_customer_wrote_to(conn, monkeypatch):
+    used = {}
+    monkeypatch.setattr(executors.email_adapter, "send_via",
+                        lambda box, *a, **k: used.update(box))
+    conn.executescript(
+        "INSERT INTO mailboxes(email, smtp_host, port, username, password, daily_cap, active)"
+        " VALUES ('other@mc.com','smtp.mc.com',465,'other@mc.com','pw',40,1),"
+        "        ('allen@mc.com','smtp.mc.com',465,'allen@mc.com','pw',40,1);")
+    conn.commit()
+    p = proposals.create(conn, "reply_draft", lead_no=1, title="Reply",
+                         payload={"to": "buyer@alpha.com", "body": "ok",
+                                  "mailbox_email": "allen@mc.com"})
+    proposals.approve(conn, p["id"])
+    assert used["email"] == "allen@mc.com"
+
+
+# ---------------------------------------------------------------- classification
+
+def test_redaction_strips_what_identifies_the_customer():
+    out = classify.redact(
+        "Contact me at bob@alphaav.com or +1 (415) 555-0199, see https://alpha.com — Alpha AV",
+        "Alpha AV")
+    assert "bob@alphaav.com" not in out
+    assert "555-0199" not in out
+    assert "alpha.com" not in out
+    assert "Alpha AV" not in out
+
+
+def test_short_company_names_are_not_redacted_into_nonsense():
+    assert "LED" in classify.redact("we need LED panels", "LED")
+
+
+def test_classification_stores_intent_and_confidence(conn, monkeypatch):
+    mid = _reply(conn)
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {
+        "results": [{"id": mid, "intent": "quote", "confidence": 88}]})
+    result = classify.run(conn)
+    assert result["classified"] == 1
+    row = conn.execute("SELECT intent, intent_confidence FROM inbox_messages WHERE id=?",
+                       (mid,)).fetchone()
+    assert row["intent"] == "quote" and row["intent_confidence"] == 88
+
+
+def test_a_made_up_intent_is_dropped_rather_than_stored(conn, monkeypatch):
+    mid = _reply(conn)
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {
+        "results": [{"id": mid, "intent": "very_interested", "confidence": 99}]})
+    assert classify.run(conn)["classified"] == 0
+    assert conn.execute("SELECT intent FROM inbox_messages WHERE id=?",
+                        (mid,)).fetchone()["intent"] is None
+
+
+def test_an_unconfigured_backend_is_reported_not_raised(conn, monkeypatch):
+    _reply(conn)
+    def boom(*a, **k):
+        raise llm.LLMUnavailable("缺少 backend/deepseek_key.txt")
+    monkeypatch.setattr(llm, "complete_json", boom)
+    result = classify.run(conn)
+    assert result["unavailable"] and result["classified"] == 0
+
+
+def test_bounces_and_auto_replies_are_never_sent_for_classification(conn):
+    conn.execute("INSERT INTO inbox_messages(lead_no, channel, kind, body, received_at)"
+                 " VALUES (1,'email','bounce','undeliverable','2026-08-01')")
+    conn.execute("INSERT INTO inbox_messages(lead_no, channel, kind, body, received_at)"
+                 " VALUES (1,'email','auto','out of office','2026-08-01')")
+    conn.commit()
+    assert classify.pending(conn) == []
+
+
+# ---------------------------------------------------------------- draft guardrails
+
+def test_an_unsourced_price_or_lead_time_is_flagged():
+    ctx = {"quotes": [], "opportunities": []}
+    warnings = draft.check_claims(
+        "We can offer USD 320 per sqm and ship in 15 days.", ctx)
+    assert any("价格" in w for w in warnings)
+    assert any("交期" in w for w in warnings)
+
+
+def test_a_number_that_came_from_our_own_quote_is_not_flagged():
+    ctx = {"quotes": [{"total": 320, "lead_time": "15 days"}], "opportunities": []}
+    assert draft.check_claims("As quoted, USD 320 per sqm, 15 days.", ctx) == []
+
+
+def test_a_draft_that_promises_nothing_numeric_passes_clean():
+    ctx = {"quotes": [], "opportunities": []}
+    assert draft.check_claims(
+        "I will confirm the price and lead time and come back to you tomorrow.", ctx) == []
+
+
+# ---------------------------------------------------------------- the pipeline
+
+def test_an_email_asking_for_a_quote_gets_a_draft(conn, monkeypatch):
+    mid = _reply(conn, intent="quote")
+    monkeypatch.setattr(draft, "build", lambda c, m: {
+        "subject": "Re: LED", "body": "Sending specs today.", "language": "en",
+        "evidence": [{"claim": "they asked for 200sqm", "source": "their reply"}],
+        "open_questions": "", "warnings": [],
+        "context": {"lead": {"no": 1}, "quotes": [], "opportunities": [], "history": [],
+                    "message": {}},
+    })
+    monkeypatch.setattr("app.agent.memory.update", lambda c, ctx: "")
+    result = run.act_on_replies(conn)
+    assert result["draft"] == 1
+    p = proposals.list_proposals(conn)[0]
+    assert p["kind"] == "reply_draft" and p["inbox_message_id"] == mid
+    assert p["payload"]["to"] == "buyer@alpha.com"
+    assert p["payload"]["mailbox_email"] == "allen@mc.com"
+
+
+def test_a_draft_with_an_unsourced_number_is_raised_to_high_risk(conn, monkeypatch):
+    _reply(conn, intent="quote")
+    monkeypatch.setattr(draft, "build", lambda c, m: {
+        "subject": "Re", "body": "USD 300/sqm, 10 days.", "language": "en",
+        "evidence": [], "open_questions": "",
+        "warnings": ["价格：草稿里出现「USD 300」，上下文里查不到这个值"],
+        "context": {"lead": {"no": 1}, "quotes": [], "opportunities": [], "history": [],
+                    "message": {}},
+    })
+    monkeypatch.setattr("app.agent.memory.update", lambda c, ctx: "")
+    run.act_on_replies(conn)
+    p = proposals.list_proposals(conn)[0]
+    assert p["risk"] == "high" and "⚠" in p["reasoning"]
+
+
+def test_a_whatsapp_reply_gets_a_nudge_and_never_a_draft(conn, monkeypatch):
+    monkeypatch.setattr(draft, "build",
+                        lambda c, m: pytest.fail("half a preview is not enough to answer"))
+    _reply(conn, channel="whatsapp", intent="quote", body="how much for 100sqm?")
+    result = run.act_on_replies(conn)
+    assert result["nudge"] == 1 and result["draft"] == 0
+    assert proposals.list_proposals(conn)[0]["kind"] == "create_task"
+
+
+def test_a_rejection_proposes_stopping_all_contact(conn):
+    _reply(conn, intent="reject", body="Not interested, remove me.")
+    assert run.act_on_replies(conn)["reject"] == 1
+    p = proposals.list_proposals(conn)[0]
+    assert p["kind"] == "mark_do_not_contact" and p["risk"] == "high"
+    # still only a proposal — the customer is not silenced until Allen says so
+    assert conn.execute("SELECT do_not_contact FROM leads WHERE no=1").fetchone()[0] == 0
+
+
+def test_an_unclear_reply_produces_nothing_rather_than_a_guess(conn):
+    _reply(conn, intent="unclear", body="?")
+    assert run.act_on_replies(conn) == {"draft": 0, "nudge": 0, "reject": 0, "errors": []}
+
+
+def test_a_missing_backend_stops_the_batch_instead_of_burning_it(conn, monkeypatch):
+    for i in range(3):
+        _reply(conn, intent="quote", from_addr=f"b{i}@alpha.com")
+    def boom(c, m):
+        raise llm.LLMUnavailable("今日 Claude Code 调用已达上限")
+    monkeypatch.setattr(draft, "build", boom)
+    result = run.act_on_replies(conn)
+    assert result["draft"] == 0 and len(result["errors"]) == 1
+
+
+def test_a_handled_message_is_not_proposed_on_again(conn, monkeypatch):
+    mid = _reply(conn, intent="quote")
+    conn.execute("UPDATE inbox_messages SET handled_at='2026-08-01' WHERE id=?", (mid,))
+    conn.commit()
+    monkeypatch.setattr(draft, "build", lambda c, m: pytest.fail("already handled"))
+    assert run.act_on_replies(conn)["draft"] == 0
+
+
+# ---------------------------------------------------------------- model plumbing
+
+def test_json_survives_fences_and_chatter():
+    assert llm.extract_json('```json\n{"intent":"quote"}\n```') == {"intent": "quote"}
+    assert llm.extract_json('Sure!\n{"intent":"spec"}\nHope that helps') == {"intent": "spec"}
+    with pytest.raises(llm.LLMError):
+        llm.extract_json("no json at all")
+
+
+def test_each_task_routes_to_its_own_backend(conn):
+    assert llm.backend_for(conn, "classify") == "deepseek"
+    assert llm.backend_for(conn, "draft") == "cli"
+    llm.set_backend(conn, "classify", "cli")
+    assert llm.backend_for(conn, "classify") == "cli"
+    assert llm.backend_for(conn, "draft") == "cli"
+
+
+def test_the_cli_daily_limit_stops_calls_before_they_are_made(conn, monkeypatch):
+    monkeypatch.setattr(llm, "_call_cli",
+                        lambda *a, **k: pytest.fail("limit should have blocked this"))
+    from app import settings
+    settings.set_value(conn, "agent_daily_call_limit", "2")
+    settings.set_value(conn, "agent_call_stats",
+                       f'{{"date": "{dt.date.today().isoformat()}", "cli": 2}}')
+    with pytest.raises(llm.LLMUnavailable):
+        llm.complete_json(conn, "draft", "sys", "user")

@@ -6,6 +6,7 @@
 ## 功能一览
 | 页面 | 能力 |
 |---|---|
+| Agent | **AI 助手：提议 → 你审批**。新回复自动分类意图（询盘/要参数/要报价/要样品/砍价/转介绍/拒绝），邮件回复自动起草，草稿直接出现在收件箱对应那条回复下面，可改后一键发。**任何对外动作都不自动执行**：自主度按动作类型分 `关闭/提议/自动` 三档，出厂全在「提议」；调到「自动」也照样留执行记录，随时可调回来。驳回必须选理由。草稿里出现上下文查不到的价格/交期/起订量会被标红成高风险。分类默认走 DeepSeek（便宜、不吃 Claude 额度），起草默认走本机 Claude Code 订阅（不需要 API key） |
 | 仪表盘 | 今日工作台 + **销售任务（今日/逾期）** + 统计卡 + 渠道额度 + 触达漏斗 + "该跟进了"卡 + **商机金额/加权预测/逾期停滞** + **回复率分析（各 Campaign/国家回复率）** + 国家分布 |
 | 销售任务 | 所有下一步行动的唯一工作台：逾期/今天/未来/未排日期分组，支持电话、Email、WhatsApp、会议、报价等任务；客户真人回复自动建高优先级任务，商机下一步自动同步，完成后客户跟进字段同步更新 |
 | 客户库 | 全列表格（含**客户类型分级列**、邮箱有效性徽章）+ 详情抽屉（**客户简介与开场白**/**邮箱来源标注**/**一键复检官网**/阶段/标签/**下一步任务**/**多联系人与采购角色**/备注时间线/**不再联系开关**）+ 筛选/排序/分页/导出 Excel + **一键验证邮箱（MX）/一键 ICP 分级** + **快速添加**（粘贴 IG/FB/LinkedIn/官网链接一键入库，官网自动深挖+分级+查重）+ 勾选后触达操作条（模板按客户国家推荐语言、可换附件、可命名 Campaign；主要联系人是默认收件人，同一客户每天最多一次批量触达） |
@@ -82,10 +83,18 @@ cd backend && python -m uvicorn app.main:app --port 8000
 - `backend/app/playwright_engine.py` — 每渠道持久化有头浏览器
 - `backend/app/activities.py` — 销售任务、回复/商机自动建单、旧字段兼容迁移
 - `backend/app/contacts.py` — 公司多联系人、主要收件人同步、回复归属与采购角色
-- `backend/app/api/` — REST：leads / activities / opportunities / stats / send / discover / channels
+- `backend/app/agent/` — 销售助手：`llm.py` 三后端按任务分派 · `proposals.py` 审批脊柱与自主度旋钮 ·
+  `executors.py` 获批后调既有模块（护栏自动继承）· `classify.py` 脱敏批量分类 ·
+  `draft.py` 起草与未溯源数字告警 · `memory.py` 客户 running summary · `run.py` 每轮流水线
+- `backend/app/api/` — REST：leads / activities / opportunities / stats / send / discover / channels / agent
 - `frontend/src/theme.css` — 双主题 design tokens；`App.tsx` — AppShell + 页面切换；`components/` — Dashboard / LeadsTable / OutreachPanel / DiscoveryPanel / ConnectionPanel
 
 ## 已知边界
+- Agent 只提议不自作主张：A 期任何对外动作都要你点确认（自主度默认全在「提议」档）。
+- 社媒回复只抓得到会话列表的一行预览（不点开对话，免得清掉手机未读），不足以起草回复，
+  所以 WhatsApp / Instagram 只做意图判断和提醒，草稿只覆盖邮件。
+- Agent 需要模型后端：分类默认 DeepSeek（`backend/deepseek_key.txt`），
+  起草默认本机 Claude Code 登录态。两者都不可用时 Agent 静默，系统行为与没有它时一致。
 - 官网没留的联系方式抓不到（深挖只提取公开信息）。
 - WA/IG 自动私信违反平台 ToS，有封号风险；限速+批量上限只能降低、不能消除。
 - 多租户/登录/计费 = Phase 2，未开始。
