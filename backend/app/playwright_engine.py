@@ -210,6 +210,76 @@ class PlaywrightEngine:
             return True
         raise ValueError(f"unsupported channel {channel}")
 
+    # ---- reading one conversation (opens the thread; marks it read on the phone) ----
+    # The scan below stays list-only on purpose. This is the opt-in exception: without
+    # the real message text a DM reply would be written from half a preview line, which
+    # is worse than not replying at all.
+
+    def _direction_by_geometry(self, page, rows) -> list[bool]:
+        """Own messages sit on the right in every DM client. Class names churn; layout
+        does not, so geometry is the fallback that keeps working after a redesign."""
+        try:
+            width = page.viewport_size["width"]
+        except Exception:  # noqa: BLE001
+            width = 1280
+        out = []
+        for row in rows:
+            try:
+                box = row.bounding_box()
+                out.append(bool(box and (box["x"] + box["width"] / 2) > width * 0.55))
+            except Exception:  # noqa: BLE001
+                out.append(False)
+        return out
+
+    def _read_thread_op(self, channel, target, limit=20):
+        page = self._page(channel)
+        if channel == "whatsapp":
+            page.goto(f"https://web.whatsapp.com/send?phone={target}",
+                      wait_until="domcontentloaded", timeout=60000)
+            page.locator("#main").first.wait_for(state="visible", timeout=45000)
+            page.wait_for_timeout(2500)
+            rows = page.locator("#main div.message-in, #main div.message-out").all()[-limit:]
+            msgs = []
+            for row in rows:
+                try:
+                    cls = row.get_attribute("class") or ""
+                    text = row.inner_text(timeout=2000)
+                except Exception:  # noqa: BLE001
+                    continue
+                msgs.append({"text": text, "outgoing": "message-out" in cls})
+            if msgs:
+                return msgs
+            # markup moved: fall back to generic rows + geometry rather than returning nothing
+            rows = page.locator("#main div[role='row']").all()[-limit:]
+        elif channel in ("instagram", "facebook"):
+            if channel == "instagram":
+                page.goto(f"https://www.instagram.com/{target}/",
+                          wait_until="domcontentloaded", timeout=60000)
+                name = re.compile("message|发消息|发送消息|信息", re.I)
+            else:
+                page.goto(f"https://www.facebook.com/{target}",
+                          wait_until="domcontentloaded", timeout=60000)
+                name = re.compile("^(message|发消息|发送消息|send message)$", re.I)
+            page.wait_for_timeout(2000)
+            page.get_by_role("button", name=name).first.click(timeout=20000)
+            page.locator("div[contenteditable='true'][role='textbox'], textarea[placeholder]"
+                         ).first.wait_for(state="visible", timeout=30000)
+            page.wait_for_timeout(2500)
+            rows = page.locator("div[role='row']").all()[-limit:]
+        else:
+            raise ValueError(f"unsupported channel {channel}")
+
+        directions = self._direction_by_geometry(page, rows)
+        msgs = []
+        for row, outgoing in zip(rows, directions):
+            try:
+                text = row.inner_text(timeout=2000)
+            except Exception:  # noqa: BLE001
+                continue
+            if text and text.strip():
+                msgs.append({"text": text.strip(), "outgoing": outgoing})
+        return msgs
+
     # ---- inbound scanning (read-only: never opens a thread) ----
     # A session that quietly expired looks exactly like "no replies", so say so instead.
     _LOGGED_OUT = {
@@ -371,6 +441,9 @@ class PlaywrightEngine:
 
     def send_message(self, channel: str, target: str, message: str, image: str | None = None) -> None:
         self._call(self._send_op, channel, target, message, image, timeout=150)
+
+    def read_thread(self, channel: str, target: str, limit: int = 20) -> list[dict]:
+        return self._call(self._read_thread_op, channel, target, limit, timeout=180)
 
     def scan_threads(self, channel: str) -> list[dict]:
         # Instagram alone walks three tabs; 210s was cutting scans off mid-scroll.

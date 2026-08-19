@@ -2,14 +2,18 @@
 
 Order matters. Classification is cheap and batched, so it runs first for everything;
 drafting is expensive and runs only for the intents where a draft is the right answer.
-Email replies get a draft because we hold the full text. WhatsApp and Instagram replies
-only get a nudge: `inbound.py` scrapes a one-line preview from the conversation list and
-deliberately never opens the thread, so half a sentence is all we have — and a reply
-composed from half a sentence is exactly what section 2 forbids.
+
+Email arrives with its full text. A DM does not: the daily scan reads the chat list and
+gets one preview line. So a DM worth answering has its conversation opened first, and
+only then is it drafted — and if the thread cannot be read (session expired, no handle,
+markup moved), it falls back to a task pointing Allen at the right chat. Drafting from
+the preview is never an option; that is the sentence-and-a-half problem section 2 exists
+to prevent.
 """
 from __future__ import annotations
 
 import datetime as dt
+import json
 
 from app import settings
 from app.agent import classify, draft, llm, memory, proposals
@@ -25,7 +29,7 @@ def _messages_awaiting_action(conn, limit: int) -> list[dict]:
     """Classified, unhandled replies with no proposal on them yet."""
     rows = conn.execute(
         "SELECT m.id, m.lead_no, m.contact_id, m.channel, m.subject, m.body, m.from_addr,"
-        "       m.received_at, m.intent, m.intent_confidence, m.mailbox_email,"
+        "       m.received_at, m.intent, m.intent_confidence, m.mailbox_email, m.thread_json,"
         "       l.company_en, l.do_not_contact"
         " FROM inbox_messages m JOIN leads l ON l.no=m.lead_no"
         " WHERE m.kind='reply' AND m.intent IS NOT NULL AND m.handled_at IS NULL"
@@ -46,14 +50,15 @@ def _reject_proposal(conn, msg: dict) -> bool:
         risk="high", dedupe_key="reject") is not None
 
 
-def _social_nudge(conn, msg: dict) -> bool:
+def _social_nudge(conn, msg: dict, why: str) -> bool:
+    """The fallback when the conversation could not be read. Better a pointer to the
+    right chat than a reply composed from a preview line."""
     channel = msg["channel"]
     return proposals.create(
         conn, "create_task",
         lead_no=msg["lead_no"], inbox_message_id=msg["id"],
         title=f"去 {channel} 看 {msg['company_en']} 的消息（像是{classify.INTENTS[msg['intent']]}）",
-        reasoning=("社媒只抓得到会话列表的一行预览，没有全文，不足以起草回复。"
-                   "这里只做提醒，回复由你在手机或网页端亲自看过再发。"),
+        reasoning=f"没能读到这条对话的全文，所以没起草：{why}",
         evidence=[{"claim": "会话列表预览", "source": (msg.get("body") or "")[:200]}],
         payload={"title": f"回复 {msg['company_en']} 的 {channel} 消息",
                  "type": channel if channel in ("whatsapp", "instagram") else "task",
@@ -61,12 +66,39 @@ def _social_nudge(conn, msg: dict) -> bool:
         risk="low", dedupe_key="social_nudge") is not None
 
 
+def _social_draft(conn, msg: dict) -> tuple[str, bool]:
+    """Open the chat, read what was actually said, then draft from that.
+
+    Opening the thread clears its unread mark on the phone. That is the trade Allen
+    accepted so DM replies get written from the real conversation instead of a preview
+    line. It happens only for a message already worth answering, never on a schedule.
+
+    Returns which kind of proposal was made, so a fallback to a nudge is counted as one.
+    """
+    from app.agent import social
+    thread: list[dict] = []
+    try:
+        thread = social.fetch_thread(conn, msg)
+        reason = "" if social.last_inbound(thread) else "对话里读不到客户的最后一条消息"
+    except social.NoTarget as exc:
+        reason = str(exc)
+    except Exception as exc:  # noqa: BLE001 — a browser hiccup falls back, never crashes
+        reason = f"打开对话失败：{str(exc)[:120]}"
+    if reason:
+        return "nudge", _social_nudge(conn, msg, reason)
+    return "draft", _draft_proposal(
+        conn, {**msg, "thread_json": json.dumps(thread, ensure_ascii=False)})
+
+
 def _draft_proposal(conn, msg: dict) -> bool:
     result = draft.build(conn, msg)
     memory.update(conn, result["context"])
-    subject = result["subject"] or f"Re: {msg.get('subject') or ''}".strip()
-    if not subject.lower().startswith("re:"):
-        subject = f"Re: {subject}"
+    if msg["channel"] in SOCIAL_CHANNELS:
+        subject = ""          # a chat message has none, and a stray "Re:" would show in the UI
+    else:
+        subject = result["subject"] or f"Re: {msg.get('subject') or ''}".strip()
+        if not subject.lower().startswith("re:"):
+            subject = f"Re: {subject}"
     reasoning = (f"客户回复被判定为「{classify.INTENTS.get(msg['intent'], msg['intent'])}」"
                  f"（把握 {msg.get('intent_confidence') or 0}）。草稿只用了上下文里已有的事实。")
     if result["open_questions"]:
@@ -81,7 +113,8 @@ def _draft_proposal(conn, msg: dict) -> bool:
         title=f"回复 {msg['company_en']}（{msg['intent']}）",
         reasoning=reasoning,
         evidence=result["evidence"],
-        payload={"to": msg.get("from_addr") or "", "subject": subject,
+        payload={"channel": msg["channel"],
+                 "to": msg.get("from_addr") or "", "subject": subject,
                  "body": result["body"], "language": result["language"],
                  "mailbox_email": msg.get("mailbox_email") or ""},
         # A draft that states an unsourced number is exactly what must not slip through
@@ -105,7 +138,8 @@ def act_on_replies(conn, limit: int = DRAFT_LIMIT) -> dict:
             elif msg["intent"] not in classify.DRAFTABLE:
                 continue          # referral / unclear stay in the inbox for Allen
             elif msg["channel"] in SOCIAL_CHANNELS:
-                made["nudge"] += _social_nudge(conn, msg)
+                kind, ok = _social_draft(conn, msg)
+                made[kind] += ok
             else:
                 made["draft"] += _draft_proposal(conn, msg)
         except llm.LLMUnavailable as exc:

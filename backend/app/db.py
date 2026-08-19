@@ -200,6 +200,11 @@ _TABLE_COLUMNS = {
         "intent": "TEXT",
         "intent_confidence": "INTEGER",
         "intent_at": "TEXT",
+        # The real conversation, read by opening the thread (social only). `body` stays
+        # the one-line preview because the scan dedupes on it — overwriting it would make
+        # every later scan re-insert the same message as new.
+        "thread_json": "TEXT",
+        "thread_read_at": "TEXT",
     },
 }
 

@@ -14,6 +14,10 @@ function fmtTs(iso: string | null): string {
   return isNaN(+d) ? iso : d.toLocaleString();
 }
 
+const DRAFT_CHANNEL: Record<string, string> = {
+  email: "邮件", whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook",
+};
+
 function DraftBox({ p, onDone }: { p: Proposal; onDone: () => void }) {
   const [body, setBody] = useState(String(p.payload?.body ?? ""));
   const [busy, setBusy] = useState(false);
@@ -56,8 +60,9 @@ function DraftBox({ p, onDone }: { p: Proposal; onDone: () => void }) {
           {busy ? "发送中…" : edited ? "改后发送" : "确认发送"}
         </button>
         <span className="muted" style={{ fontSize: 12 }}>
-          发给 {String(p.payload?.to ?? "")}
-          {p.payload?.mailbox_email ? ` · 从 ${p.payload.mailbox_email} 发出` : ""}
+          {String(p.payload?.channel ?? "email") === "email"
+            ? `发给 ${String(p.payload?.to ?? "")}${p.payload?.mailbox_email ? ` · 从 ${p.payload.mailbox_email} 发出` : ""}`
+            : `在 ${DRAFT_CHANNEL[String(p.payload?.channel)] ?? p.payload?.channel} 的对话里发出`}
           　不想发就去 Agent 页驳回
         </span>
       </div>

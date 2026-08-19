@@ -44,11 +44,44 @@ def _pick_mailbox(conn, preferred_email: str | None):
     return box
 
 
+def _mark_handled(conn, p: dict) -> None:
+    if p.get("inbox_message_id"):
+        conn.execute("UPDATE inbox_messages SET handled_at=?, is_read=1 WHERE id=?",
+                     (dt.datetime.now(dt.UTC).isoformat(), p["inbox_message_id"]))
+
+
+def send_dm_reply(conn, p: dict, channel: str) -> str:
+    """Answer in the chat the customer wrote in.
+
+    Deliberately not `channel_outreach.send_channel_campaign`: that path is for cold
+    outreach and its eligibility filter excludes leads who have already replied — which
+    is every single person we would be answering here. The guards that do apply to a
+    reply (do-not-contact, a real handle) are checked directly.
+    """
+    from app.agent import social
+    from app.api.channels import ENGINE
+    body = (p.get("payload") or {}).get("body", "").strip()
+    if not body:
+        raise ExecutionRefused("回复正文为空")
+    target = social.target_for(conn, p["lead_no"], channel)
+    # No case image on a reply. The always-attach rule exists for cold DMs that open a
+    # conversation; re-sending the poster to someone mid-conversation reads as a bot.
+    ENGINE.send_message(channel, target, body, None)
+    _mark_handled(conn, p)
+    repository.add_note(conn, p["lead_no"],
+                        f"{channel} 回复（Agent 起草，已确认发送）：{body[:300]}")
+    conn.commit()
+    return f"已在 {channel} 回复 {target}"
+
+
 def send_reply(conn, p: dict) -> str:
     payload = p.get("payload") or {}
     lead = _lead(conn, p["lead_no"])
     if lead["do_not_contact"]:
         raise ExecutionRefused("该客户已标记不再联系")
+    channel = payload.get("channel") or "email"
+    if channel != "email":
+        return send_dm_reply(conn, p, channel)
     to = (payload.get("to") or "").strip()
     body = (payload.get("body") or "").strip()
     if not to or "@" not in to:
@@ -60,10 +93,7 @@ def send_reply(conn, p: dict) -> str:
     email_adapter.send_via(box, to, subject, body, payload.get("attachment"))
     if box.get("id"):
         mailboxes.record_send(conn, box["id"])
-    if p.get("inbox_message_id"):
-        conn.execute(
-            "UPDATE inbox_messages SET handled_at=?, is_read=1 WHERE id=?",
-            (dt.datetime.now(dt.UTC).isoformat(), p["inbox_message_id"]))
+    _mark_handled(conn, p)
     repository.add_note(conn, p["lead_no"], f"回复 {to}（Agent 起草，已确认发送）：{body[:300]}")
     conn.commit()
     return f"已从 {box['email']} 回复 {to}"

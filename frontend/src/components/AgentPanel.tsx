@@ -22,6 +22,10 @@ const LEVEL_LABEL: Record<string, string> = {
   auto: "自动",
 };
 
+const CHANNEL_LABEL: Record<string, string> = {
+  email: "邮件", whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook",
+};
+
 const RISK = {
   high: { label: "高风险", color: "var(--danger)" },
   medium: { label: "中风险", color: "var(--warn)" },
@@ -33,6 +37,8 @@ const ACTIVE_KINDS = ["reply_draft", "create_task", "build_opportunity", "mark_d
 
 function ProposalCard({ p, meta, onDone }: { p: Proposal; meta: AgentMeta; onDone: () => void }) {
   const isDraft = p.kind === "reply_draft";
+  const channel = String(p.payload?.channel ?? "email");
+  const isDM = isDraft && channel !== "email";
   const [body, setBody] = useState(String(p.payload?.body ?? ""));
   const [subject, setSubject] = useState(String(p.payload?.subject ?? ""));
   const [open, setOpen] = useState(p.risk === "high");
@@ -57,6 +63,7 @@ function ProposalCard({ p, meta, onDone }: { p: Proposal; meta: AgentMeta; onDon
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <span className="tag">{KIND_LABEL[p.kind] ?? p.kind}</span>
+            {isDraft && <span className="tag">{CHANNEL_LABEL[channel] ?? channel}</span>}
             <span className="tag" style={{ color: risk.color, borderColor: risk.color }}>{risk.label}</span>
             {p.country && <span className="muted" style={{ fontSize: 12 }}>{p.country}</span>}
           </div>
@@ -70,13 +77,16 @@ function ProposalCard({ p, meta, onDone }: { p: Proposal; meta: AgentMeta; onDon
         <div style={{ marginTop: 12 }}>
           {isDraft ? (
             <>
-              <label className="stat-label">主题</label>
-              <input className="input" value={subject} onChange={(e) => setSubject(e.target.value)} style={{ width: "100%", marginBottom: 8 }} />
+              {!isDM && <>
+                <label className="stat-label">主题</label>
+                <input className="input" value={subject} onChange={(e) => setSubject(e.target.value)} style={{ width: "100%", marginBottom: 8 }} />
+              </>}
               <label className="stat-label">正文（发出去的就是这里的内容）</label>
               <textarea className="input" rows={9} value={body} onChange={(e) => setBody(e.target.value)} style={{ width: "100%", fontFamily: "inherit" }} />
               <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                发给 {String(p.payload?.to ?? "")}
-                {p.payload?.mailbox_email ? ` · 从 ${p.payload.mailbox_email} 发出` : ""}
+                {isDM
+                  ? `在 ${CHANNEL_LABEL[channel] ?? channel} 的对话里回复${p.company_en ? " " + p.company_en : ""}`
+                  : `发给 ${String(p.payload?.to ?? "")}${p.payload?.mailbox_email ? ` · 从 ${p.payload.mailbox_email} 发出` : ""}`}
               </div>
             </>
           ) : (

@@ -45,6 +45,22 @@ Return JSON:
  "evidence": [{"claim": "<what you asserted>", "source": "<where it came from>"}],
  "open_questions": "<what you had to leave unanswered, or empty>"}"""
 
+# Same facts, same refusals, different register. A DM formatted like an email — subject
+# line, greeting, sign-off block — reads as a mail merge, which is the one thing a reply
+# in a chat window must not look like.
+SYSTEM_DM = SYSTEM.replace(
+    """VOICE: direct, short sentences, no marketing adjectives, no "we are pleased to".
+Write the way a factory owner writes: answer the question, then ask the one question
+that moves this forward. 120 words or fewer.
+Do not describe the company as a leader, premier, or top supplier.
+Write from "Shenzhen, China" without naming the company.""",
+    """VOICE: this is a chat message, not an email. No greeting line, no sign-off, no name
+at the bottom. Answer the question, then ask the one question that moves this forward.
+60 words or fewer — one or two sentences is normal here.
+Do not describe the company as a leader, premier, or top supplier.
+Say you are in Shenzhen, China only if it comes up naturally. Never name the company.
+Leave "subject" as an empty string: chat messages do not have one.""")
+
 # Numbers a model invents when it wants to sound helpful. Finding one is not proof of a
 # fabrication, but it is proof this draft needs a human's eyes before it goes out.
 _RISK_PATTERNS = [
@@ -58,6 +74,10 @@ _RISK_PATTERNS = [
 
 def _fetch(conn, sql: str, params: tuple) -> list[dict]:
     return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
+def system_for(channel: str) -> str:
+    return SYSTEM_DM if channel in ("whatsapp", "instagram", "facebook") else SYSTEM
 
 
 def build_context(conn, message: dict) -> dict:
@@ -91,6 +111,7 @@ def build_context(conn, message: dict) -> dict:
         "SELECT quote_no, status, currency, total, incoterm, lead_time, payment_terms,"
         " warranty, valid_until FROM quotes WHERE lead_no=? ORDER BY created_at DESC LIMIT 3",
         (lead_no,))
+    from app.agent import social
     return {
         "lead": dict(lead) if lead else {},
         "memory": (memory or {}).get("summary", ""),
@@ -99,6 +120,7 @@ def build_context(conn, message: dict) -> dict:
         "sends": sends,
         "opportunities": opps,
         "quotes": quotes,
+        "thread": social.stored_thread(message),
     }
 
 
@@ -129,8 +151,14 @@ def _render(ctx: dict) -> str:
         out.append(f"EARLIER FROM CUSTOMER ({h.get('received_at') or '?'}): "
                    f"{(h.get('body') or '')[:600]}")
     m = ctx["message"]
-    out.append(f"\nTHE MESSAGE TO ANSWER\nSubject: {m.get('subject') or ''}\n"
-               f"{(m.get('body') or '')[:2500]}")
+    if ctx.get("thread"):
+        from app.agent import social
+        out.append("THE CHAT SO FAR (US = we sent it, THEM = the customer)\n"
+                   + social.transcript(ctx["thread"])[-3000:]
+                   + "\n\nAnswer their last message.")
+    else:
+        out.append(f"\nTHE MESSAGE TO ANSWER\nSubject: {m.get('subject') or ''}\n"
+                   f"{(m.get('body') or '')[:2500]}")
     if m.get("intent"):
         out.append(f"(classified intent: {m['intent']})")
     return "\n\n".join(out)
@@ -156,7 +184,8 @@ def check_claims(body: str, ctx: dict) -> list[str]:
 def build(conn, message: dict) -> dict:
     """Draft one reply. Returns the parsed model output plus our own warnings."""
     ctx = build_context(conn, message)
-    data = llm.complete_json(conn, "draft", SYSTEM, _render(ctx))
+    data = llm.complete_json(conn, "draft", system_for(message.get("channel") or "email"),
+                             _render(ctx))
     body = str(data.get("body") or "").strip()
     if not body:
         raise llm.LLMError("模型没有返回正文")

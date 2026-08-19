@@ -2,7 +2,7 @@ import datetime as dt
 
 import pytest
 
-from app.agent import classify, draft, executors, llm, proposals, run
+from app.agent import classify, draft, executors, llm, proposals, run, social
 
 
 def _reply(conn, lead_no=1, body="Please send price for 200sqm P2.5 indoor.",
@@ -281,13 +281,125 @@ def test_a_draft_with_an_unsourced_number_is_raised_to_high_risk(conn, monkeypat
     assert p["risk"] == "high" and "⚠" in p["reasoning"]
 
 
-def test_a_whatsapp_reply_gets_a_nudge_and_never_a_draft(conn, monkeypatch):
-    monkeypatch.setattr(draft, "build",
-                        lambda c, m: pytest.fail("half a preview is not enough to answer"))
+def test_a_whatsapp_reply_is_drafted_from_the_opened_conversation(conn, monkeypatch):
+    conn.execute("UPDATE leads SET phone='+1 415 555 0199' WHERE no=1")
+    conn.commit()
     _reply(conn, channel="whatsapp", intent="quote", body="how much for 100sqm?")
+    monkeypatch.setattr(social, "fetch_thread", lambda c, m, engine=None: [
+        {"text": "Hi, saw your message", "outgoing": False},
+        {"text": "We build P0.7-P10 panels", "outgoing": True},
+        {"text": "how much for 100sqm indoor P2.5?", "outgoing": False},
+    ])
+    seen = {}
+    monkeypatch.setattr(draft, "build", lambda c, m: seen.update(msg=m) or {
+        "subject": "", "body": "Indoor P2.5, 100sqm — is it a fixed install?",
+        "language": "en", "evidence": [], "open_questions": "", "warnings": [],
+        "context": {"lead": {"no": 1}, "quotes": [], "opportunities": [], "history": [],
+                    "message": {}},
+    })
+    monkeypatch.setattr("app.agent.memory.update", lambda c, ctx: "")
+    result = run.act_on_replies(conn)
+    assert result["draft"] == 1 and result["nudge"] == 0
+    p = proposals.list_proposals(conn)[0]
+    assert p["kind"] == "reply_draft" and p["payload"]["channel"] == "whatsapp"
+    assert p["payload"]["subject"] == ""      # chat messages have no subject line
+    # the draft saw the real conversation, not the one-line preview
+    assert "100sqm indoor P2.5" in seen["msg"]["thread_json"]
+
+
+def test_a_dm_falls_back_to_a_nudge_when_the_chat_cannot_be_read(conn, monkeypatch):
+    conn.execute("UPDATE leads SET phone='+1 415 555 0199' WHERE no=1")
+    conn.commit()
+    _reply(conn, channel="whatsapp", intent="quote", body="how much?")
+    def boom(c, m, engine=None):
+        raise RuntimeError("WhatsApp 登录已过期")
+    monkeypatch.setattr(social, "fetch_thread", boom)
+    monkeypatch.setattr(draft, "build",
+                        lambda c, m: pytest.fail("must not draft from a preview"))
     result = run.act_on_replies(conn)
     assert result["nudge"] == 1 and result["draft"] == 0
-    assert proposals.list_proposals(conn)[0]["kind"] == "create_task"
+    p = proposals.list_proposals(conn)[0]
+    assert p["kind"] == "create_task" and "登录已过期" in p["reasoning"]
+
+
+def test_a_dm_with_no_handle_to_write_back_to_becomes_a_nudge(conn, monkeypatch):
+    _reply(conn, channel="whatsapp", intent="quote")   # lead 1 has no phone
+    monkeypatch.setattr(draft, "build",
+                        lambda c, m: pytest.fail("nowhere to send it"))
+    assert run.act_on_replies(conn)["nudge"] == 1
+
+
+def test_the_customers_last_turn_groups_consecutive_messages():
+    thread = [
+        {"text": "hello", "outgoing": False},
+        {"text": "we quoted P4", "outgoing": True},
+        {"text": "what about P2.5", "outgoing": False},
+        {"text": "for 100sqm", "outgoing": False},
+    ]
+    assert social.last_inbound(thread) == "what about P2.5\nfor 100sqm"
+    assert social.transcript(thread).startswith("THEM: hello\nUS: we quoted P4")
+
+
+def test_a_thread_ending_with_our_own_message_has_no_inbound_turn():
+    assert social.last_inbound([{"text": "any update?", "outgoing": True}]) == ""
+
+
+def test_the_thread_is_read_once_and_then_reused(conn):
+    mid = _reply(conn, channel="whatsapp", intent="quote")
+    conn.execute("UPDATE leads SET phone='+14155550199' WHERE no=1")
+    conn.commit()
+    calls = []
+
+    class Engine:
+        def read_thread(self, channel, target, limit):
+            calls.append((channel, target))
+            return [{"text": "how much?", "outgoing": False}]
+
+    msg = dict(conn.execute("SELECT * FROM inbox_messages WHERE id=?", (mid,)).fetchone())
+    assert social.fetch_thread(conn, msg, Engine())[0]["text"] == "how much?"
+    stored = dict(conn.execute("SELECT * FROM inbox_messages WHERE id=?", (mid,)).fetchone())
+    social.fetch_thread(conn, stored, Engine())
+    assert calls == [("whatsapp", "14155550199")]   # second call served from the DB
+
+
+def test_a_dm_reply_goes_through_the_chat_engine_without_an_image(conn, monkeypatch):
+    conn.execute("UPDATE leads SET instagram='visionproav' WHERE no=1")
+    conn.commit()
+    sent = {}
+    from app.api import channels as channels_api
+    monkeypatch.setattr(channels_api.ENGINE, "send_message",
+                        lambda ch, target, body, image: sent.update(
+                            ch=ch, target=target, body=body, image=image))
+    mid = _reply(conn, channel="instagram", intent="quote")
+    p = proposals.create(conn, "reply_draft", lead_no=1, inbox_message_id=mid,
+                         title="Reply", payload={"channel": "instagram",
+                                                 "body": "P2.5 indoor, what size?"})
+    done = proposals.approve(conn, p["id"])
+    assert done["status"] == "executed"
+    assert sent == {"ch": "instagram", "target": "visionproav",
+                    "body": "P2.5 indoor, what size?", "image": None}
+    assert conn.execute("SELECT handled_at FROM inbox_messages WHERE id=?",
+                        (mid,)).fetchone()["handled_at"]
+
+
+def test_a_dm_reply_still_respects_do_not_contact(conn, monkeypatch):
+    from app.api import channels as channels_api
+    monkeypatch.setattr(channels_api.ENGINE, "send_message",
+                        lambda *a, **k: pytest.fail("must not send"))
+    conn.execute("UPDATE leads SET do_not_contact=1, instagram='x' WHERE no=1")
+    conn.commit()
+    p = proposals.create(conn, "reply_draft", lead_no=1, title="Reply",
+                         payload={"channel": "instagram", "body": "hi"})
+    assert proposals.approve(conn, p["id"])["status"] == "failed"
+
+
+def test_a_dm_is_written_in_chat_voice_not_email_voice():
+    assert draft.system_for("whatsapp") is draft.SYSTEM_DM
+    assert draft.system_for("instagram") is draft.SYSTEM_DM
+    assert draft.system_for("email") is draft.SYSTEM
+    # the refusal to invent numbers survives the change of register
+    assert "NEVER state a price" in draft.SYSTEM_DM
+    assert "no sign-off" in draft.SYSTEM_DM
 
 
 def test_a_rejection_proposes_stopping_all_contact(conn):
