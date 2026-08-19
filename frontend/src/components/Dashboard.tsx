@@ -3,6 +3,7 @@ import { fetchQuota, fetchCampaignStats, fetchQualityStats, fetchDue, sendDue, f
 import type { Stats, ChannelReach, DueItem, SendJob, OpportunityStats, ActivityStats } from "../types";
 import { StatCards } from "./StatCards";
 import { ReadinessPanel } from "./ReadinessPanel";
+import { TodayPlanCard } from "./TodayPlanCard";
 
 const CH_LABEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook" };
 
@@ -114,6 +115,7 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
   const maxC = countries[0]?.[1] ?? 1;
   return (
     <>
+      <TodayPlanCard onGoto={onGoto} />
       <ReadinessPanel onGoto={onGoto} />
       {loadErrors.length > 0 && (
         <div className="card" style={{ marginBottom: 16, borderColor: "var(--danger)" }}>

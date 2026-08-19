@@ -2,7 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from app import jobs
-from app.agent import classify, llm, proposals, run
+from app.agent import classify, llm, proposals, report, run
 from app.main_deps import DB_PATH, get_conn
 
 router = APIRouter(prefix="/api/agent")
@@ -26,6 +26,10 @@ class AutonomyRequest(BaseModel):
 class BackendRequest(BaseModel):
     task: str
     backend: str
+
+
+class PlanRequest(BaseModel):
+    enabled: bool
 
 
 def _bad(exc: Exception):
@@ -128,6 +132,42 @@ def run_job(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
     return job
+
+
+@router.post("/plan/enabled")
+def set_plan_enabled(req: PlanRequest, conn=Depends(get_conn)):
+    run.set_plan_enabled(conn, req.enabled)
+    return run.status(conn)["plan"]
+
+
+def _plan_now(job_id: str) -> None:
+    from app.db import connect
+    conn = connect(DB_PATH)
+    try:
+        jobs.finish(job_id, run.make_plan(conn))
+    except Exception as exc:  # noqa: BLE001
+        jobs.fail(job_id, str(exc))
+    finally:
+        conn.close()
+
+
+@router.post("/plan/run")
+def trigger_plan(background: BackgroundTasks):
+    """Build today's plan on demand — the morning schedule is a convenience, not the
+    only way in, and Allen should not have to wait until tomorrow to try it."""
+    job_id = jobs.create(1)
+    background.add_task(_plan_now, job_id)
+    return {"job_id": job_id}
+
+
+@router.get("/report")
+def daily_report(conn=Depends(get_conn)):
+    return {"text": report.compose(conn), "webhook_configured": bool(report.webhook_url())}
+
+
+@router.post("/report/send")
+def send_report(conn=Depends(get_conn)):
+    return report.send_daily(conn)
 
 
 @router.get("/memory/{lead_no}")

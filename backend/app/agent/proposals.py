@@ -272,7 +272,7 @@ def _execute(conn, p: dict, note: str = "") -> dict:
     from app.agent import executors
     handler = executors.HANDLERS.get(p["kind"])
     if handler is None:
-        return _finish(conn, p["id"], False, f"{p['kind']} 还没有执行器（B 期实现）")
+        return _finish(conn, p["id"], False, f"{p['kind']} 没有执行器，无法执行")
     try:
         result = handler(conn, p)
     except Exception as exc:  # noqa: BLE001 — a failed action must stay visible, not crash

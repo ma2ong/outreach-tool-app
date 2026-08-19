@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import {
-  approveProposal, fetchAgentMeta, fetchAgentRunJob, fetchAgentStatus, fetchProposals,
-  rejectProposal, setAgentBackend, setAutonomy, startAgentRun,
+  approveProposal, fetchAgentMeta, fetchAgentRunJob, fetchAgentStatus, fetchDailyReport,
+  fetchProposals, rejectProposal, sendDailyReport, setAgentBackend, setAutonomy,
+  setPlanEnabled, startAgentRun, startPlanRun,
 } from "../agentApi";
 import type { AgentMeta, AgentStatus, Proposal } from "../agentApi";
 
@@ -32,8 +33,10 @@ const RISK = {
   low: { label: "低风险", color: "var(--green)" },
 };
 
-// Phase B owns these; showing a dial that cannot do anything yet would be a lie.
-const ACTIVE_KINDS = ["reply_draft", "create_task", "build_opportunity", "mark_do_not_contact"];
+const ACTIVE_KINDS = [
+  "reply_draft", "create_task", "build_opportunity", "mark_do_not_contact",
+  "send_outreach", "enroll_sequence", "stop_sequence", "discover_run",
+];
 
 function ProposalCard({ p, meta, onDone }: { p: Proposal; meta: AgentMeta; onDone: () => void }) {
   const isDraft = p.kind === "reply_draft";
@@ -136,8 +139,10 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
   const [items, setItems] = useState<Proposal[]>([]);
   const [tab, setTab] = useState("pending");
   const [running, setRunning] = useState(false);
+  const [planning, setPlanning] = useState(false);
   const [error, setError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [report, setReport] = useState<{ text: string; webhook_configured: boolean } | null>(null);
 
   function reload() {
     fetchAgentStatus().then(setStatus).catch((e) => setError(String(e)));
@@ -146,18 +151,36 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
   useEffect(() => { fetchAgentMeta().then(setMeta).catch((e) => setError(String(e))); }, []);
   useEffect(reload, [tab]);
 
+  async function poll(jobId: string, get: (id: string) => Promise<{ status: string; result: any }>) {
+    for (let i = 0; i < 240; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const job = await get(jobId);
+      if (job.status !== "running") {
+        if (job.status === "error") setError(String(job.result?.error ?? "运行失败"));
+        return job;
+      }
+    }
+    return null;
+  }
+
+  async function planNow() {
+    setPlanning(true); setError("");
+    try {
+      const { job_id } = await startPlanRun();
+      await poll(job_id, fetchAgentRunJob);
+      reload();
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    } finally {
+      setPlanning(false);
+    }
+  }
+
   async function runNow() {
     setRunning(true); setError("");
     try {
       const { job_id } = await startAgentRun();
-      for (let i = 0; i < 240; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
-        const job = await fetchAgentRunJob(job_id);
-        if (job.status !== "running") {
-          if (job.status === "error") setError(String(job.result?.error ?? "运行失败"));
-          break;
-        }
-      }
+      await poll(job_id, fetchAgentRunJob);
       reload();
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
@@ -186,6 +209,9 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
           <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
             <button className="btn btn-sm" disabled={running} onClick={runNow}>
               {running ? "运行中…" : "立刻跑一次"}
+            </button>
+            <button className="btn btn-sm" disabled={planning} onClick={planNow}>
+              {planning ? "规划中…" : "出今日计划"}
             </button>
             <button className="btn btn-sm" onClick={() => setSettingsOpen(!settingsOpen)}>
               {settingsOpen ? "收起设置" : "自主度与模型"}
@@ -219,6 +245,39 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
             <div className="muted" style={{ fontSize: 12, margin: "4px 0 12px" }}>
               调到「自动」后这一类不再问你，但照样留执行记录，可以随时调回来。
             </div>
+
+            <div className="stat-label" style={{ marginBottom: 6 }}>每天早上自动出计划</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+              <button className={`btn btn-sm${status.plan.enabled ? " btn-green" : ""}`}
+                onClick={() => setPlanEnabled(!status.plan.enabled).then(reload)}>
+                {status.plan.enabled ? "已开启" : "已关闭"}
+              </button>
+              <span className="muted" style={{ fontSize: 12 }}>
+                每天 {status.plan.window[0]}:00–{status.plan.window[1]}:00 之间自动跑一次，出的仍然是待你确认的提议
+              </span>
+            </div>
+            {status.plan.last_result && (
+              <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
+                上次计划：{status.plan.last_result}
+              </div>
+            )}
+
+            <div className="stat-label" style={{ marginBottom: 6 }}>今日日报</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+              <button className="btn btn-sm" onClick={() => fetchDailyReport().then(setReport)}>看看今天写了什么</button>
+              <button className="btn btn-sm" onClick={() => sendDailyReport().then((r) => {
+                setReport({ text: r.text ?? "", webhook_configured: r.sent });
+                if (!r.sent) setError(r.reason);
+              })}>推到飞书</button>
+              {report && !report.webhook_configured && (
+                <span className="muted" style={{ fontSize: 12 }}>
+                  要推飞书，把机器人 webhook 地址写进 backend/lark_webhook.txt
+                </span>
+              )}
+            </div>
+            {report?.text && (
+              <pre style={{ fontSize: 12, whiteSpace: "pre-wrap", margin: "0 0 12px" }}>{report.text}</pre>
+            )}
 
             <div className="stat-label" style={{ marginBottom: 6 }}>模型后端</div>
             {meta.tasks.map((task) => (

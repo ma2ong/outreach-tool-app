@@ -32,6 +32,12 @@ export type AgentStatus = {
     calls: Record<string, any>;
     tasks: Record<string, { backend: string; ok: boolean; reason: string }>;
   };
+  plan: {
+    enabled: boolean;
+    last_date: string | null;
+    last_result: string | null;
+    window: number[];
+  };
 };
 
 export type AgentMeta = {
@@ -99,4 +105,23 @@ export async function startAgentRun(): Promise<{ job_id: string }> {
 
 export async function fetchAgentRunJob(jobId: string): Promise<{ status: string; result: any }> {
   return jsonOrThrow(await fetch(`/api/agent/run/${jobId}`), "agent job");
+}
+
+export async function setPlanEnabled(enabled: boolean) {
+  return jsonOrThrow(await fetch("/api/agent/plan/enabled", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  }), "plan");
+}
+
+export async function startPlanRun(): Promise<{ job_id: string }> {
+  return jsonOrThrow(await fetch("/api/agent/plan/run", { method: "POST" }), "plan run");
+}
+
+export async function fetchDailyReport(): Promise<{ text: string; webhook_configured: boolean }> {
+  return jsonOrThrow(await fetch("/api/agent/report"), "report");
+}
+
+export async function sendDailyReport(): Promise<{ sent: boolean; reason: string; text?: string }> {
+  return jsonOrThrow(await fetch("/api/agent/report/send", { method: "POST" }), "report send");
 }

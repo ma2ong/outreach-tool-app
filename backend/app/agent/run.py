@@ -20,6 +20,9 @@ from app.agent import classify, draft, llm, memory, proposals
 
 _K_LAST_AT = "agent_run_last_at"
 _K_LAST_RESULT = "agent_run_last_result"
+_K_PLAN_ENABLED = "agent_plan_enabled"
+_K_PLAN_DATE = "agent_plan_last_date"
+_K_PLAN_RESULT = "agent_plan_last_result"
 
 DRAFT_LIMIT = 10          # per run; drafting is the expensive half
 SOCIAL_CHANNELS = ("whatsapp", "instagram", "facebook")
@@ -150,23 +153,75 @@ def act_on_replies(conn, limit: int = DRAFT_LIMIT) -> dict:
     return {**made, "errors": errors}
 
 
-def run_once(conn) -> dict:
-    """One full pass: retire stale proposals, classify, then propose."""
+PLAN_WINDOW = (8, 12)     # the daily plan is a morning thing; after noon it is stale
+REPORT_HOUR = 18          # the day is over; say what happened
+
+
+def plan_due(conn, now: dt.datetime | None = None) -> bool:
+    """Once per day, inside the morning window, only when planning is switched on."""
+    now = now or dt.datetime.now()
+    if settings.get(conn, _K_PLAN_ENABLED, "0") != "1":
+        return False
+    if not (PLAN_WINDOW[0] <= now.hour < PLAN_WINDOW[1]):
+        return False
+    return settings.get(conn, _K_PLAN_DATE) != now.date().isoformat()
+
+
+def make_plan(conn, now: dt.datetime | None = None) -> dict:
+    """Build today's plan. Marks the day done first: a planner that fails at 09:00 and
+    retries every five minutes would spend the whole quota on the same broken call."""
+    from app.agent import plan as plan_mod
+    now = now or dt.datetime.now()
+    settings.set_value(conn, _K_PLAN_DATE, now.date().isoformat())
+    try:
+        result = plan_mod.build_plan(conn)
+    except (llm.LLMUnavailable, llm.LLMError) as exc:
+        settings.set_value(conn, _K_PLAN_RESULT, f"{now:%m-%d %H:%M} 计划失败：{exc}")
+        return {"proposed": 0, "error": str(exc)}
+    note = f"{now:%m-%d %H:%M} 今日计划：{result['summary'] or ''}（{result['proposed']} 条建议）"
+    if result["rejected"]:
+        note += f"，{len(result['rejected'])} 条不合规被丢弃"
+    settings.set_value(conn, _K_PLAN_RESULT, note)
+    return result
+
+
+def run_once(conn, now: dt.datetime | None = None) -> dict:
+    """One full pass: retire stale proposals, classify, propose, and — once a morning —
+    plan the day."""
     proposals.ensure_schema(conn)
     expired = proposals.expire_stale(conn)
     classified = classify.run(conn)
     acted = act_on_replies(conn)
+    planned = make_plan(conn, now) if plan_due(conn, now) else {"proposed": 0}
+    _maybe_report(conn, now)
     result = {
         "expired": expired,
         "classified": classified.get("classified", 0),
         "classify_note": classified.get("note", ""),
+        "planned": planned.get("proposed", 0),
         **{k: v for k, v in acted.items() if k != "errors"},
-        "errors": acted["errors"],
+        "errors": acted["errors"] + ([planned["error"]] if planned.get("error") else []),
     }
     now = dt.datetime.now()
     settings.set_value(conn, _K_LAST_AT, now.isoformat())
     settings.set_value(conn, _K_LAST_RESULT, _describe(now, result))
     return result
+
+
+def _maybe_report(conn, now: dt.datetime | None) -> None:
+    """Push the evening summary once the day is done.
+
+    Only when a webhook exists: without one `send_daily` would mark the day as reported
+    and Allen would never see it anywhere but the page he did not open.
+    """
+    from app.agent import report
+    now = now or dt.datetime.now()
+    if now.hour < REPORT_HOUR or not report.webhook_url():
+        return
+    try:
+        report.send_daily(conn, now.date())
+    except Exception:  # noqa: BLE001 — a chat webhook must never break the pipeline
+        pass
 
 
 def _describe(now: dt.datetime, r: dict) -> str:
@@ -179,6 +234,8 @@ def _describe(now: dt.datetime, r: dict) -> str:
         bits.append(f"社媒提醒 {r['nudge']} 条")
     if r["reject"]:
         bits.append(f"建议停发 {r['reject']} 家")
+    if r.get("planned"):
+        bits.append(f"今日计划 {r['planned']} 条")
     if r["expired"]:
         bits.append(f"过期清理 {r['expired']} 条")
     if r["errors"]:
@@ -193,5 +250,15 @@ def status(conn) -> dict:
         "last_result": settings.get(conn, _K_LAST_RESULT) or None,
         "unclassified": len(classify.pending(conn, limit=999)),
         "llm": llm.status(conn),
+        "plan": {
+            "enabled": settings.get(conn, _K_PLAN_ENABLED, "0") == "1",
+            "last_date": settings.get(conn, _K_PLAN_DATE) or None,
+            "last_result": settings.get(conn, _K_PLAN_RESULT) or None,
+            "window": list(PLAN_WINDOW),
+        },
         **proposals.summary(conn),
     }
+
+
+def set_plan_enabled(conn, on: bool) -> None:
+    settings.set_value(conn, _K_PLAN_ENABLED, "1" if on else "0")

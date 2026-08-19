@@ -127,9 +127,80 @@ def mark_do_not_contact(conn, p: dict) -> str:
     return f"{lead['company_en']} 已标记不再联系，全渠道停发"
 
 
+def send_outreach(conn, p: dict) -> str:
+    """First-touch a batch using one of Allen's templates.
+
+    Goes through `outreach.send_campaign`, which is the same call the Outreach panel
+    makes — so the batch cap, the daily quota, the one-touch-per-lead-per-day rule and
+    the invalid-address skip all apply, and anything over budget is deferred rather than
+    dropped. The agent chose who; the template is what Allen actually sends.
+    """
+    from app import outreach
+    from app.api import send as send_api
+    payload = p.get("payload") or {}
+    tpl = conn.execute("SELECT subject, body, channel FROM templates WHERE id=?",
+                       (payload.get("template_id"),)).fetchone()
+    if tpl is None:
+        raise ExecutionRefused("模板已被删除")
+    if tpl["channel"] != "email":
+        raise ExecutionRefused("目前只支持邮件模板的批量触达；社媒批量仍走手动面板")
+    lead_nos = [int(n) for n in payload.get("lead_nos") or []]
+    if not lead_nos:
+        raise ExecutionRefused("没有选中客户")
+    result = outreach.send_campaign(
+        conn, lead_nos, tpl["subject"] or "", tpl["body"],
+        send_api.DEFAULT_ATTACHMENT, send_api.pick_sender(conn),
+        campaign=f"Agent {dt.date.today().isoformat()}")
+    note = f"已发 {result['sent']} 封，失败 {result['failed']}"
+    if result.get("deferred"):
+        note += f"，额度外延后 {result['deferred']}（明天继续）"
+    if result.get("skipped"):
+        note += f"，跳过 {result['skipped']}（不符合发送条件）"
+    return note
+
+
+def enroll_sequence(conn, p: dict) -> str:
+    from app import sequences
+    payload = p.get("payload") or {}
+    lead_nos = [int(n) for n in payload.get("lead_nos") or []]
+    if not lead_nos:
+        raise ExecutionRefused("没有选中客户")
+    count = sequences.enroll_leads(conn, int(payload["sequence_id"]), lead_nos)
+    return f"已把 {count} 个客户加入跟进序列"
+
+
+def stop_sequence(conn, p: dict) -> str:
+    from app import sequences
+    channel = (p.get("payload") or {}).get("channel")
+    stopped = sequences.stop_for_lead(conn, p["lead_no"], channel)
+    return f"已停掉 {stopped} 条跟进" if stopped else "该客户本来就没有进行中的跟进"
+
+
+def discover_run(conn, p: dict) -> str:
+    """Search and enrich candidates, but never auto-import them.
+
+    Import stays manual on purpose: the discovery panel shows why each candidate was
+    skipped and lets Allen pick. An agent that silently grew the lead base would make
+    that screen a lie.
+    """
+    from app import discovery
+    payload = p.get("payload") or {}
+    queries = payload.get("queries") or []
+    country = payload.get("country")
+    found = 0
+    for query in queries:
+        text = f"{query} {country}".strip() if country else query
+        found += len(discovery.run_discovery(conn, text, limit=10) or [])
+    return f"已搜到 {found} 个候选，去「客户开发」页勾选导入（不自动入库）"
+
+
 HANDLERS = {
     "reply_draft": send_reply,
     "create_task": create_task,
     "build_opportunity": build_opportunity,
     "mark_do_not_contact": mark_do_not_contact,
+    "send_outreach": send_outreach,
+    "enroll_sequence": enroll_sequence,
+    "stop_sequence": stop_sequence,
+    "discover_run": discover_run,
 }

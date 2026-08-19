@@ -119,10 +119,13 @@ def test_an_approved_proposal_cannot_be_approved_again(conn):
         proposals.approve(conn, p["id"])
 
 
-def test_a_phase_b_kind_fails_loudly_instead_of_doing_nothing(conn):
-    p = proposals.create(conn, "discover_run", lead_no=None, title="find leads", payload={})
+def test_a_kind_without_an_executor_fails_loudly_instead_of_doing_nothing(conn,
+                                                                          monkeypatch):
+    monkeypatch.setitem(executors.HANDLERS, "create_task", None)
+    monkeypatch.delitem(executors.HANDLERS, "create_task")
+    p = proposals.create(conn, "create_task", lead_no=1, title="x", payload={})
     done = proposals.approve(conn, p["id"])
-    assert done["status"] == "failed" and "B 期" in done["execution_result"]
+    assert done["status"] == "failed" and "没有执行器" in done["execution_result"]
 
 
 # ---------------------------------------------------------------- executor guards
