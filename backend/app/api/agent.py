@@ -49,6 +49,8 @@ def agent_meta():
         "autonomy": list(proposals.AUTONOMY),
         "risks": list(proposals.RISKS),
         "intents": classify.INTENTS,
+        # The UI must be able to say "this one is yours" without hardcoding the rule.
+        "quote_intents": list(classify.QUOTE_INTENTS),
         "reject_reasons": proposals.REJECT_REASONS,
         "backends": list(llm.BACKENDS),
         "tasks": list(llm.TASKS),

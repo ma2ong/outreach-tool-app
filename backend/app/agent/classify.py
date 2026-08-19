@@ -27,7 +27,30 @@ INTENTS = {
 }
 
 BATCH_SIZE = 20
-DRAFTABLE = ("inquiry", "spec", "quote", "sample", "negotiation")
+
+# Pricing is Allen's, full stop (his instruction, 2026-08-19). A reply that ends in a
+# number he has to stand behind is never drafted — the agent tells him it arrived and
+# lays out what they asked for, and he writes the quote.
+QUOTE_INTENTS = ("quote", "negotiation")
+_DEFAULT_DRAFTABLE = ("inquiry", "spec", "sample")
+_K_DRAFT_INTENTS = "agent_draft_intents"
+
+
+def draftable(conn) -> tuple[str, ...]:
+    """Which intents the agent may answer. Configurable, but a quote intent can never
+    be added: that is a policy, not a preference, so it is enforced here rather than
+    left to whoever edits the setting."""
+    from app import settings
+    raw = settings.get(conn, _K_DRAFT_INTENTS, ",".join(_DEFAULT_DRAFTABLE))
+    chosen = [i.strip() for i in raw.split(",") if i.strip() in INTENTS]
+    return tuple(i for i in chosen if i not in QUOTE_INTENTS)
+
+
+def set_draftable(conn, intents: list[str]) -> tuple[str, ...]:
+    from app import settings
+    clean = [i for i in intents if i in INTENTS and i not in QUOTE_INTENTS]
+    settings.set_value(conn, _K_DRAFT_INTENTS, ",".join(clean))
+    return draftable(conn)
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _URL_RE = re.compile(r"https?://\S+|www\.\S+")
@@ -48,8 +71,13 @@ unclear  - you cannot tell
 Decide quote vs negotiation ONLY by the `quoted` flag given for each message.
 Never guess an intent to avoid `unclear`; `unclear` is a valid, useful answer.
 
+Also extract `needs`: what this customer actually asked for, in under 20 words —
+size, pixel pitch, indoor/outdoor, quantity, deadline, whatever they stated. Use only
+what is in their message; empty string if they stated nothing concrete. This is what
+Allen reads before pricing, so copy their numbers exactly and invent none.
+
 Return JSON: {"results":[{"id":<id>,"intent":"<intent>","confidence":<0-100>,
-"why":"<max 12 words>"}]}. One entry per input id, no extras."""
+"why":"<max 12 words>","needs":"<max 20 words>"}]}. One entry per input id, no extras."""
 
 
 def redact(text: str, company: str = "") -> str:
@@ -85,10 +113,11 @@ def _prompt(messages: list[dict]) -> str:
     return "\n".join(parts)
 
 
-def _store(conn, message_id: int, intent: str, confidence: int) -> None:
+def _store(conn, message_id: int, intent: str, confidence: int, needs: str = "") -> None:
     conn.execute(
-        "UPDATE inbox_messages SET intent=?, intent_confidence=?, intent_at=? WHERE id=?",
-        (intent, confidence, dt.datetime.now(dt.UTC).isoformat(), message_id))
+        "UPDATE inbox_messages SET intent=?, intent_confidence=?, intent_needs=?,"
+        " intent_at=? WHERE id=?",
+        (intent, confidence, needs[:300], dt.datetime.now(dt.UTC).isoformat(), message_id))
     conn.commit()
 
 
@@ -115,7 +144,7 @@ def run(conn, limit: int = BATCH_SIZE) -> dict:
             confidence = max(0, min(100, int(item.get("confidence") or 0)))
         except (TypeError, ValueError):
             confidence = 0
-        _store(conn, mid, intent, confidence)
+        _store(conn, mid, intent, confidence, str(item.get("needs") or "").strip())
         done += 1
     return {"classified": done, "pending": len(batch) - done,
             "note": f"已分类 {done} 条回复"}

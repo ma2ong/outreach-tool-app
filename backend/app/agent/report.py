@@ -53,8 +53,16 @@ def compose(conn, today: dt.date | None = None) -> str:
         (day,)).fetchone()["c"]
     pending = proposals.summary(conn)["pending"]
 
+    waiting_quotes = conn.execute(
+        "SELECT COUNT(*) c FROM agent_proposals"
+        " WHERE status='pending' AND kind='create_task'"
+        "   AND (title LIKE '%你来定价%')").fetchone()["c"]
+
     lines = [f"【{day} 客户开发日报】"]
     lines.append(f"发出 {sent} 条，收到 {replies} 条客户回复")
+    # The one thing Allen asked to be told about directly: pricing is his.
+    if waiting_quotes:
+        lines.append(f"⚠ {waiting_quotes} 家在等你报价（Agent 不代报，需求已整理好）")
     if executed:
         lines.append(f"已执行 {executed} 条你确认过的提议")
     made = sum(counts.values())

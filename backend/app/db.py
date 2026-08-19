@@ -199,6 +199,9 @@ _TABLE_COLUMNS = {
         # message that carried them.
         "intent": "TEXT",
         "intent_confidence": "INTEGER",
+        # What the customer actually asked for, in their own numbers. Extracted in the
+        # same classify call, so Allen sees the requirement without re-reading the mail.
+        "intent_needs": "TEXT",
         "intent_at": "TEXT",
         # The real conversation, read by opening the thread (social only). `body` stays
         # the one-line preview because the scan dedupes on it — overwriting it would make

@@ -251,8 +251,8 @@ def test_a_draft_that_promises_nothing_numeric_passes_clean():
 
 # ---------------------------------------------------------------- the pipeline
 
-def test_an_email_asking_for_a_quote_gets_a_draft(conn, monkeypatch):
-    mid = _reply(conn, intent="quote")
+def test_an_email_asking_for_specs_gets_a_draft(conn, monkeypatch):
+    mid = _reply(conn, intent="spec")
     monkeypatch.setattr(draft, "build", lambda c, m: {
         "subject": "Re: LED", "body": "Sending specs today.", "language": "en",
         "evidence": [{"claim": "they asked for 200sqm", "source": "their reply"}],
@@ -270,7 +270,7 @@ def test_an_email_asking_for_a_quote_gets_a_draft(conn, monkeypatch):
 
 
 def test_a_draft_with_an_unsourced_number_is_raised_to_high_risk(conn, monkeypatch):
-    _reply(conn, intent="quote")
+    _reply(conn, intent="spec")
     monkeypatch.setattr(draft, "build", lambda c, m: {
         "subject": "Re", "body": "USD 300/sqm, 10 days.", "language": "en",
         "evidence": [], "open_questions": "",
@@ -287,7 +287,7 @@ def test_a_draft_with_an_unsourced_number_is_raised_to_high_risk(conn, monkeypat
 def test_a_whatsapp_reply_is_drafted_from_the_opened_conversation(conn, monkeypatch):
     conn.execute("UPDATE leads SET phone='+1 415 555 0199' WHERE no=1")
     conn.commit()
-    _reply(conn, channel="whatsapp", intent="quote", body="how much for 100sqm?")
+    _reply(conn, channel="whatsapp", intent="spec", body="what pitch do you have?")
     monkeypatch.setattr(social, "fetch_thread", lambda c, m, engine=None: [
         {"text": "Hi, saw your message", "outgoing": False},
         {"text": "We build P0.7-P10 panels", "outgoing": True},
@@ -313,7 +313,7 @@ def test_a_whatsapp_reply_is_drafted_from_the_opened_conversation(conn, monkeypa
 def test_a_dm_falls_back_to_a_nudge_when_the_chat_cannot_be_read(conn, monkeypatch):
     conn.execute("UPDATE leads SET phone='+1 415 555 0199' WHERE no=1")
     conn.commit()
-    _reply(conn, channel="whatsapp", intent="quote", body="how much?")
+    _reply(conn, channel="whatsapp", intent="spec", body="what pitch?")
     def boom(c, m, engine=None):
         raise RuntimeError("WhatsApp 登录已过期")
     monkeypatch.setattr(social, "fetch_thread", boom)
@@ -326,7 +326,7 @@ def test_a_dm_falls_back_to_a_nudge_when_the_chat_cannot_be_read(conn, monkeypat
 
 
 def test_a_dm_with_no_handle_to_write_back_to_becomes_a_nudge(conn, monkeypatch):
-    _reply(conn, channel="whatsapp", intent="quote")   # lead 1 has no phone
+    _reply(conn, channel="whatsapp", intent="spec")   # lead 1 has no phone
     monkeypatch.setattr(draft, "build",
                         lambda c, m: pytest.fail("nowhere to send it"))
     assert run.act_on_replies(conn)["nudge"] == 1
@@ -348,7 +348,7 @@ def test_a_thread_ending_with_our_own_message_has_no_inbound_turn():
 
 
 def test_the_thread_is_read_once_and_then_reused(conn):
-    mid = _reply(conn, channel="whatsapp", intent="quote")
+    mid = _reply(conn, channel="whatsapp", intent="spec")
     conn.execute("UPDATE leads SET phone='+14155550199' WHERE no=1")
     conn.commit()
     calls = []
@@ -373,7 +373,7 @@ def test_a_dm_reply_goes_through_the_chat_engine_without_an_image(conn, monkeypa
     monkeypatch.setattr(channels_api.ENGINE, "send_message",
                         lambda ch, target, body, image: sent.update(
                             ch=ch, target=target, body=body, image=image))
-    mid = _reply(conn, channel="instagram", intent="quote")
+    mid = _reply(conn, channel="instagram", intent="spec")
     p = proposals.create(conn, "reply_draft", lead_no=1, inbox_message_id=mid,
                          title="Reply", payload={"channel": "instagram",
                                                  "body": "P2.5 indoor, what size?"})
@@ -416,12 +416,13 @@ def test_a_rejection_proposes_stopping_all_contact(conn):
 
 def test_an_unclear_reply_produces_nothing_rather_than_a_guess(conn):
     _reply(conn, intent="unclear", body="?")
-    assert run.act_on_replies(conn) == {"draft": 0, "nudge": 0, "reject": 0, "errors": []}
+    assert run.act_on_replies(conn) == {"draft": 0, "nudge": 0, "reject": 0,
+                                        "quote": 0, "errors": []}
 
 
 def test_a_missing_backend_stops_the_batch_instead_of_burning_it(conn, monkeypatch):
     for i in range(3):
-        _reply(conn, intent="quote", from_addr=f"b{i}@alpha.com")
+        _reply(conn, intent="spec", from_addr=f"b{i}@alpha.com")
     def boom(c, m):
         raise llm.LLMUnavailable("今日 Claude Code 调用已达上限")
     monkeypatch.setattr(draft, "build", boom)
@@ -430,7 +431,7 @@ def test_a_missing_backend_stops_the_batch_instead_of_burning_it(conn, monkeypat
 
 
 def test_a_handled_message_is_not_proposed_on_again(conn, monkeypatch):
-    mid = _reply(conn, intent="quote")
+    mid = _reply(conn, intent="spec")
     conn.execute("UPDATE inbox_messages SET handled_at='2026-08-01' WHERE id=?", (mid,))
     conn.commit()
     monkeypatch.setattr(draft, "build", lambda c, m: pytest.fail("already handled"))
@@ -463,3 +464,51 @@ def test_the_cli_daily_limit_stops_calls_before_they_are_made(conn, monkeypatch)
                        f'{{"date": "{dt.date.today().isoformat()}", "cli": 2}}')
     with pytest.raises(llm.LLMUnavailable):
         llm.complete_json(conn, "draft", "sys", "user")
+
+
+# ---------------------------------------------------------------- pricing is Allen's
+
+def test_a_quote_request_is_reported_and_never_drafted(conn, monkeypatch):
+    monkeypatch.setattr(draft, "build",
+                        lambda c, m: pytest.fail("报价必须由 Allen 亲自做"))
+    mid = _reply(conn, intent="quote",
+                 body="Please quote 200sqm outdoor P4 for delivery in Q4.")
+    conn.execute("UPDATE inbox_messages SET intent_needs=? WHERE id=?",
+                 ("200sqm outdoor P4, Q4 delivery", mid))
+    conn.commit()
+    result = run.act_on_replies(conn)
+    assert result["quote"] == 1 and result["draft"] == 0
+    p = proposals.list_proposals(conn)[0]
+    assert p["kind"] == "create_task"
+    assert "你来定价" in p["title"] and "200sqm outdoor P4" in p["title"]
+    assert p["payload"]["type"] == "quote" and p["payload"]["priority"] == "high"
+    # the customer's own words travel with it, so Allen prices without re-reading
+    assert "200sqm outdoor P4" in p["payload"]["note"]
+
+
+def test_haggling_over_an_existing_quote_is_also_his(conn, monkeypatch):
+    monkeypatch.setattr(draft, "build", lambda c, m: pytest.fail("砍价也是 Allen 的事"))
+    _reply(conn, intent="negotiation", body="Can you do better than that price?")
+    assert run.act_on_replies(conn)["quote"] == 1
+    assert "在谈价格" in proposals.list_proposals(conn)[0]["title"]
+
+
+def test_a_quote_request_on_whatsapp_is_reported_without_opening_the_chat(conn,
+                                                                         monkeypatch):
+    monkeypatch.setattr(social, "fetch_thread",
+                        lambda c, m, engine=None: pytest.fail("不必为报价去开对话"))
+    _reply(conn, channel="whatsapp", intent="quote", body="price for 50sqm?")
+    assert run.act_on_replies(conn)["quote"] == 1
+
+
+def test_the_quote_intents_cannot_be_switched_back_on(conn):
+    classify.set_draftable(conn, ["inquiry", "spec", "sample", "quote", "negotiation"])
+    allowed = classify.draftable(conn)
+    assert "quote" not in allowed and "negotiation" not in allowed
+    assert set(allowed) == {"inquiry", "spec", "sample"}
+
+
+def test_which_simple_replies_get_drafted_is_configurable(conn):
+    assert set(classify.draftable(conn)) == {"inquiry", "spec", "sample"}
+    classify.set_draftable(conn, ["spec"])
+    assert classify.draftable(conn) == ("spec",)

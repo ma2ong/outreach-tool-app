@@ -32,7 +32,8 @@ def _messages_awaiting_action(conn, limit: int) -> list[dict]:
     """Classified, unhandled replies with no proposal on them yet."""
     rows = conn.execute(
         "SELECT m.id, m.lead_no, m.contact_id, m.channel, m.subject, m.body, m.from_addr,"
-        "       m.received_at, m.intent, m.intent_confidence, m.mailbox_email, m.thread_json,"
+        "       m.received_at, m.intent, m.intent_confidence, m.intent_needs,"
+        "       m.mailbox_email, m.thread_json,"
         "       l.company_en, l.do_not_contact"
         " FROM inbox_messages m JOIN leads l ON l.no=m.lead_no"
         " WHERE m.kind='reply' AND m.intent IS NOT NULL AND m.handled_at IS NULL"
@@ -51,6 +52,31 @@ def _reject_proposal(conn, msg: dict) -> bool:
         evidence=[{"claim": "客户拒绝", "source": (msg.get("body") or "")[:200]}],
         payload={"reason": (msg.get("body") or "")[:200]},
         risk="high", dedupe_key="reject") is not None
+
+
+def _quote_alert(conn, msg: dict) -> bool:
+    """A customer asked for a price. Tell Allen, prepare the ground, write nothing.
+
+    His rule (2026-08-19): the agent finds customers, reaches out and handles simple
+    replies; the quote is his. So this does the reading — which customer, which channel,
+    what they specified — and stops there. No draft exists for him to be tempted by.
+    """
+    needs = (msg.get("intent_needs") or "").strip()
+    channel = "邮件" if msg["channel"] == "email" else msg["channel"]
+    label = "要报价" if msg["intent"] == "quote" else "在谈价格"
+    note = f"客户原话：{(msg.get('body') or '')[:400]}"
+    return proposals.create(
+        conn, "create_task",
+        lead_no=msg["lead_no"], contact_id=msg.get("contact_id"),
+        inbox_message_id=msg["id"],
+        title=f"{msg['company_en']}{label}——你来定价" + (f"（{needs}）" if needs else ""),
+        reasoning=(f"{channel}回复，判定为「{classify.INTENTS[msg['intent']]}」。"
+                   "报价由你来做，所以这里只提醒并把客户说的要求整理出来，没有起草任何回复。"),
+        evidence=[{"claim": needs or "客户要求见原文", "source": (msg.get("body") or "")[:200]}],
+        payload={"title": f"给 {msg['company_en']} 报价" + (f"：{needs}" if needs else ""),
+                 "type": "quote", "due_at": dt.date.today().isoformat(),
+                 "priority": "high", "note": note},
+        risk="low", dedupe_key="quote_alert") is not None
 
 
 def _social_nudge(conn, msg: dict, why: str) -> bool:
@@ -130,7 +156,8 @@ def _draft_proposal(conn, msg: dict) -> bool:
 def act_on_replies(conn, limit: int = DRAFT_LIMIT) -> dict:
     """Turn classified replies into proposals. One failure must not stop the rest."""
     proposals.ensure_schema(conn)
-    made = {"draft": 0, "nudge": 0, "reject": 0}
+    made = {"draft": 0, "nudge": 0, "reject": 0, "quote": 0}
+    draftable = classify.draftable(conn)
     errors: list[str] = []
     for msg in _messages_awaiting_action(conn, limit):
         if msg["do_not_contact"]:
@@ -138,7 +165,9 @@ def act_on_replies(conn, limit: int = DRAFT_LIMIT) -> dict:
         try:
             if msg["intent"] == "reject":
                 made["reject"] += _reject_proposal(conn, msg)
-            elif msg["intent"] not in classify.DRAFTABLE:
+            elif msg["intent"] in classify.QUOTE_INTENTS:
+                made["quote"] += _quote_alert(conn, msg)
+            elif msg["intent"] not in draftable:
                 continue          # referral / unclear stay in the inbox for Allen
             elif msg["channel"] in SOCIAL_CHANNELS:
                 kind, ok = _social_draft(conn, msg)
@@ -230,6 +259,8 @@ def _describe(now: dt.datetime, r: dict) -> str:
         bits.append(f"分类 {r['classified']} 条")
     if r["draft"]:
         bits.append(f"起草 {r['draft']} 封")
+    if r.get("quote"):
+        bits.append(f"要你报价 {r['quote']} 家")
     if r["nudge"]:
         bits.append(f"社媒提醒 {r['nudge']} 条")
     if r["reject"]:

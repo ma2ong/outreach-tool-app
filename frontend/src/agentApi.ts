@@ -45,6 +45,7 @@ export type AgentMeta = {
   autonomy: string[];
   risks: string[];
   intents: Record<string, string>;
+  quote_intents: string[];
   reject_reasons: Record<string, string>;
   backends: string[];
   tasks: string[];

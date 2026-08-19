@@ -183,7 +183,13 @@ export function InboxPanel({ onOpenLead, onPendingChange }: {
                 <strong style={{ fontWeight: m.is_read ? 500 : 700 }}>{m.company_en}</strong>
                 {m.contact_name && <span className="muted">联系人：{m.contact_name}</span>}
                 {m.kind === "reply" && !m.handled_at && <span className="warn-text" style={{ fontSize: 12 }}>待处理</span>}
-                {m.intent && meta && <span className="tag">{meta.intents[m.intent] ?? m.intent}</span>}
+                {m.intent && meta && (
+                  meta.quote_intents.includes(m.intent)
+                    ? <span className="tag" style={{ color: "var(--warn)", borderColor: "var(--warn)" }}>
+                        要你报价
+                      </span>
+                    : <span className="tag">{meta.intents[m.intent] ?? m.intent}</span>
+                )}
                 {drafts[m.id] && <span className="tag" style={{ color: "var(--green)", borderColor: "var(--green)" }}>已起草</span>}
                 {m.kind === "reply" && m.handled_at && <span className="muted" style={{ fontSize: 12 }}>已处理</span>}
                 {m.country && <span className="muted">{m.country}</span>}
@@ -206,6 +212,12 @@ export function InboxPanel({ onOpenLead, onPendingChange }: {
                       title="确认你已经回复客户、建了商机或安排了明确下一步">
                       ✓ 已回复客户 / 已安排下一步
                     </button>
+                  )}
+                  {m.intent && meta?.quote_intents.includes(m.intent) && (
+                    <div className="muted" style={{ fontSize: 12, margin: "8px 0" }}>
+                      这条要报价，Agent 不代你报价，也没有起草回复——已在销售任务里建了一条高优先级报价任务，
+                      客户说的要求也一并记进去了。
+                    </div>
                   )}
                   {drafts[m.id] && (
                     <DraftBox p={drafts[m.id]} onDone={() => { reload(); onPendingChange?.(); }} />

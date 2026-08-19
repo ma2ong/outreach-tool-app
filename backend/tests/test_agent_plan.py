@@ -288,3 +288,13 @@ def test_no_report_before_the_day_is_over(conn, monkeypatch):
     monkeypatch.setattr(report, "webhook_url", lambda: "https://open.feishu.cn/hook/x")
     run._maybe_report(conn, dt.datetime(2026, 8, 20, 14, 0))
     assert pushed == []
+
+
+def test_the_report_names_who_is_waiting_on_a_price(conn):
+    proposals.create(conn, "create_task", lead_no=1,
+                     title="Alpha AV 要报价——你来定价（200sqm P4）", payload={})
+    assert "1 家在等你报价" in report.compose(conn)
+
+
+def test_the_planner_is_told_pricing_is_not_its_job():
+    assert "You do NOT price anything" in plan.SYSTEM
