@@ -339,6 +339,11 @@ export interface AutoSendStatus {
   enabled: boolean;
   last_date: string | null;
   last_result: string | null;
+  safety_pause: {
+    code: string;
+    reason: string;
+    paused_at?: string;
+  } | null;
   preview: {
     due: number;
     sendable: number;

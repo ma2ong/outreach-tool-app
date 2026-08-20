@@ -2,7 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from app import jobs
-from app.agent import classify, learn, llm, proposals, report, run
+from app.agent import classify, conversation, learn, llm, mission, proposals, report, run
 from app.main_deps import DB_PATH, get_conn
 
 router = APIRouter(prefix="/api/agent")
@@ -32,6 +32,17 @@ class PlanRequest(BaseModel):
     enabled: bool
 
 
+class MissionRequest(BaseModel):
+    target_markets: list[str]
+    daily_qualified_leads: int
+    minimum_fit_score: int
+    auto_enroll: bool
+
+
+class TakeoverRequest(BaseModel):
+    reason: str = "Allen 手动接管"
+
+
 def _bad(exc: Exception):
     raise HTTPException(status_code=400, detail=str(exc))
 
@@ -39,6 +50,37 @@ def _bad(exc: Exception):
 @router.get("/status")
 def agent_status(conn=Depends(get_conn)):
     return run.status(conn)
+
+
+@router.get("/mission")
+def get_mission(conn=Depends(get_conn)):
+    return mission.get(conn)
+
+
+@router.put("/mission")
+def update_mission(req: MissionRequest, conn=Depends(get_conn)):
+    return mission.set_mission(conn, req.model_dump())
+
+
+def _conversation_channel(channel: str) -> str:
+    if channel not in ("email", "whatsapp", "instagram", "facebook"):
+        raise HTTPException(status_code=400, detail="不支持的会话渠道")
+    return channel
+
+
+@router.post("/conversations/{lead_no}/{channel}/takeover")
+def takeover_conversation(lead_no: int, channel: str, req: TakeoverRequest,
+                          conn=Depends(get_conn)):
+    if conn.execute("SELECT 1 FROM leads WHERE no=?", (lead_no,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    return conversation.takeover(conn, lead_no, _conversation_channel(channel), req.reason)
+
+
+@router.post("/conversations/{lead_no}/{channel}/resume")
+def resume_conversation(lead_no: int, channel: str, conn=Depends(get_conn)):
+    if conn.execute("SELECT 1 FROM leads WHERE no=?", (lead_no,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    return conversation.resume(conn, lead_no, _conversation_channel(channel))
 
 
 @router.get("/meta")

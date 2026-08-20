@@ -48,3 +48,21 @@ def test_autosend_enable_requires_mailbox_and_has_preview(tmp_path, monkeypatch)
     enabled = client.patch("/api/autosend", json={"enabled": True}).json()
     assert enabled["enabled"] is True
     assert enabled["preview"]["will_send"] == 1
+
+
+def test_resuming_after_a_safety_pause_requires_explicit_risk_acknowledgement(
+        tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    client.post("/api/mailboxes", json={
+        "email": "sales@x.com", "smtp_host": "smtp.x.com",
+        "imap_host": "imap.x.com", "username": "sales@x.com", "password": "secret",
+    })
+    pause = {"code": "bounce_rate", "reason": "退信率 11.4% 超过安全线"}
+    monkeypatch.setattr("app.api.autosend.autosend.safety_pause", lambda conn: pause)
+
+    blocked = client.patch("/api/autosend", json={"enabled": True})
+    assert blocked.status_code == 409 and "确认" in blocked.json()["detail"]
+    resumed = client.patch("/api/autosend", json={
+        "enabled": True, "acknowledge_safety_risk": True,
+    })
+    assert resumed.status_code == 200 and resumed.json()["enabled"] is True

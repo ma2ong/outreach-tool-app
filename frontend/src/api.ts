@@ -654,10 +654,10 @@ export async function fetchReadiness(): Promise<import("./types").Readiness> {
   return r.json();
 }
 
-export async function setAutoSend(enabled: boolean): Promise<import("./types").AutoSendStatus> {
+export async function setAutoSend(enabled: boolean, acknowledgeSafetyRisk = false): Promise<import("./types").AutoSendStatus> {
   const r = await fetch("/api/autosend", {
     method: "PATCH", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled }),
+    body: JSON.stringify({ enabled, acknowledge_safety_risk: acknowledgeSafetyRisk }),
   });
   if (!r.ok) {
     const detail = (await r.json().catch(() => null))?.detail;

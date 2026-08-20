@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
-from app import discovery, jobs, repository
+from app import discovery, jobs
 from app.db import connect
 from app.main_deps import DB_PATH as _DB_PATH, get_conn
 
@@ -115,31 +115,5 @@ def discover_job(job_id: str):
 
 @router.post("/leads/import")
 def import_leads(req: ImportRequest, conn=Depends(get_conn)):
-    from app import blocklist, icp as icp_mod
-    imported = 0
-    skipped: list[dict] = []
-    for c in req.candidates:
-        # Same rule as discovery's status column: website/instagram only, so what the
-        # table showed as 新 can never be silently dropped here as a "duplicate".
-        dup = repository.find_duplicate(conn, website=c.website, instagram=c.instagram)
-        if dup:
-            skipped.append({"company_en": c.company_en, "website": c.website, "duplicate_of": dup})
-            continue
-        fit = "discovered"
-        if c.icp_type and c.icp_type != "unknown":
-            fit = f"{icp_mod.label(c.icp_type)} ({c.fit_score or 0})"
-        try:
-            no = repository.insert_lead(conn, {
-                "company_en": c.company_en, "country": c.country or req.country, "city": c.city,
-                "website": c.website, "email": c.email, "phone": c.phone,
-                "instagram": c.instagram, "facebook": c.facebook, "linkedin": c.linkedin,
-                "target_fit": fit, "brief": c.brief, "hook": c.hook,
-                "email_source": c.email_source})
-        except blocklist.BlockedLead as exc:
-            skipped.append({"company_en": c.company_en, "website": c.website,
-                            "blocked_domain": exc.domain})
-            continue
-        if c.icp_type and c.icp_type != "unknown":
-            icp_mod.apply_to_lead(conn, no, {"icp_type": c.icp_type, "fit_score": c.fit_score or 0})
-        imported += 1
-    return {"imported": imported, "skipped": skipped}
+    return discovery.import_candidates(
+        conn, [candidate.model_dump() for candidate in req.candidates], req.country)

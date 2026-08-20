@@ -131,7 +131,10 @@ def build(conn) -> dict:
     stale_autosend = bool(
         auto["enabled"] and auto["last_date"] and auto["last_result"]
         and not auto["last_result"].startswith(auto["last_date"][5:]))
-    if not auto["enabled"]:
+    if auto.get("safety_pause"):
+        autosend_level = "blocked"
+        autosend_detail = "Agent 已安全暂停：" + auto["safety_pause"]["reason"]
+    elif not auto["enabled"]:
         autosend_level, autosend_detail = "attention", "默认关闭，可确认预览后启用"
     elif stale_autosend:
         autosend_level = "blocked"

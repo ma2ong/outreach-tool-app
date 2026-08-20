@@ -217,6 +217,28 @@ _CLI_MODEL = {"classify": "haiku", "draft": "opus"}
 _API_MODEL = {"classify": "claude-haiku-4-5-20251001", "draft": "claude-opus-5"}
 
 
+def _call_backend(conn, backend: str, task: str, system: str, user: str,
+                  timeout: int) -> str:
+    if backend == "cli":
+        if _stats(conn).get("cli", 0) >= cli_limit(conn):
+            raise LLMUnavailable(
+                f"今日 Claude Code 调用已达上限 {cli_limit(conn)} 次，明天恢复")
+        return _call_cli(system, user, timeout, _CLI_MODEL.get(task, "opus"))
+    if backend == "deepseek":
+        return _call_deepseek(system, user, timeout)
+    if backend == "api":
+        return _call_api(system, user, timeout, _API_MODEL.get(task, "claude-opus-5"))
+    raise LLMUnavailable(f"未知后端 {backend}")
+
+
+def _backend_chain(task: str, primary: str) -> list[str]:
+    # Classification must not silently consume Allen's Claude Code subscription. Draft
+    # and planning prefer Claude, but DeepSeek keeps replies moving during its reset
+    # windows. Explicitly configured primaries always stay first.
+    order = ("cli", "deepseek", "api") if task == "draft" else ("deepseek", "api")
+    return list(dict.fromkeys((primary, *order)))
+
+
 def complete_json(conn, task: str, system: str, user: str, timeout: int = 180) -> dict:
     """Run one task on its configured backend and return parsed JSON.
 
@@ -225,20 +247,25 @@ def complete_json(conn, task: str, system: str, user: str, timeout: int = 180) -
     """
     if task not in TASKS:
         raise ValueError(f"unknown task {task}")
-    backend = backend_for(conn, task)
-    if backend == "cli":
-        if _stats(conn).get("cli", 0) >= cli_limit(conn):
-            raise LLMUnavailable(
-                f"今日 Claude Code 调用已达上限 {cli_limit(conn)} 次，明天恢复")
-        text = _call_cli(system, user, timeout, _CLI_MODEL.get(task, "opus"))
-    elif backend == "deepseek":
-        text = _call_deepseek(system, user, timeout)
-    elif backend == "api":
-        text = _call_api(system, user, timeout, _API_MODEL.get(task, "claude-opus-5"))
-    else:
-        raise LLMUnavailable(f"未知后端 {backend}")
-    _record(conn, backend)
-    return extract_json(text)
+    primary = backend_for(conn, task)
+    failures: list[tuple[str, Exception]] = []
+    for index, backend in enumerate(_backend_chain(task, primary)):
+        if index and not available(backend):
+            continue
+        try:
+            data = extract_json(_call_backend(conn, backend, task, system, user, timeout))
+        except (LLMUnavailable, LLMError) as exc:
+            failures.append((backend, exc))
+            continue
+        _record(conn, backend)
+        data["_llm_backend"] = backend
+        if backend != primary:
+            data["_llm_fallback_from"] = primary
+        return data
+    detail = "；".join(f"{backend}: {exc}" for backend, exc in failures)
+    if failures and all(isinstance(exc, LLMUnavailable) for _, exc in failures):
+        raise LLMUnavailable(detail)
+    raise LLMError(detail or f"没有可用的 {task} 模型后端")
 
 
 def status(conn) -> dict:
@@ -252,5 +279,7 @@ def status(conn) -> dict:
             reason = ("Claude Code 未安装或登录已过期，请在终端运行 claude 重新登录"
                       if backend == "cli"
                       else f"缺少 backend/{_KEY_FILES.get(backend, '?')}")
-        out["tasks"][task] = {"backend": backend, "ok": ok, "reason": reason}
+        fallbacks = [item for item in _backend_chain(task, backend)[1:] if available(item)]
+        out["tasks"][task] = {"backend": backend, "ok": ok, "reason": reason,
+                              "fallbacks": fallbacks}
     return out

@@ -118,17 +118,20 @@ def _weak(conn) -> list[dict]:
 
 
 def build(conn) -> dict:
-    from app import activities, sequences
-    from app.agent import proposals
+    from app import activities, autosend, sequences
+    from app.agent import mission, proposals
     proposals.ensure_schema(conn)
     return {
         "today": dt.date.today().isoformat(),
+        "mission": mission.get(conn),
+        "mission_progress": mission.progress(conn),
         "pending_replies": _pending_replies(conn),
         "tasks": {**activities.stats(conn), "overdue_list": _overdue_tasks(conn)},
         "stalled_opportunities": _stalled_opportunities(conn),
         "untouched": _untouched(conn),
         "sequence_due_today": len(sequences.due_queue(conn)),
         "capacity": _channel_capacity(conn),
+        "email_safety_pause": autosend.safety_pause(conn),
         "reply_rate": _reply_rate(conn),
         # What has demonstrably stopped working, with the volume to back it up.
         "weak_campaigns": _weak(conn),

@@ -202,4 +202,6 @@ def build(conn, message: dict) -> dict:
         "open_questions": str(data.get("open_questions") or "").strip(),
         "warnings": check_claims(body, ctx),
         "context": ctx,
+        "backend": data.get("_llm_backend") or llm.backend_for(conn, "draft"),
+        "fallback_from": data.get("_llm_fallback_from"),
     }

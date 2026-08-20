@@ -12,6 +12,7 @@ send window (09:00–20:00 local) on a day that hasn't run yet sends the due ema
 steps within today's budget. PC off all day -> it simply runs on next boot.
 """
 import datetime as _dt
+import json
 import threading
 import time
 
@@ -23,6 +24,7 @@ CHECK_SECONDS = 300       # scheduler wake-up interval
 _K_ENABLED = "autosend_enabled"
 _K_LAST_DATE = "autosend_last_date"
 _K_LAST_RESULT = "autosend_last_result"
+_K_SAFETY_PAUSE = "autosend_safety_pause"
 
 
 def enabled(conn) -> bool:
@@ -31,6 +33,26 @@ def enabled(conn) -> bool:
 
 def set_enabled(conn, on: bool) -> None:
     settings.set_value(conn, _K_ENABLED, "1" if on else "0")
+    if on:
+        # Re-enabling is an explicit human decision. Clear the old circuit-breaker flag
+        # so the UI does not claim the engine is still paused after Allen resumed it.
+        settings.set_value(conn, _K_SAFETY_PAUSE, "")
+
+
+def safety_pause(conn) -> dict | None:
+    raw = settings.get(conn, _K_SAFETY_PAUSE)
+    try:
+        return json.loads(raw) if raw else None
+    except json.JSONDecodeError:
+        return None
+
+
+def pause(conn, code: str, reason: str, evidence: dict) -> dict:
+    data = {"code": code, "reason": reason, "evidence": evidence,
+            "paused_at": _dt.datetime.now(_dt.UTC).isoformat()}
+    settings.set_value(conn, _K_ENABLED, "0")
+    settings.set_value(conn, _K_SAFETY_PAUSE, json.dumps(data, ensure_ascii=False))
+    return data
 
 
 def preview(conn) -> dict:
@@ -58,6 +80,7 @@ def status(conn) -> dict:
     return {"enabled": enabled(conn),
             "last_date": settings.get(conn, _K_LAST_DATE) or None,
             "last_result": settings.get(conn, _K_LAST_RESULT) or None,
+            "safety_pause": safety_pause(conn),
             "preview": preview(conn)}
 
 

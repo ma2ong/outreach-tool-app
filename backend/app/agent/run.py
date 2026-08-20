@@ -16,16 +16,20 @@ import datetime as dt
 import json
 
 from app import settings
-from app.agent import classify, draft, llm, memory, proposals
+from app.agent import classify, conversation, draft, llm, memory, mission, proposals
 
 _K_LAST_AT = "agent_run_last_at"
 _K_LAST_RESULT = "agent_run_last_result"
 _K_PLAN_ENABLED = "agent_plan_enabled"
 _K_PLAN_DATE = "agent_plan_last_date"
 _K_PLAN_RESULT = "agent_plan_last_result"
+_K_PLAN_ATTEMPT_DATE = "agent_plan_attempt_date"
+_K_PLAN_ATTEMPTS = "agent_plan_attempts"
+_K_PLAN_LAST_ATTEMPT = "agent_plan_last_attempt_at"
 
 DRAFT_LIMIT = 10          # per run; drafting is the expensive half
 SOCIAL_CHANNELS = ("whatsapp", "instagram", "facebook")
+STALE_REPLY_DAYS = proposals.EXPIRE_DAYS
 
 
 def _messages_awaiting_action(conn, limit: int) -> list[dict]:
@@ -65,6 +69,10 @@ def _quote_alert(conn, msg: dict) -> bool:
     channel = "邮件" if msg["channel"] == "email" else msg["channel"]
     label = "要报价" if msg["intent"] == "quote" else "在谈价格"
     note = f"客户原话：{(msg.get('body') or '')[:400]}"
+    conversation.takeover(
+        conn, msg["lead_no"], msg["channel"],
+        f"客户{label}，报价和谈价只能由 Allen 处理", msg["id"],
+        f"给 {msg['company_en']} 报价" + (f"：{needs}" if needs else ""))
     return proposals.create(
         conn, "create_task",
         lead_no=msg["lead_no"], contact_id=msg.get("contact_id"),
@@ -77,6 +85,52 @@ def _quote_alert(conn, msg: dict) -> bool:
                  "type": "quote", "due_at": dt.date.today().isoformat(),
                  "priority": "high", "note": note},
         risk="low", dedupe_key="quote_alert") is not None
+
+
+def _human_takeover_nudge(conn, msg: dict, state: dict) -> bool:
+    """A later message stays with Allen until he explicitly returns the channel."""
+    return proposals.create(
+        conn, "create_task", lead_no=msg["lead_no"], inbox_message_id=msg["id"],
+        title=f"你正在接管 {msg['company_en']}，有一条新消息",
+        reasoning=(f"{msg['channel']} 会话仍由你接管：{state.get('reason') or '人工处理中'}。"
+                   "Agent 没有起草，避免在报价/谈判中抢回对话。"),
+        evidence=[{"claim": "客户新消息", "source": (msg.get("body") or "")[:200]}],
+        payload={"title": f"处理 {msg['company_en']} 的新消息", "type": "task",
+                 "due_at": dt.date.today().isoformat(), "priority": "high",
+                 "note": (msg.get("body") or "")[:400]},
+        risk="low", dedupe_key="human_takeover_nudge") is not None
+
+
+def _reply_is_stale(msg: dict) -> bool:
+    """Unknown or old timestamps are unsafe inputs for an automatic customer reply."""
+    raw = str(msg.get("received_at") or "").strip()
+    try:
+        received = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if received.tzinfo is None:
+        received = received.replace(tzinfo=dt.UTC)
+    return received.astimezone(dt.UTC) < dt.datetime.now(dt.UTC) - dt.timedelta(
+        days=STALE_REPLY_DAYS)
+
+
+def _stale_reply_nudge(conn, msg: dict) -> bool:
+    """Preserve the lead without pretending an old inbox item just arrived."""
+    conversation.takeover(
+        conn, msg["lead_no"], msg["channel"],
+        f"历史回复超过 {STALE_REPLY_DAYS} 天，需要 Allen 判断上下文是否仍有效",
+        msg["id"], f"人工查看 {msg['company_en']} 的历史回复")
+    return proposals.create(
+        conn, "create_task", lead_no=msg["lead_no"], contact_id=msg.get("contact_id"),
+        inbox_message_id=msg["id"],
+        title=f"人工查看 {msg['company_en']} 的历史回复——Agent 不自动补发",
+        reasoning=(f"这条回复收到已超过 {STALE_REPLY_DAYS} 天，自动回复可能脱离当前上下文。"
+                   "Agent 已把该渠道交给你，并保留原文供判断。"),
+        evidence=[{"claim": "历史回复", "source": (msg.get("body") or "")[:200]}],
+        payload={"title": f"查看并处理 {msg['company_en']} 的历史回复", "type": "task",
+                 "due_at": dt.date.today().isoformat(), "priority": "high",
+                 "note": (msg.get("body") or "")[:400]},
+        risk="low", dedupe_key="stale_reply_nudge") is not None
 
 
 def _social_nudge(conn, msg: dict, why: str) -> bool:
@@ -135,7 +189,7 @@ def _draft_proposal(conn, msg: dict) -> bool:
     warnings = result["warnings"]
     if warnings:
         reasoning += " ⚠ " + "；".join(warnings)
-    return proposals.create(
+    proposal = proposals.create(
         conn, "reply_draft",
         lead_no=msg["lead_no"], contact_id=msg.get("contact_id"),
         inbox_message_id=msg["id"],
@@ -145,12 +199,16 @@ def _draft_proposal(conn, msg: dict) -> bool:
         payload={"channel": msg["channel"],
                  "to": msg.get("from_addr") or "", "subject": subject,
                  "body": result["body"], "language": result["language"],
-                 "mailbox_email": msg.get("mailbox_email") or ""},
+                 "mailbox_email": msg.get("mailbox_email") or "",
+                 "open_questions": result["open_questions"]},
         # A draft that states an unsourced number is exactly what must not slip through
         # on a quick approve, so it is ranked with the decisions that need attention.
         risk="high" if warnings else "medium",
-        backend=llm.backend_for(conn, "draft"),
-        dedupe_key="draft") is not None
+        backend=result.get("backend") or llm.backend_for(conn, "draft"),
+        dedupe_key="draft")
+    if proposal and proposal["status"] != "executed":
+        conversation.waiting_us(conn, msg["lead_no"], msg["channel"], msg["id"])
+    return proposal is not None
 
 
 def act_on_replies(conn, limit: int = DRAFT_LIMIT) -> dict:
@@ -167,8 +225,13 @@ def act_on_replies(conn, limit: int = DRAFT_LIMIT) -> dict:
                 made["reject"] += _reject_proposal(conn, msg)
             elif msg["intent"] in classify.QUOTE_INTENTS:
                 made["quote"] += _quote_alert(conn, msg)
+            elif ((state := conversation.get(conn, msg["lead_no"], msg["channel"]))
+                  and state["owner"] == "allen"):
+                made["nudge"] += _human_takeover_nudge(conn, msg, state)
             elif msg["intent"] not in draftable:
                 continue          # referral / unclear stay in the inbox for Allen
+            elif _reply_is_stale(msg):
+                made["nudge"] += _stale_reply_nudge(conn, msg)
             elif msg["channel"] in SOCIAL_CHANNELS:
                 kind, ok = _social_draft(conn, msg)
                 made[kind] += ok
@@ -183,11 +246,32 @@ def act_on_replies(conn, limit: int = DRAFT_LIMIT) -> dict:
 
 
 PLAN_WINDOW = (8, 12)     # the daily plan is a morning thing; after noon it is stale
+PLAN_MAX_ATTEMPTS = 3
+PLAN_RETRY_MINUTES = 30
 REPORT_HOUR = 18          # the day is over; say what happened
 
 
+def _plan_attempts(conn, today: str) -> int:
+    if settings.get(conn, _K_PLAN_ATTEMPT_DATE) != today:
+        return 0
+    try:
+        return max(0, int(settings.get(conn, _K_PLAN_ATTEMPTS, "0")))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _last_plan_attempt(conn) -> dt.datetime | None:
+    raw = settings.get(conn, _K_PLAN_LAST_ATTEMPT)
+    if not raw:
+        return None
+    try:
+        return dt.datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def plan_due(conn, now: dt.datetime | None = None) -> bool:
-    """Once per day, inside the morning window, unless planning was switched off.
+    """Once successfully per day, with a bounded retry window after failures.
 
     On by default: the plan only ever produces proposals, so the cost of it running is
     a queue Allen ignores, while the cost of it not running is a day nobody planned.
@@ -197,20 +281,50 @@ def plan_due(conn, now: dt.datetime | None = None) -> bool:
         return False
     if not (PLAN_WINDOW[0] <= now.hour < PLAN_WINDOW[1]):
         return False
-    return settings.get(conn, _K_PLAN_DATE) != now.date().isoformat()
+    today = now.date().isoformat()
+    if settings.get(conn, _K_PLAN_DATE) == today:
+        return False
+    if _plan_attempts(conn, today) >= PLAN_MAX_ATTEMPTS:
+        return False
+    last_attempt = _last_plan_attempt(conn)
+    if last_attempt and settings.get(conn, _K_PLAN_ATTEMPT_DATE) == today:
+        if now - last_attempt < dt.timedelta(minutes=PLAN_RETRY_MINUTES):
+            return False
+    return True
 
 
 def make_plan(conn, now: dt.datetime | None = None) -> dict:
-    """Build today's plan. Marks the day done first: a planner that fails at 09:00 and
-    retries every five minutes would spend the whole quota on the same broken call."""
+    """Build today's plan and record one of at most three daily attempts."""
     from app.agent import plan as plan_mod
     now = now or dt.datetime.now()
-    settings.set_value(conn, _K_PLAN_DATE, now.date().isoformat())
+    today = now.date().isoformat()
+    attempts = _plan_attempts(conn, today) + 1
+    settings.set_value(conn, _K_PLAN_ATTEMPT_DATE, today)
+    settings.set_value(conn, _K_PLAN_ATTEMPTS, str(attempts))
+    settings.set_value(conn, _K_PLAN_LAST_ATTEMPT, now.isoformat())
     try:
         result = plan_mod.build_plan(conn)
     except (llm.LLMUnavailable, llm.LLMError) as exc:
-        settings.set_value(conn, _K_PLAN_RESULT, f"{now:%m-%d %H:%M} 计划失败：{exc}")
+        fallback = plan_mod.build_mission_fallback(conn)
+        if fallback["proposed"]:
+            settings.set_value(conn, _K_PLAN_DATE, today)
+            result = {
+                "summary": "计划模型不可用，已按销售任务书执行安全找客兜底",
+                "proposed": fallback["proposed"],
+                "rejected": fallback["rejected"],
+                "considered": 0,
+                "degraded": True,
+                "error": str(exc),
+            }
+            settings.set_value(
+                conn, _K_PLAN_RESULT,
+                f"{now:%m-%d %H:%M} 计划模型失败，任务书已降级执行找客：{exc}")
+            return result
+        settings.set_value(
+            conn, _K_PLAN_RESULT,
+            f"{now:%m-%d %H:%M} 计划失败（第 {attempts}/{PLAN_MAX_ATTEMPTS} 次）：{exc}")
         return {"proposed": 0, "error": str(exc)}
+    settings.set_value(conn, _K_PLAN_DATE, today)
     note = f"{now:%m-%d %H:%M} 今日计划：{result['summary'] or ''}（{result['proposed']} 条建议）"
     if result["rejected"]:
         note += f"，{len(result['rejected'])} 条不合规被丢弃"
@@ -221,24 +335,35 @@ def make_plan(conn, now: dt.datetime | None = None) -> dict:
 def run_once(conn, now: dt.datetime | None = None) -> dict:
     """One full pass: retire stale proposals, classify, propose, and — once a morning —
     plan the day."""
+    from app.agent import oversight
+
     proposals.ensure_schema(conn)
-    expired = proposals.expire_stale(conn)
-    classified = classify.run(conn)
-    acted = act_on_replies(conn)
-    planned = make_plan(conn, now) if plan_due(conn, now) else {"proposed": 0}
-    _maybe_report(conn, now)
-    result = {
-        "expired": expired,
-        "classified": classified.get("classified", 0),
-        "classify_note": classified.get("note", ""),
-        "planned": planned.get("proposed", 0),
-        **{k: v for k, v in acted.items() if k != "errors"},
-        "errors": acted["errors"] + ([planned["error"]] if planned.get("error") else []),
-    }
-    now = dt.datetime.now()
-    settings.set_value(conn, _K_LAST_AT, now.isoformat())
-    settings.set_value(conn, _K_LAST_RESULT, _describe(now, result))
-    return result
+    run_id = oversight.start_run(conn)
+    incident: dict = {}
+    try:
+        incident = oversight.evaluate(conn)
+        expired = proposals.expire_stale(conn)
+        classified = classify.run(conn)
+        acted = act_on_replies(conn)
+        planned = make_plan(conn, now) if plan_due(conn, now) else {"proposed": 0}
+        _maybe_report(conn, now)
+        result = {
+            "expired": expired,
+            "classified": classified.get("classified", 0),
+            "classify_note": classified.get("note", ""),
+            "planned": planned.get("proposed", 0),
+            **{k: v for k, v in acted.items() if k != "errors"},
+            "errors": acted["errors"] + ([planned["error"]] if planned.get("error") else []),
+            "safety_paused": bool(incident.get("paused")),
+        }
+        finished = dt.datetime.now()
+        settings.set_value(conn, _K_LAST_AT, finished.isoformat())
+        settings.set_value(conn, _K_LAST_RESULT, _describe(finished, result))
+        oversight.finish_run(conn, run_id, "success", result=result, incident=incident)
+        return result
+    except Exception as exc:
+        oversight.finish_run(conn, run_id, "failed", incident=incident, error=str(exc))
+        raise
 
 
 def _maybe_report(conn, now: dt.datetime | None) -> None:
@@ -259,6 +384,8 @@ def _maybe_report(conn, now: dt.datetime | None) -> None:
 
 def _describe(now: dt.datetime, r: dict) -> str:
     bits = []
+    if r.get("safety_paused"):
+        bits.append("已安全暂停邮件自动跟进")
     if r["classified"]:
         bits.append(f"分类 {r['classified']} 条")
     if r["draft"]:
@@ -279,17 +406,28 @@ def _describe(now: dt.datetime, r: dict) -> str:
 
 
 def status(conn) -> dict:
+    from app.agent import oversight
+
     proposals.ensure_schema(conn)
+    today = dt.date.today().isoformat()
     return {
         "last_at": settings.get(conn, _K_LAST_AT) or None,
         "last_result": settings.get(conn, _K_LAST_RESULT) or None,
         "unclassified": len(classify.pending(conn, limit=999)),
+        "mission": mission.get(conn),
+        "mission_progress": mission.progress(conn),
+        "outcome": oversight.daily_outcome(conn),
+        "recent_runs": oversight.latest_runs(conn),
+        "takeovers": conversation.takeovers(conn),
         "llm": llm.status(conn),
         "plan": {
             "enabled": settings.get(conn, _K_PLAN_ENABLED, "1") == "1",
             "last_date": settings.get(conn, _K_PLAN_DATE) or None,
             "last_result": settings.get(conn, _K_PLAN_RESULT) or None,
             "window": list(PLAN_WINDOW),
+            "attempts": _plan_attempts(conn, today),
+            "max_attempts": PLAN_MAX_ATTEMPTS,
+            "retry_minutes": PLAN_RETRY_MINUTES,
         },
         **proposals.summary(conn),
     }

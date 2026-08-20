@@ -24,6 +24,25 @@ export type AgentStatus = {
   last_at: string | null;
   last_result: string | null;
   unclassified: number;
+  mission?: AgentMission;
+  mission_progress?: {
+    qualified_leads_imported_today: number;
+    daily_target: number;
+    remaining: number;
+  };
+  outcome?: {
+    achieved: number; target: number; remaining: number; completion_pct: number; met: boolean;
+    blockers: { code: string; message: string }[];
+  };
+  recent_runs?: {
+    id: number; started_at: string; finished_at: string | null;
+    status: string; result: Record<string, any>; incident: Record<string, any>; error: string;
+  }[];
+  takeovers?: {
+    lead_no: number; channel: string; owner: "allen"; state: string;
+    reason: string; source_message_id: number | null; next_action: string;
+    due_at: string | null; updated_at: string; company_en: string; country: string | null;
+  }[];
   pending: number;
   by_status: Record<string, number>;
   pending_by_risk: Record<string, number>;
@@ -37,7 +56,17 @@ export type AgentStatus = {
     last_date: string | null;
     last_result: string | null;
     window: number[];
+    attempts?: number;
+    max_attempts?: number;
+    retry_minutes?: number;
   };
+};
+
+export type AgentMission = {
+  target_markets: string[];
+  daily_qualified_leads: number;
+  minimum_fit_score: number;
+  auto_enroll: boolean;
 };
 
 export type AgentMeta = {
@@ -61,6 +90,30 @@ async function jsonOrThrow(r: Response, what: string) {
 
 export async function fetchAgentStatus(): Promise<AgentStatus> {
   return jsonOrThrow(await fetch("/api/agent/status"), "agent status");
+}
+
+export async function fetchAgentMission(): Promise<AgentMission> {
+  return jsonOrThrow(await fetch("/api/agent/mission"), "agent mission");
+}
+
+export async function updateAgentMission(value: AgentMission): Promise<AgentMission> {
+  return jsonOrThrow(await fetch("/api/agent/mission", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(value),
+  }), "agent mission");
+}
+
+export async function takeoverConversation(leadNo: number, channel: string, reason: string) {
+  return jsonOrThrow(await fetch(`/api/agent/conversations/${leadNo}/${channel}/takeover`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  }), "conversation takeover");
+}
+
+export async function resumeConversation(leadNo: number, channel: string) {
+  return jsonOrThrow(await fetch(`/api/agent/conversations/${leadNo}/${channel}/resume`, {
+    method: "POST",
+  }), "conversation resume");
 }
 
 export async function fetchAgentMeta(): Promise<AgentMeta> {
@@ -150,7 +203,7 @@ export type FoundCandidate = {
   country?: string | null; city?: string | null; phone?: string | null;
   instagram?: string | null; facebook?: string | null; linkedin?: string | null;
   icp_type?: string | null; fit_score?: number | null; brief?: string | null;
-  hook?: string | null; source?: string | null;
+  hook?: string | null; source?: string | null; email_source?: string | null;
   excluded?: boolean; exclude_reason?: string | null;
 };
 
@@ -192,6 +245,7 @@ export async function importCandidates(
     website: c.domain, email: c.email, phone: c.phone,
     instagram: c.instagram, facebook: c.facebook, linkedin: c.linkedin,
     source: c.source, icp_type: c.icp_type, fit_score: c.fit_score,
+    brief: c.brief, hook: c.hook, email_source: c.email_source,
   }));
   return jsonOrThrow(await fetch("/api/leads/import", {
     method: "POST", headers: { "Content-Type": "application/json" },

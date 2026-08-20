@@ -15,7 +15,8 @@ from __future__ import annotations
 import datetime as dt
 import json
 
-from app.agent import llm, proposals, world
+from app import autosend
+from app.agent import llm, mission, proposals, world
 
 MAX_ACTIONS = 12
 MAX_BATCH_LEADS = 20          # matches channel_outreach.MAX_BATCH; never exceeded
@@ -32,6 +33,10 @@ PLANNABLE = {
 SYSTEM = """You plan one working day for Allen, who sells LED displays from Shenzhen to
 B2B buyers worldwide. You are given the real state of his pipeline as JSON.
 
+The `mission` object is Allen's standing instruction. `mission_progress.remaining` is
+the qualified, contactable lead target still missing today. Work toward it after urgent
+replies and revenue-moving tasks; never lower its quality bar.
+
 Produce the smallest set of actions that moves the most money forward today. Fewer,
 better-argued actions beat a long list. An empty plan is correct when nothing is worth
 doing; say so rather than inventing work.
@@ -47,6 +52,8 @@ You may only use these action kinds:
 Rules:
 - Use only lead_no, template_id and sequence_id values that appear in the input.
 - Never exceed the remaining daily capacity given under `capacity`.
+- If `email_safety_pause` is not null, do not propose send_outreach. Keep prospecting,
+  qualifying and doing internal work; the send gate can only be resumed by Allen.
 - Do not propose anything already listed in `already_pending`.
 - Unhandled replies are the highest-value thing in the pipeline. If one is sitting there,
   dealing with it outranks any amount of new outreach.
@@ -143,6 +150,9 @@ def _validate(conn, action: dict) -> dict:
         if lead_no is None:
             raise Rejected("create_task 必须指定客户")
     elif kind == "send_outreach":
+        pause = autosend.safety_pause(conn)
+        if pause:
+            raise Rejected(f"邮件开发处于安全暂停：{pause['reason']}")
         template_id = _int(payload.get("template_id"), "template_id")
         tpl = conn.execute("SELECT id, channel FROM templates WHERE id=?",
                            (template_id,)).fetchone()
@@ -189,6 +199,29 @@ def _validate(conn, action: dict) -> dict:
             "payload": clean}
 
 
+def build_mission_fallback(conn, state: dict | None = None,
+                           backend: str = "deterministic") -> dict:
+    """Keep the core acquisition mission moving without inventing model output."""
+    proposals.ensure_schema(conn)
+    state = state or world.build(conn)
+    action = mission.fallback_discovery(conn, state)
+    if not action:
+        return {"proposed": 0, "ids": [], "rejected": []}
+    try:
+        clean = _validate(conn, action)
+    except Rejected as exc:
+        return {"proposed": 0, "ids": [], "rejected": [f"mission fallback: {exc}"]}
+    proposal = proposals.create(
+        conn, clean["kind"], lead_no=clean["lead_no"], title=clean["title"],
+        reasoning=clean["reasoning"], payload=clean["payload"], risk=clean["risk"],
+        evidence=[{"claim": "销售任务书兜底",
+                   "source": f"{state['today']} 目标与进度"}],
+        backend=backend,
+        dedupe_key=f"mission-{state['today']}-{clean['payload'].get('country')}")
+    ids = [proposal["id"]] if proposal else []
+    return {"proposed": len(ids), "ids": ids, "rejected": []}
+
+
 def build_plan(conn) -> dict:
     """Ask for today's plan and turn what survives validation into proposals."""
     proposals.ensure_schema(conn)
@@ -199,7 +232,7 @@ def build_plan(conn) -> dict:
     if not isinstance(actions, list):
         raise llm.LLMError("计划不是一个列表")
     made, rejected = [], []
-    backend = llm.backend_for(conn, "draft")
+    backend = data.get("_llm_backend") or llm.backend_for(conn, "draft")
     if len(actions) > MAX_ACTIONS:
         # Say so rather than truncating quietly: a plan of forty items is a signal that
         # the planner misread the day, and Allen should see that it happened.
@@ -218,6 +251,13 @@ def build_plan(conn) -> dict:
             backend=backend, dedupe_key=f"plan-{state['today']}")
         if p:
             made.append(p["id"])
+    # Fallback is for a genuinely empty model plan, not a malformed one. If the model
+    # attempted unsafe/unknown work, keep the rejection visible instead of disguising
+    # that planning defect as a successful discovery action.
+    if not made and not actions:
+        fallback = build_mission_fallback(conn, state, backend)
+        made.extend(fallback["ids"])
+        rejected.extend(fallback["rejected"])
     return {"summary": str(data.get("summary") or "").strip(),
             "proposed": len(made), "rejected": rejected,
             "considered": len(actions)}

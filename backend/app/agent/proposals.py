@@ -280,7 +280,8 @@ def _execute(conn, p: dict, note: str = "") -> dict:
     if handler is None:
         return _finish(conn, p["id"], False, f"{p['kind']} 没有执行器，无法执行")
     try:
-        result = handler(conn, p)
+        mode = "auto" if p["status"] == "pending" else "approved"
+        result = handler(conn, {**p, "execution_mode": mode})
     except Exception as exc:  # noqa: BLE001 — a failed action must stay visible, not crash
         return _finish(conn, p["id"], False, f"{type(exc).__name__}: {exc}")
     return _finish(conn, p["id"], True, result)

@@ -5,15 +5,13 @@ work inherits the same guards as work Allen does by hand. Handlers return a shor
 sentence that lands in `execution_result` — the Agent page shows it verbatim, so it has
 to read like an answer to "what happened", not like a status code.
 
-Kinds without a handler here (send_outreach / enroll_sequence / stop_sequence /
-discover_run) belong to phase B; proposing one now fails loudly rather than silently
-doing nothing.
+Kinds without a handler here fail loudly rather than silently doing nothing.
 """
 from __future__ import annotations
 
 import datetime as dt
 
-from app import activities, mailboxes, opportunities, repository
+from app import activities, autosend, mailboxes, opportunities, repository
 from app.channels import email_adapter
 
 
@@ -68,6 +66,10 @@ def send_dm_reply(conn, p: dict, channel: str) -> str:
     # conversation; re-sending the poster to someone mid-conversation reads as a bot.
     ENGINE.send_message(channel, target, body, None)
     _mark_handled(conn, p)
+    from app.agent import conversation
+    conversation.record_sent_reply(
+        conn, p["lead_no"], channel, p.get("inbox_message_id"),
+        (p.get("payload") or {}).get("open_questions") or "")
     repository.add_note(conn, p["lead_no"],
                         f"{channel} 回复（Agent 起草，已确认发送）：{body[:300]}")
     conn.commit()
@@ -80,6 +82,10 @@ def send_reply(conn, p: dict) -> str:
     if lead["do_not_contact"]:
         raise ExecutionRefused("该客户已标记不再联系")
     channel = payload.get("channel") or "email"
+    from app.agent import conversation
+    state = conversation.get(conn, p["lead_no"], channel)
+    if state and state["owner"] == "allen":
+        raise ExecutionRefused("该会话已由 Allen 接管；明确交回 Agent 后才能发送草稿")
     if channel != "email":
         return send_dm_reply(conn, p, channel)
     to = (payload.get("to") or "").strip()
@@ -94,6 +100,9 @@ def send_reply(conn, p: dict) -> str:
     if box.get("id"):
         mailboxes.record_send(conn, box["id"])
     _mark_handled(conn, p)
+    conversation.record_sent_reply(
+        conn, p["lead_no"], channel, p.get("inbox_message_id"),
+        payload.get("open_questions") or "")
     repository.add_note(conn, p["lead_no"], f"回复 {to}（Agent 起草，已确认发送）：{body[:300]}")
     conn.commit()
     return f"已从 {box['email']} 回复 {to}"
@@ -135,6 +144,10 @@ def send_outreach(conn, p: dict) -> str:
     the invalid-address skip all apply, and anything over budget is deferred rather than
     dropped. The agent chose who; the template is what Allen actually sends.
     """
+    pause = autosend.safety_pause(conn)
+    if pause:
+        raise ExecutionRefused(f"邮件开发处于安全暂停：{pause['reason']}")
+
     from app import outreach
     from app.api import send as send_api
     payload = p.get("payload") or {}
@@ -176,17 +189,70 @@ def stop_sequence(conn, p: dict) -> str:
     return f"已停掉 {stopped} 条跟进" if stopped else "该客户本来就没有进行中的跟进"
 
 
+def _sequence_for_country(conn, country: str | None) -> int | None:
+    """Pick an existing active email sequence without crossing the language boundary."""
+    import re
+    from app.agent import oversight
+
+    quarantined = oversight.weak_sequence_ids(conn)
+    rows = conn.execute(
+        "SELECT s.id, s.name, COALESCE(st.subject,'') subject, st.body"
+        " FROM sequences s JOIN sequence_steps st ON st.sequence_id=s.id"
+        " WHERE s.active=1 AND s.channel='email'"
+        "   AND st.step_order=(SELECT MIN(x.step_order) FROM sequence_steps x"
+        "                      WHERE x.sequence_id=s.id)"
+        " ORDER BY s.id"
+    ).fetchall()
+    korean = str(country or "").strip().lower() in {
+        "south korea", "korea", "republic of korea", "대한민국",
+    }
+    for row in rows:
+        if row["id"] in quarantined:
+            continue
+        text = f"{row['name']} {row['subject']} {row['body']}"
+        if bool(re.search(r"[\uac00-\ud7a3]", text)) == korean:
+            return row["id"]
+    return None
+
+
+def _enroll_imported(conn, lead_nos: list[int]) -> tuple[int, list[str]]:
+    from app import sequences
+
+    if not lead_nos:
+        return 0, []
+    placeholders = ",".join("?" * len(lead_nos))
+    rows = conn.execute(
+        f"SELECT no, country FROM leads WHERE no IN ({placeholders})"
+        " AND COALESCE(email_status,'') != 'invalid'", lead_nos).fetchall()
+    groups: dict[str, list[int]] = {}
+    for row in rows:
+        groups.setdefault(row["country"] or "", []).append(row["no"])
+    enrolled = 0
+    missing: list[str] = []
+    for country, nos in groups.items():
+        sequence_id = _sequence_for_country(conn, country)
+        if sequence_id is None:
+            language = "韩语" if country == "South Korea" else "英语"
+            missing.append(f"{language}序列（{len(nos)} 家）")
+            continue
+        enrolled += sequences.enroll_leads(conn, sequence_id, nos)
+    return enrolled, missing
+
+
+def _import_skip_reason(skipped: dict) -> str:
+    if skipped.get("duplicate_of"):
+        return f"重复客户：#{skipped['duplicate_of']}"
+    if skipped.get("blocked_domain"):
+        return f"域名在永久排除名单：{skipped['blocked_domain']}"
+    return "导入时被安全规则跳过"
+
+
 def discover_run(conn, p: dict) -> str:
-    """Search and enrich candidates, keep them on the proposal, never auto-import.
+    """Search and preserve every candidate; auto-import only in autonomous mode.
 
-    Import stays manual on purpose: the discovery panel shows why each candidate was
-    skipped and lets Allen pick. An agent that silently grew the lead base would make
-    that screen a lie.
-
-    The candidates must be stored here or they cease to exist. `run_discovery` returns
-    them; the discovery page holds its own results in browser state and knows nothing
-    about a run the agent did. The first version searched, counted, threw the results
-    away and told Allen to go find them on a page that had never received them.
+    A manually approved search retains the checkbox review flow. An autonomous search
+    may close the loop, but only through the shared strict qualification/import path,
+    email verification and an existing language-matched sequence.
     """
     import json
 
@@ -196,9 +262,25 @@ def discover_run(conn, p: dict) -> str:
     country = payload.get("country")
     found: list[dict] = []
     seen: set[str] = set()
-    for query in queries:
+    def persist_progress(progress: dict) -> None:
+        payload["progress"] = progress
+        conn.execute("UPDATE agent_proposals SET payload=? WHERE id=?",
+                     (json.dumps(payload, ensure_ascii=False), p["id"]))
+        conn.commit()
+
+    for query_index, query in enumerate(queries, 1):
         text = f"{query} {country}".strip() if country else query
-        for cand in discovery.run_discovery(conn, text, limit=10) or []:
+        persist_progress({"status": "searching", "query": query,
+                          "query_index": query_index, "query_total": len(queries),
+                          "done": 0, "total": 0, "candidates": len(found)})
+
+        def on_progress(done: int, total: int) -> None:
+            persist_progress({"status": "enriching", "query": query,
+                              "query_index": query_index, "query_total": len(queries),
+                              "done": done, "total": total, "candidates": len(found)})
+
+        for cand in discovery.run_discovery(
+                conn, text, limit=10, on_progress=on_progress) or []:
             # Deduplicate on `domain`, the same key /api/discover uses. Candidates carry
             # `domain` and `title`; `company_en` and `website` are only filled in later,
             # at import — keying on those dropped every single result.
@@ -206,13 +288,54 @@ def discover_run(conn, p: dict) -> str:
             if key and key not in seen:
                 seen.add(key)
                 found.append(cand)
+    payload["progress"] = {"status": "complete", "query_index": len(queries),
+                           "query_total": len(queries), "candidates": len(found)}
     payload["found"] = found
     conn.execute("UPDATE agent_proposals SET payload=? WHERE id=?",
                  (json.dumps(payload, ensure_ascii=False), p["id"]))
     conn.commit()
     usable = [c for c in found if not c.get("excluded")]
-    return (f"已搜到 {len(found)} 个候选（其中 {len(usable)} 个可用），"
-            "就在这条提议里，展开勾选导入（不会自动入库）")
+    if p.get("execution_mode") != "auto":
+        return (f"已搜到 {len(found)} 个候选（其中 {len(usable)} 个可用），"
+                "就在这条提议里，展开勾选导入（不会自动入库）")
+
+    from app import verify
+    from app.agent import mission
+
+    assignment = mission.get(conn)
+    accepted, rejected = discovery.qualify_for_auto_import(
+        found, assignment["minimum_fit_score"], email_classifier=verify.classify_email,
+        target_country=country)
+    imported = discovery.import_candidates(conn, accepted, country)
+    for skipped in imported["skipped"]:
+        rejected.append({
+            "domain": skipped.get("website") or skipped.get("company_en") or "",
+            "reason": _import_skip_reason(skipped),
+        })
+    lead_nos = imported["imported_lead_nos"]
+    verification = verify.verify_leads(conn, lead_nos) if lead_nos else {"checked": 0}
+    enrolled, missing = (0, [])
+    if assignment["auto_enroll"]:
+        enrolled, missing = _enroll_imported(conn, lead_nos)
+    payload["auto_import"] = {
+        "accepted": len(accepted),
+        "imported": imported["imported"],
+        "imported_lead_nos": lead_nos,
+        "rejected": rejected,
+        "verification": verification,
+        "enrolled": enrolled,
+        "missing_sequences": missing,
+    }
+    conn.execute("UPDATE agent_proposals SET payload=? WHERE id=?",
+                 (json.dumps(payload, ensure_ascii=False), p["id"]))
+    conn.commit()
+    note = (f"已搜到 {len(found)} 个候选，自动导入 {imported['imported']} 家，"
+            f"验证 {verification.get('checked', 0)} 个邮箱，加入序列 {enrolled} 家")
+    if rejected:
+        note += f"，{len(rejected)} 个未通过质量门"
+    if missing:
+        note += "；缺少" + "、".join(missing)
+    return note
 
 
 HANDLERS = {

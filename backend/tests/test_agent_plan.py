@@ -2,7 +2,8 @@ import datetime as dt
 
 import pytest
 
-from app.agent import executors, llm, plan, proposals, report, run, world
+from app import autosend
+from app.agent import executors, llm, mission, plan, proposals, report, run, world
 
 
 @pytest.fixture
@@ -150,6 +151,16 @@ def test_outreach_is_refused_outright_when_the_day_is_spent(planned, monkeypatch
     assert result["proposed"] == 0 and "额度已用完" in result["rejected"][0]
 
 
+def test_safety_pause_blocks_new_agent_outreach_plans(planned, monkeypatch):
+    autosend.pause(planned, "bounce_rate", "退信率超过安全线", {"bounce_rate": 4.0})
+    assert world.build(planned)["email_safety_pause"]["code"] == "bounce_rate"
+    _plan(monkeypatch, [{"kind": "send_outreach", "title": "群发",
+                         "payload": {"template_id": 1, "lead_nos": [1, 2]}}])
+    result = plan.build_plan(planned)
+    assert result["proposed"] == 0
+    assert "安全暂停" in result["rejected"][0]
+
+
 def test_a_nonsense_date_is_rejected_rather_than_stored(planned, monkeypatch):
     _plan(monkeypatch, [{"kind": "create_task", "lead_no": 1, "title": "x",
                          "payload": {"title": "x", "due_at": "next tuesday"}}])
@@ -191,6 +202,20 @@ def test_an_approved_outreach_goes_through_the_normal_send_path(planned, monkeyp
     assert "已发 1 封" in done["execution_result"]
 
 
+def test_safety_pause_blocks_a_stale_agent_outreach_proposal(planned, monkeypatch):
+    sent = []
+    monkeypatch.setattr("app.api.send.pick_sender",
+                        lambda conn: lambda to, s, b, a: sent.append(to))
+    p = proposals.create(planned, "send_outreach", title="暂停前生成的开发邮件",
+                         payload={"template_id": 1, "channel": "email",
+                                  "lead_nos": [2]})
+    autosend.pause(planned, "bounce_rate", "退信率超过安全线", {"bounce_rate": 4.0})
+    done = proposals.approve(planned, p["id"])
+    assert done["status"] == "failed"
+    assert "安全暂停" in done["execution_result"]
+    assert sent == []
+
+
 def test_an_approved_enrollment_puts_the_leads_in_the_sequence(planned):
     p = proposals.create(planned, "enroll_sequence", title="加入 Cold 3-touch",
                          payload={"sequence_id": 1, "lead_nos": [2]})
@@ -204,7 +229,7 @@ def test_an_approved_enrollment_puts_the_leads_in_the_sequence(planned):
 def test_discovery_finds_candidates_but_never_imports_them(planned, monkeypatch):
     before = planned.execute("SELECT COUNT(*) c FROM leads").fetchone()["c"]
     monkeypatch.setattr("app.discovery.run_discovery",
-                        lambda conn, q, limit=10: [{"company_en": "New Co"}])
+                        lambda conn, q, limit=10, **kwargs: [{"company_en": "New Co"}])
     p = proposals.create(planned, "discover_run", title="找巴西经销商",
                          payload={"queries": ["LED distributor"], "country": "Brazil"})
     done = proposals.approve(planned, p["id"])
@@ -238,8 +263,8 @@ def test_an_afternoon_wake_up_does_not_plan_a_stale_day(conn):
     assert run.plan_due(conn, dt.datetime(2026, 8, 20, 15, 0)) is False
 
 
-def test_a_failing_planner_marks_the_day_done_instead_of_retrying_all_morning(conn,
-                                                                             monkeypatch):
+def test_a_failing_planner_waits_for_the_bounded_retry_window(conn, monkeypatch):
+    mission.set_mission(conn, {"daily_qualified_leads": 0})
     def boom(*a, **k):
         raise llm.LLMError("网络不可达")
     monkeypatch.setattr(llm, "complete_json", boom)
@@ -247,6 +272,7 @@ def test_a_failing_planner_marks_the_day_done_instead_of_retrying_all_morning(co
     result = run.make_plan(conn, morning)
     assert result["proposed"] == 0 and "网络不可达" in result["error"]
     assert run.plan_due(conn, dt.datetime(2026, 8, 20, 9, 5)) is False
+    assert run.plan_due(conn, dt.datetime(2026, 8, 20, 9, 30)) is True
     assert "计划失败" in run.status(conn)["plan"]["last_result"]
 
 

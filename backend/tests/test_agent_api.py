@@ -70,6 +70,43 @@ def test_the_autonomy_dial_is_settable_per_kind(tmp_path):
                        json={"kind": "create_task", "level": "sometimes"}).status_code == 400
 
 
+def test_the_sales_mission_is_readable_and_safely_updateable(tmp_path):
+    client, _ = _client(tmp_path)
+    current = client.get("/api/agent/mission").json()
+    assert current["target_markets"] == ["USA", "South Korea"]
+    assert current["minimum_fit_score"] == 75
+
+    changed = client.put("/api/agent/mission", json={
+        "target_markets": ["Brazil", "Brazil", "UK"],
+        "daily_qualified_leads": 6,
+        "minimum_fit_score": 10,
+        "auto_enroll": False,
+    }).json()
+    assert changed == {
+        "target_markets": ["Brazil", "UK"],
+        "daily_qualified_leads": 6,
+        "minimum_fit_score": 75,
+        "auto_enroll": False,
+    }
+    status = client.get("/api/agent/status").json()
+    assert status["mission"] == changed
+    assert status["mission_progress"]["daily_target"] == 6
+
+
+def test_conversation_takeover_and_resume_are_explicit_api_actions(tmp_path):
+    client, _ = _client(tmp_path)
+    taken = client.post("/api/agent/conversations/1/email/takeover",
+                        json={"reason": "strategic negotiation"})
+    assert taken.status_code == 200 and taken.json()["owner"] == "allen"
+    status = client.get("/api/agent/status").json()
+    assert status["takeovers"][0]["company_en"] == "Alpha AV"
+
+    resumed = client.post("/api/agent/conversations/1/email/resume")
+    assert resumed.status_code == 200 and resumed.json()["owner"] == "agent"
+    assert client.get("/api/agent/status").json()["takeovers"] == []
+    assert client.post("/api/agent/conversations/1/sms/takeover", json={}).status_code == 400
+
+
 def test_the_backend_for_a_task_is_switchable(tmp_path):
     client, _ = _client(tmp_path)
     body = client.post("/api/agent/backend",

@@ -13,7 +13,7 @@ def test_the_candidates_survive_the_run(conn, monkeypatch):
     """They used to be counted and thrown away, while the result line sent Allen to a
     page that had never received them."""
     monkeypatch.setattr("app.discovery.run_discovery",
-                        lambda c, q, limit=10: _candidates("Alpha", "Beta"))
+                        lambda c, q, limit=10, **kwargs: _candidates("Alpha", "Beta"))
     p = proposals.create(conn, "discover_run", title="找美国经销商",
                          payload={"queries": ["LED distributor"], "country": "USA"})
     done = proposals.approve(conn, p["id"])
@@ -25,7 +25,7 @@ def test_the_candidates_survive_the_run(conn, monkeypatch):
 
 def test_the_same_company_from_two_queries_is_kept_once(conn, monkeypatch):
     monkeypatch.setattr("app.discovery.run_discovery",
-                        lambda c, q, limit=10: _candidates("Alpha"))
+                        lambda c, q, limit=10, **kwargs: _candidates("Alpha"))
     p = proposals.create(conn, "discover_run", title="两条关键词",
                          payload={"queries": ["a", "b"], "country": None})
     done = proposals.approve(conn, p["id"])
@@ -35,7 +35,7 @@ def test_the_same_company_from_two_queries_is_kept_once(conn, monkeypatch):
 def test_nothing_is_imported_by_running_a_search(conn, monkeypatch):
     before = conn.execute("SELECT COUNT(*) c FROM leads").fetchone()["c"]
     monkeypatch.setattr("app.discovery.run_discovery",
-                        lambda c, q, limit=10: _candidates("Alpha", "Beta"))
+                        lambda c, q, limit=10, **kwargs: _candidates("Alpha", "Beta"))
     p = proposals.create(conn, "discover_run", title="搜索",
                          payload={"queries": ["x"], "country": None})
     proposals.approve(conn, p["id"])
@@ -46,7 +46,8 @@ def test_excluded_candidates_are_kept_but_not_counted_as_usable(conn, monkeypatc
     cands = _candidates("Alpha")
     cands.append({"domain": "peer.cn", "title": "Shenzhen Peer", "excluded": True,
                   "exclude_reason": "中国同行"})
-    monkeypatch.setattr("app.discovery.run_discovery", lambda c, q, limit=10: cands)
+    monkeypatch.setattr("app.discovery.run_discovery",
+                        lambda c, q, limit=10, **kwargs: cands)
     p = proposals.create(conn, "discover_run", title="搜索",
                          payload={"queries": ["x"], "country": None})
     done = proposals.approve(conn, p["id"])
@@ -55,7 +56,7 @@ def test_excluded_candidates_are_kept_but_not_counted_as_usable(conn, monkeypatc
 
 
 def test_a_search_that_finds_nothing_says_so(conn, monkeypatch):
-    monkeypatch.setattr("app.discovery.run_discovery", lambda c, q, limit=10: [])
+    monkeypatch.setattr("app.discovery.run_discovery", lambda c, q, limit=10, **kwargs: [])
     p = proposals.create(conn, "discover_run", title="搜索",
                          payload={"queries": ["x"], "country": None})
     done = proposals.approve(conn, p["id"])
@@ -66,7 +67,7 @@ def test_a_search_that_finds_nothing_says_so(conn, monkeypatch):
 
 def test_a_candidate_without_a_domain_is_not_silently_dropped(conn, monkeypatch):
     """Keying on the wrong field once dropped every result and reported zero found."""
-    monkeypatch.setattr("app.discovery.run_discovery", lambda c, q, limit=10: [
+    monkeypatch.setattr("app.discovery.run_discovery", lambda c, q, limit=10, **kwargs: [
         {"domain": "alpha.com", "title": None, "email": "a@alpha.com", "excluded": False},
     ])
     p = proposals.create(conn, "discover_run", title="搜索",
@@ -74,3 +75,24 @@ def test_a_candidate_without_a_domain_is_not_silently_dropped(conn, monkeypatch)
     done = proposals.approve(conn, p["id"])
     assert len(done["payload"]["found"]) == 1
     assert "1 个候选（其中 1 个可用）" in done["execution_result"]
+
+
+def test_agent_discovery_persists_candidate_progress(conn, monkeypatch):
+    snapshots = []
+    proposal_id = None
+
+    def fake(c, q, limit=10, on_progress=None):
+        on_progress(1, 3)
+        row = c.execute("SELECT payload FROM agent_proposals WHERE id=?",
+                        (proposal_id,)).fetchone()
+        snapshots.append(json.loads(row["payload"])["progress"])
+        return []
+
+    monkeypatch.setattr("app.discovery.run_discovery", fake)
+    p = proposals.create(conn, "discover_run", title="显示进度",
+                         payload={"queries": ["x"], "country": "USA"})
+    proposal_id = p["id"]
+    done = proposals.approve(conn, proposal_id)
+    assert snapshots[0]["status"] == "enriching"
+    assert snapshots[0]["done"] == 1 and snapshots[0]["total"] == 3
+    assert done["payload"]["progress"]["status"] == "complete"

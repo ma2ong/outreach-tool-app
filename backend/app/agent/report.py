@@ -63,7 +63,7 @@ def targets() -> list[str]:
 
 def compose(conn, today: dt.date | None = None) -> str:
     """What happened today, in the order Allen cares about."""
-    from app.agent import proposals
+    from app.agent import oversight, proposals
     from app.agent import run as agent_run
     today = today or dt.date.today()
     proposals.ensure_schema(conn)
@@ -89,6 +89,11 @@ def compose(conn, today: dt.date | None = None) -> str:
 
     lines = [f"【{day} 客户开发日报】"]
     lines.append(f"发出 {sent} 条，收到 {replies} 条客户回复")
+    outcome = oversight.daily_outcome(conn)
+    lines.append(
+        f"合格新客 {outcome['achieved']}/{outcome['target']}（完成 {outcome['completion_pct']}%）")
+    if not outcome["met"] and outcome["blockers"]:
+        lines.append("未达标原因：" + "；".join(b["message"] for b in outcome["blockers"][:3]))
     # The one thing Allen asked to be told about directly: pricing is his.
     if waiting_quotes:
         lines.append(f"⚠ {waiting_quotes} 家在等你报价（Agent 不代报，需求已整理好）")

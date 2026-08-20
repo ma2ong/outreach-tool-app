@@ -2,7 +2,7 @@ import datetime as dt
 
 import pytest
 
-from app.agent import classify, draft, executors, llm, proposals, run, social
+from app.agent import classify, conversation, draft, executors, llm, proposals, run, social
 
 
 def _reply(conn, lead_no=1, body="Please send price for 200sqm P2.5 indoor.",
@@ -438,6 +438,22 @@ def test_a_handled_message_is_not_proposed_on_again(conn, monkeypatch):
     assert run.act_on_replies(conn)["draft"] == 0
 
 
+def test_a_stale_reply_becomes_a_human_task_instead_of_an_automatic_reply(conn,
+                                                                           monkeypatch):
+    mid = _reply(conn, intent="spec", body="Please send the catalogue.")
+    stale = (dt.datetime.now(dt.UTC) - dt.timedelta(days=8)).isoformat()
+    conn.execute("UPDATE inbox_messages SET received_at=? WHERE id=?", (stale, mid))
+    conn.commit()
+    monkeypatch.setattr(draft, "build", lambda *a: pytest.fail("stale reply must not draft"))
+
+    result = run.act_on_replies(conn)
+
+    assert result["nudge"] == 1 and result["draft"] == 0
+    p = proposals.list_proposals(conn)[0]
+    assert p["kind"] == "create_task" and "历史回复" in p["title"]
+    assert conversation.get(conn, 1, "email")["owner"] == "allen"
+
+
 # ---------------------------------------------------------------- model plumbing
 
 def test_json_survives_fences_and_chatter():
@@ -455,15 +471,29 @@ def test_each_task_routes_to_its_own_backend(conn):
     assert llm.backend_for(conn, "draft") == "cli"
 
 
-def test_the_cli_daily_limit_stops_calls_before_they_are_made(conn, monkeypatch):
+def test_the_cli_daily_limit_falls_back_without_making_a_cli_call(conn, monkeypatch):
     monkeypatch.setattr(llm, "_call_cli",
                         lambda *a, **k: pytest.fail("limit should have blocked this"))
+    monkeypatch.setattr(llm, "available", lambda backend: backend == "deepseek")
+    monkeypatch.setattr(llm, "_call_deepseek", lambda *a, **k: '{"ok": true}')
     from app import settings
     settings.set_value(conn, "agent_daily_call_limit", "2")
     settings.set_value(conn, "agent_call_stats",
                        f'{{"date": "{dt.date.today().isoformat()}", "cli": 2}}')
-    with pytest.raises(llm.LLMUnavailable):
-        llm.complete_json(conn, "draft", "sys", "user")
+    result = llm.complete_json(conn, "draft", "sys", "user")
+    assert result["ok"] is True
+    assert result["_llm_backend"] == "deepseek"
+    assert result["_llm_fallback_from"] == "cli"
+
+
+def test_a_cli_session_limit_falls_back_to_the_available_draft_backend(conn, monkeypatch):
+    monkeypatch.setattr(llm, "_call_cli",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            llm.LLMError("You've hit your session limit")))
+    monkeypatch.setattr(llm, "available", lambda backend: backend == "deepseek")
+    monkeypatch.setattr(llm, "_call_deepseek", lambda *a, **k: '{"body": "Hello"}')
+    result = llm.complete_json(conn, "draft", "sys", "user")
+    assert result["body"] == "Hello" and result["_llm_backend"] == "deepseek"
 
 
 # ---------------------------------------------------------------- pricing is Allen's

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import {
   approveProposal, fetchAgentMeta, fetchAgentRunJob, fetchAgentStatus, fetchDailyReport,
-  fetchProposals, rejectProposal, sendDailyReport, setAgentBackend, setAutonomy,
+  fetchAgentMission, fetchProposals, rejectProposal, sendDailyReport, setAgentBackend, setAutonomy,
   setPlanEnabled, startAgentRun, startPlanRun, fetchLearning, importCandidates, proposedName,
+  updateAgentMission, takeoverConversation, resumeConversation,
 } from "../agentApi";
-import type { AgentMeta, AgentStatus, FoundCandidate, Learning, Proposal } from "../agentApi";
+import type { AgentMeta, AgentMission, AgentStatus, FoundCandidate, Learning, Proposal } from "../agentApi";
 
 const KIND_LABEL: Record<string, string> = {
   reply_draft: "回复草稿",
@@ -38,7 +39,9 @@ const ACTIVE_KINDS = [
   "send_outreach", "enroll_sequence", "stop_sequence", "discover_run",
 ];
 
-function ProposalCard({ p, meta, onDone }: { p: Proposal; meta: AgentMeta; onDone: () => void }) {
+function ProposalCard({ p, meta, onDone, takenOver = false }: {
+  p: Proposal; meta: AgentMeta; onDone: () => void; takenOver?: boolean;
+}) {
   const isDraft = p.kind === "reply_draft";
   const channel = String(p.payload?.channel ?? "email");
   const isDM = isDraft && channel !== "email";
@@ -110,6 +113,11 @@ function ProposalCard({ p, meta, onDone }: { p: Proposal; meta: AgentMeta; onDon
       )}
 
       {error && <div className="error-text" style={{ marginTop: 8 }}>{error}</div>}
+      {isDraft && takenOver && (
+        <div className="error-text" style={{ marginTop: 8 }}>
+          这个会话已由你接管，Agent 不会发送这份草稿。先在下方交回 Agent，或驳回草稿。
+        </div>
+      )}
 
       {rejecting ? (
         <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -122,10 +130,19 @@ function ProposalCard({ p, meta, onDone }: { p: Proposal; meta: AgentMeta; onDon
         </div>
       ) : (
         <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="btn btn-sm btn-green" disabled={busy}
-            onClick={() => act(() => approveProposal(p.id, isDraft ? { ...p.payload, body, subject } : undefined))}>
-            {busy ? "执行中…" : edited ? "改后确认" : "确认"}
-          </button>
+          {!takenOver && (
+            <button className="btn btn-sm btn-green" disabled={busy}
+              onClick={() => act(() => approveProposal(p.id, isDraft ? { ...p.payload, body, subject } : undefined))}>
+              {busy ? "执行中…" : edited ? "改后确认" : "确认"}
+            </button>
+          )}
+          {isDraft && !takenOver && p.lead_no && (
+            <button className="btn btn-sm" disabled={busy}
+              onClick={() => act(() => takeoverConversation(
+                p.lead_no!, channel, "Allen 在 Agent 页手动接管这个会话"))}>
+              我来接管
+            </button>
+          )}
           <button className="btn btn-sm" disabled={busy} onClick={() => setRejecting(true)}>驳回</button>
         </div>
       )}
@@ -135,6 +152,11 @@ function ProposalCard({ p, meta, onDone }: { p: Proposal; meta: AgentMeta; onDon
 
 function FoundCandidates({ p, onDone }: { p: Proposal; onDone: () => void }) {
   const all: FoundCandidate[] = p.payload?.found ?? [];
+  const audit = p.payload?.auto_import as {
+    imported?: number; accepted?: number; enrolled?: number;
+    verification?: Record<string, number>; rejected?: { domain: string; reason: string }[];
+    missing_sequences?: string[];
+  } | undefined;
   const usable = all.filter((c) => !c.excluded);
   const skipped = all.filter((c) => c.excluded);
   const [picked, setPicked] = useState<Set<number>>(() => new Set(usable.map((_, i) => i)));
@@ -145,6 +167,35 @@ function FoundCandidates({ p, onDone }: { p: Proposal; onDone: () => void }) {
   const [done, setDone] = useState("");
   const [err, setErr] = useState("");
   if (!all.length) return null;
+
+  if (audit) {
+    return (
+      <div style={{ marginTop: 10 }}>
+        <div className="stat-label">自动找客审计</div>
+        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+          候选 {all.length} · 通过质量门 {audit.accepted ?? 0} · 导入 {audit.imported ?? 0}
+          {` · 邮箱验证 ${audit.verification?.checked ?? 0} · 加入序列 ${audit.enrolled ?? 0}`}
+        </div>
+        {!!audit.missing_sequences?.length && (
+          <div className="error-text" style={{ fontSize: 12, marginTop: 4 }}>
+            缺少 {audit.missing_sequences.join("、")}，这些客户没有加入错误语言的序列。
+          </div>
+        )}
+        {!!audit.rejected?.length && (
+          <details style={{ marginTop: 6 }}>
+            <summary className="muted" style={{ fontSize: 12, cursor: "pointer" }}>
+              {audit.rejected.length} 个候选未自动导入（查看原因）
+            </summary>
+            {audit.rejected.map((r, i) => (
+              <div key={i} className="muted" style={{ fontSize: 12 }}>
+                · {r.domain || "未知域名"} —— {r.reason}
+              </div>
+            ))}
+          </details>
+        )}
+      </div>
+    );
+  }
 
   function toggle(i: number) {
     setPicked((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n; });
@@ -288,6 +339,8 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [report, setReport] = useState<{ text: string; webhook_configured: boolean } | null>(null);
   const [learning, setLearning] = useState<Learning | null>(null);
+  const [missionDraft, setMissionDraft] = useState<AgentMission | null>(null);
+  const [missionSaving, setMissionSaving] = useState(false);
 
   function reload() {
     fetchAgentStatus().then(setStatus).catch((e) => setError(String(e)));
@@ -299,7 +352,21 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
     fetchProposals({ status: tab }).then(setItems).catch((e) => setError(String(e)));
   }
   useEffect(() => { fetchAgentMeta().then(setMeta).catch((e) => setError(String(e))); }, []);
+  // During a local upgrade the already-running Python process may still expose the old
+  // API until it is restarted. Keep the rest of Agent usable in that short window.
+  useEffect(() => { fetchAgentMission().then(setMissionDraft).catch(() => undefined); }, []);
   useEffect(reload, [tab]);
+
+  async function saveMission() {
+    if (!missionDraft) return;
+    setMissionSaving(true); setError("");
+    try {
+      setMissionDraft(await updateAgentMission(missionDraft));
+      reload();
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    } finally { setMissionSaving(false); }
+  }
 
   async function poll(jobId: string, get: (id: string) => Promise<{ status: string; result: any }>) {
     for (let i = 0; i < 240; i++) {
@@ -342,6 +409,9 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
   if (!status || !meta) return error ? <div className="error-text">{error}</div> : null;
 
   const broken = Object.entries(status.llm.tasks).filter(([, v]) => !v.ok);
+  const takeovers = status.takeovers ?? [];
+  const blockers = status.outcome?.blockers ?? [];
+  const recentRuns = status.recent_runs ?? [];
   return (
     <div>
       <div className="card" style={{ marginBottom: 16 }}>
@@ -355,6 +425,20 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
               {status.last_result || "还没有运行过"}
               {status.unclassified ? ` · ${status.unclassified} 条回复待分类` : ""}
             </div>
+            {status.mission_progress && (
+              <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
+                今日合格新客 {status.mission_progress.qualified_leads_imported_today}/
+                {status.mission_progress.daily_target}
+                {status.mission_progress.remaining > 0
+                  ? ` · 还差 ${status.mission_progress.remaining} 家`
+                  : " · 今日目标已完成"}
+              </div>
+            )}
+            {!!blockers.length && (
+              <div className="error-text" style={{ fontSize: 12, marginTop: 3 }}>
+                当前阻塞：{blockers.map((b) => b.message).join("；")}
+              </div>
+            )}
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
             <button className="btn btn-sm" disabled={running} onClick={runNow}>
@@ -364,7 +448,7 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
               {planning ? "规划中…" : "出今日计划"}
             </button>
             <button className="btn btn-sm" onClick={() => setSettingsOpen(!settingsOpen)}>
-              {settingsOpen ? "收起设置" : "自主度与模型"}
+              {settingsOpen ? "收起设置" : "任务书与自主度"}
             </button>
           </div>
         </div>
@@ -377,6 +461,52 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
 
         {settingsOpen && (
           <div style={{ marginTop: 14 }}>
+            {missionDraft && (
+              <div style={{ marginBottom: 14 }}>
+                <div className="stat-label" style={{ marginBottom: 6 }}>长期销售任务书</div>
+                <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 2fr) repeat(2, minmax(120px, 1fr))", gap: 8 }}>
+                  <label style={{ fontSize: 12 }}>
+                    目标市场（逗号分隔）
+                    <input className="input" style={{ width: "100%", marginTop: 3 }}
+                      value={missionDraft.target_markets.join(", ")}
+                      onChange={(e) => setMissionDraft({
+                        ...missionDraft,
+                        target_markets: e.target.value.split(",").map((v) => v.trim()),
+                      })} />
+                  </label>
+                  <label style={{ fontSize: 12 }}>
+                    每日合格新客
+                    <input className="input" type="number" min={0} max={20}
+                      style={{ width: "100%", marginTop: 3 }}
+                      value={missionDraft.daily_qualified_leads}
+                      onChange={(e) => setMissionDraft({
+                        ...missionDraft, daily_qualified_leads: Number(e.target.value),
+                      })} />
+                  </label>
+                  <label style={{ fontSize: 12 }}>
+                    自动导入最低匹配分
+                    <input className="input" type="number" min={75} max={100}
+                      style={{ width: "100%", marginTop: 3 }}
+                      value={missionDraft.minimum_fit_score}
+                      onChange={(e) => setMissionDraft({
+                        ...missionDraft, minimum_fit_score: Number(e.target.value),
+                      })} />
+                  </label>
+                </div>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+                  <label style={{ fontSize: 12 }}>
+                    <input type="checkbox" checked={missionDraft.auto_enroll}
+                      onChange={(e) => setMissionDraft({ ...missionDraft, auto_enroll: e.target.checked })} />
+                    {" "}验证后自动加入对应语言的邮件序列
+                  </label>
+                  <button className="btn btn-sm btn-green" disabled={missionSaving} onClick={saveMission}>
+                    {missionSaving ? "保存中…" : "保存任务书"}
+                  </button>
+                  <span className="muted" style={{ fontSize: 12 }}>质量门最低锁定 75 分。</span>
+                </div>
+              </div>
+            )}
+
             <div className="stat-label" style={{ marginBottom: 6 }}>
               自主度（每类动作各自调，默认「提议」——它想做什么都先问你）
             </div>
@@ -403,13 +533,28 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
                 {status.plan.enabled ? "已开启" : "已关闭"}
               </button>
               <span className="muted" style={{ fontSize: 12 }}>
-                默认开启。每天 {status.plan.window[0]}:00–{status.plan.window[1]}:00 之间自动跑一次，出的仍然是待你确认的提议
+                默认开启。每天 {status.plan.window[0]}:00–{status.plan.window[1]}:00 之间运行，动作按上方自主度执行；失败每 {status.plan.retry_minutes ?? 30} 分钟重试，最多 {status.plan.max_attempts ?? 3} 次
               </span>
             </div>
             {status.plan.last_result && (
               <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
-                上次计划：{status.plan.last_result}
+                上次计划：{status.plan.last_result} · 今日尝试 {status.plan.attempts ?? 0}/{status.plan.max_attempts ?? 3}
               </div>
+            )}
+
+            {!!recentRuns.length && (
+              <details style={{ marginBottom: 12 }}>
+                <summary className="muted" style={{ fontSize: 12, cursor: "pointer" }}>
+                  最近 {recentRuns.length} 次 Agent 运行记录
+                </summary>
+                {recentRuns.map((r) => (
+                  <div key={r.id} className={r.status === "failed" ? "error-text" : "muted"}
+                    style={{ fontSize: 12, marginTop: 3 }}>
+                    · {new Date(r.started_at).toLocaleString()} · {r.status === "success" ? "完成" : `失败：${r.error}`}
+                    {r.incident?.paused ? " · 已触发邮件安全暂停" : ""}
+                  </div>
+                ))}
+              </details>
             )}
 
             <div className="stat-label" style={{ marginBottom: 6 }}>今日日报</div>
@@ -453,6 +598,29 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
         )}
       </div>
 
+      {!!takeovers.length && (
+        <div className="card" style={{ marginBottom: 16, borderColor: "var(--warn)" }}>
+          <div className="stat-label">由你接管的会话</div>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+            报价、谈价或你手动接管后，Agent 不会抢回对话。处理完再明确交回。
+          </div>
+          {takeovers.map((t) => (
+            <div key={`${t.lead_no}-${t.channel}`}
+              style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between", marginTop: 6, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 13 }}>
+                <strong>{t.company_en}</strong> · {CHANNEL_LABEL[t.channel] ?? t.channel}
+                <span className="muted"> · {t.next_action || t.reason}</span>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {onOpenLead && <button className="btn btn-sm" onClick={() => onOpenLead(t.lead_no)}>打开客户</button>}
+                <button className="btn btn-sm" onClick={() => resumeConversation(t.lead_no, t.channel)
+                  .then(reload).catch((e) => setError(String(e)))}>交回 Agent</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         {[["pending", "待确认"], ["executed", "已执行"], ["rejected", "已驳回"],
           ["failed", "执行失败"], ["expired", "已过期"], ["learning", "学到了什么"]].map(([id, label]) => (
@@ -471,7 +639,10 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
       ) : items.map((p) => (
         <div key={p.id}>
           {tab === "pending" ? (
-            <ProposalCard p={p} meta={meta} onDone={reload} />
+            <ProposalCard p={p} meta={meta} onDone={reload}
+              takenOver={!!(p.lead_no && takeovers.some(
+                (t) => t.lead_no === p.lead_no
+                  && t.channel === String(p.payload?.channel ?? "email")))} />
           ) : (
             <div className="card" style={{ marginBottom: 8 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>

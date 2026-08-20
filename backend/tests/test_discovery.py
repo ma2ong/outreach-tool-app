@@ -1,3 +1,5 @@
+import threading
+
 from app import discovery
 
 
@@ -51,3 +53,34 @@ def test_run_discovery_missing_contact_fields_default_none(conn):
     c = cands[0]
     assert c["phone"] is None and c["instagram"] is None
     assert c["facebook"] is None and c["linkedin"] is None
+
+
+def test_domain_enrichment_runs_as_a_bounded_parallel_batch(conn):
+    domains = [{"domain": f"site-{i}.com", "title": ""} for i in range(4)]
+    lock = threading.Lock()
+    all_started = threading.Event()
+    active = 0
+    released = []
+
+    def enrich(domain):
+        nonlocal active
+        with lock:
+            active += 1
+            if active == 4:
+                all_started.set()
+        released.append(all_started.wait(1))
+        with lock:
+            active -= 1
+        return {"domain": domain, "emails": [], "email": None}
+
+    discovery.run_discovery(conn, "led", search_fn=lambda q, n: domains,
+                            enrich_fn=enrich)
+    assert released == [True, True, True, True]
+
+
+def test_live_discovery_uses_a_shorter_per_page_timeout(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(discovery, "jina_fetch",
+                        lambda url, timeout: seen.update(url=url, timeout=timeout) or "ok")
+    assert discovery._bounded_fetch("https://example.com") == "ok"
+    assert seen["timeout"] == discovery.DISCOVERY_FETCH_TIMEOUT

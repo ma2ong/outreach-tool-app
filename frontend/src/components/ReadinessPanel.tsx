@@ -21,9 +21,18 @@ export function ReadinessPanel({ onGoto }: { onGoto: (page: string) => void }) {
 
   async function toggle() {
     if (!data) return;
+    const enabling = !data.metrics.autosend.enabled;
+    let acknowledged = false;
+    if (enabling && data.metrics.autosend.safety_pause) {
+      acknowledged = window.confirm(
+        `邮件因安全风险暂停：\n\n${data.metrics.autosend.safety_pause.reason}\n\n` +
+        "只有在完成退信、邮箱验证和监测修复后才应恢复。仍要启用吗？",
+      );
+      if (!acknowledged) return;
+    }
     setBusy(true); setError("");
     try {
-      await setAutoSend(!data.metrics.autosend.enabled);
+      await setAutoSend(enabling, acknowledged);
       reload();
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
@@ -58,6 +67,11 @@ export function ReadinessPanel({ onGoto }: { onGoto: (page: string) => void }) {
         </div>
       </div>
       {auto.last_result && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>上次自动运行：{auto.last_result}</div>}
+      {auto.safety_pause && (
+        <div className="error-text" style={{ marginTop: 8 }}>
+          安全暂停：{auto.safety_pause.reason}
+        </div>
+      )}
       {error && <div className="error-text" style={{ marginTop: 8 }}>{error}</div>}
       {open && (
         <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
