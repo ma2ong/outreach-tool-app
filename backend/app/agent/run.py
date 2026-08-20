@@ -15,7 +15,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 
-from app import settings
+from app import autosend, settings
 from app.agent import classify, conversation, draft, llm, memory, mission, proposals
 
 _K_LAST_AT = "agent_run_last_at"
@@ -328,6 +328,9 @@ def make_plan(conn, now: dt.datetime | None = None) -> dict:
     note = f"{now:%m-%d %H:%M} 今日计划：{result['summary'] or ''}（{result['proposed']} 条建议）"
     if result["rejected"]:
         note += f"，{len(result['rejected'])} 条不合规被丢弃"
+    if result.get("duplicates"):
+        # Otherwise a fully-planned day reads exactly like a dead button.
+        note += f"，{len(result['duplicates'])} 条与今天已有的重复（去「已执行」看结果）"
     settings.set_value(conn, _K_PLAN_RESULT, note)
     return result
 
@@ -417,6 +420,9 @@ def status(conn) -> dict:
         "mission": mission.get(conn),
         "mission_progress": mission.progress(conn),
         "outcome": oversight.daily_outcome(conn),
+        # The reason and the evidence, so the panel can offer a way out instead of
+        # only announcing that email went quiet.
+        "safety_pause": autosend.safety_pause(conn),
         "recent_runs": oversight.latest_runs(conn),
         "takeovers": conversation.takeovers(conn),
         "llm": llm.status(conn),

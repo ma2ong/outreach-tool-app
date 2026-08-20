@@ -372,3 +372,43 @@ def test_the_report_names_who_is_waiting_on_a_price(conn):
 
 def test_the_planner_is_told_pricing_is_not_its_job():
     assert "You do NOT price anything" in plan.SYSTEM
+
+
+# ------------------------------------------------- Spec 28: nothing disappears silently
+
+def _discover(country, queries=("LED rental company",)):
+    return {"kind": "discover_run", "title": f"采集 {country} 线索",
+            "why": "补足今日合格新客目标", "risk": "low",
+            "payload": {"queries": list(queries), "country": country}}
+
+
+def test_two_markets_in_one_plan_both_survive_deduplication(planned, monkeypatch):
+    """One dedupe key for the whole day collapsed every discovery into a single
+    proposal — a plan covering two markets silently became one."""
+    _plan(monkeypatch, [_discover("USA"), _discover("South Korea")])
+    result = plan.build_plan(planned)
+    assert result["proposed"] == 2
+    assert {p["payload"]["country"] for p in proposals.list_proposals(planned)} == {
+        "USA", "South Korea"}
+
+
+def test_a_repeat_of_todays_discovery_is_reported_not_swallowed(planned, monkeypatch):
+    """`proposed: 0` must say whether the model planned nothing or planned what was
+    already done today — the screen looked identical for both."""
+    _plan(monkeypatch, [_discover("USA")])
+    assert plan.build_plan(planned)["proposed"] == 1
+
+    _plan(monkeypatch, [_discover("USA")])
+    again = plan.build_plan(planned)
+    assert again["proposed"] == 0
+    assert again["duplicates"] == ["采集 USA 线索"]
+    assert again["rejected"] == []          # a repeat is not a validation failure
+
+
+def test_the_plan_note_says_a_repeat_was_skipped(planned, monkeypatch):
+    from app import settings
+    _plan(monkeypatch, [_discover("USA")])
+    run.make_plan(planned)
+    _plan(monkeypatch, [_discover("USA")])
+    run.make_plan(planned)
+    assert "1 条与今天已有的重复" in settings.get(planned, "agent_plan_last_result")

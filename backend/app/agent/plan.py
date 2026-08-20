@@ -222,6 +222,20 @@ def build_mission_fallback(conn, state: dict | None = None,
     return {"proposed": len(ids), "ids": ids, "rejected": []}
 
 
+def _dedupe_key(today: str, clean: dict) -> str:
+    """What counts as 'already proposed today'.
+
+    Discovery carries no lead_no, so a single key for the whole day made every
+    discovery in every plan share one fingerprint: the first one won and the rest of
+    the day's planning vanished. Key it by market instead — one discovery run per
+    market per day — matching `build_mission_fallback`. Everything else keeps the
+    per-day key, because those actions carry a lead_no that already separates them.
+    """
+    if clean["kind"] == "discover_run":
+        return f"plan-{today}-discover-{clean['payload'].get('country') or 'any'}"
+    return f"plan-{today}"
+
+
 def build_plan(conn) -> dict:
     """Ask for today's plan and turn what survives validation into proposals."""
     proposals.ensure_schema(conn)
@@ -231,7 +245,7 @@ def build_plan(conn) -> dict:
     actions = data.get("plan")
     if not isinstance(actions, list):
         raise llm.LLMError("计划不是一个列表")
-    made, rejected = [], []
+    made, rejected, duplicates = [], [], []
     backend = data.get("_llm_backend") or llm.backend_for(conn, "draft")
     if len(actions) > MAX_ACTIONS:
         # Say so rather than truncating quietly: a plan of forty items is a signal that
@@ -248,9 +262,13 @@ def build_plan(conn) -> dict:
             conn, clean["kind"], lead_no=clean["lead_no"], title=clean["title"],
             reasoning=clean["reasoning"], payload=clean["payload"], risk=clean["risk"],
             evidence=[{"claim": "今日计划", "source": f"{state['today']} 管道状态"}],
-            backend=backend, dedupe_key=f"plan-{state['today']}")
+            backend=backend, dedupe_key=_dedupe_key(state["today"], clean))
         if p:
             made.append(p["id"])
+        else:
+            # A repeat is not a failure, but it is not nothing either: 'proposed 0'
+            # with no explanation is why a planned day looked like a dead button.
+            duplicates.append(clean["title"])
     # Fallback is for a genuinely empty model plan, not a malformed one. If the model
     # attempted unsafe/unknown work, keep the rejection visible instead of disguising
     # that planning defect as a successful discovery action.
@@ -260,4 +278,4 @@ def build_plan(conn) -> dict:
         rejected.extend(fallback["rejected"])
     return {"summary": str(data.get("summary") or "").strip(),
             "proposed": len(made), "rejected": rejected,
-            "considered": len(actions)}
+            "duplicates": duplicates, "considered": len(actions)}

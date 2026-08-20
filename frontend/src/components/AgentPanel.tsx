@@ -6,6 +6,7 @@ import {
   updateAgentMission, takeoverConversation, resumeConversation,
 } from "../agentApi";
 import type { AgentMeta, AgentMission, AgentStatus, FoundCandidate, Learning, Proposal } from "../agentApi";
+import { setAutoSend } from "../api";
 
 const KIND_LABEL: Record<string, string> = {
   reply_draft: "回复草稿",
@@ -38,6 +39,34 @@ const ACTIVE_KINDS = [
   "reply_draft", "create_task", "build_opportunity", "mark_do_not_contact",
   "send_outreach", "enroll_sequence", "stop_sequence", "discover_run",
 ];
+
+/** Why a run that did everything right can still change nothing on screen. */
+function describePlan(r: any): string {
+  if (!r) return "";
+  if (r.error) return `计划失败：${r.error}`;
+  const bits: string[] = [];
+  if (r.proposed) bits.push(`新增 ${r.proposed} 条提议`);
+  if (r.duplicates?.length) bits.push(`${r.duplicates.length} 条今天已经做过（去「已执行」看结果）`);
+  if (r.rejected?.length) bits.push(`${r.rejected.length} 条不合规被丢弃`);
+  if (!bits.length) return "计划跑完了，今天没有值得新排的动作。";
+  return bits.join("，");
+}
+
+function describeRun(r: any): string {
+  if (!r) return "";
+  const bits: string[] = [];
+  if (r.classified) bits.push(`分类 ${r.classified} 条回复`);
+  if (r.draft) bits.push(`起草 ${r.draft} 封`);
+  if (r.quote) bits.push(`${r.quote} 家要你报价`);
+  if (r.nudge) bits.push(`社媒提醒 ${r.nudge} 条`);
+  if (r.planned) bits.push(`今日计划 ${r.planned} 条`);
+  if (!bits.length) {
+    return r.safety_paused
+      ? "跑完了。邮件自动跟进处于暂停中，所以这轮没有起草或发信。"
+      : "跑完了，这轮没有需要处理的新回复。";
+  }
+  return bits.join("，");
+}
 
 function ProposalCard({ p, meta, onDone, takenOver = false }: {
   p: Proposal; meta: AgentMeta; onDone: () => void; takenOver?: boolean;
@@ -341,6 +370,8 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
   const [learning, setLearning] = useState<Learning | null>(null);
   const [missionDraft, setMissionDraft] = useState<AgentMission | null>(null);
   const [missionSaving, setMissionSaving] = useState(false);
+  const [resuming, setResuming] = useState(false);
+  const [notice, setNotice] = useState("");
 
   function reload() {
     fetchAgentStatus().then(setStatus).catch((e) => setError(String(e)));
@@ -381,10 +412,11 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
   }
 
   async function planNow() {
-    setPlanning(true); setError("");
+    setPlanning(true); setError(""); setNotice("");
     try {
       const { job_id } = await startPlanRun();
-      await poll(job_id, fetchAgentRunJob);
+      const job = await poll(job_id, fetchAgentRunJob);
+      setNotice(describePlan(job?.result));
       reload();
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
@@ -393,11 +425,24 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
     }
   }
 
+  async function resumeSending() {
+    setResuming(true); setError("");
+    try {
+      await setAutoSend(true, true);   // the risk was shown above this button
+      reload();
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    } finally {
+      setResuming(false);
+    }
+  }
+
   async function runNow() {
-    setRunning(true); setError("");
+    setRunning(true); setError(""); setNotice("");
     try {
       const { job_id } = await startAgentRun();
-      await poll(job_id, fetchAgentRunJob);
+      const job = await poll(job_id, fetchAgentRunJob);
+      setNotice(describeRun(job?.result));
       reload();
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
@@ -410,7 +455,10 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
 
   const broken = Object.entries(status.llm.tasks).filter(([, v]) => !v.ok);
   const takeovers = status.takeovers ?? [];
-  const blockers = status.outcome?.blockers ?? [];
+  const pause = status.safety_pause ?? null;
+  // The pause gets its own banner with evidence and a way out; repeating it as a bare
+  // blocker line would say the same thing twice and point nowhere.
+  const blockers = (status.outcome?.blockers ?? []).filter((b) => b.code !== "safety_pause");
   const recentRuns = status.recent_runs ?? [];
   return (
     <div>
@@ -452,6 +500,37 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
             </button>
           </div>
         </div>
+
+        {notice && (
+          <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
+            {notice}
+          </div>
+        )}
+
+        {pause && (
+          <div style={{
+            marginTop: 12, padding: "10px 12px", borderRadius: 6,
+            background: "#fff4f4", border: "1px solid #f0c4c4",
+          }}>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>邮件自动跟进已暂停</div>
+            <div style={{ fontSize: 12, marginTop: 3 }}>{pause.reason}</div>
+            {pause.evidence && (
+              <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
+                近 {pause.evidence.days} 天发出 {pause.evidence.sends} 封，
+                退信 {pause.evidence.bounced} 封（{pause.evidence.bounce_rate}%）
+                {pause.evidence.unmeasured ? `，其中 ${pause.evidence.unmeasured} 封无法确认送达` : ""}
+              </div>
+            )}
+            <div className="muted" style={{ fontSize: 12, marginTop: 5 }}>
+              下一步：去「客户库」清理无效邮箱、在「渠道连接」确认发件箱能收退信。
+              修好之前恢复，退信会继续累积并伤害发件域名信誉。
+            </div>
+            <button className="btn btn-sm" style={{ marginTop: 8 }}
+                    disabled={resuming} onClick={resumeSending}>
+              {resuming ? "恢复中…" : "我已了解风险，恢复自动发信"}
+            </button>
+          </div>
+        )}
 
         {broken.length > 0 && (
           <div className="error-text" style={{ marginTop: 8, fontSize: 12 }}>

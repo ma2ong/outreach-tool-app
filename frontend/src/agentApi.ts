@@ -38,6 +38,12 @@ export type AgentStatus = {
     id: number; started_at: string; finished_at: string | null;
     status: string; result: Record<string, any>; incident: Record<string, any>; error: string;
   }[];
+  safety_pause?: {
+    code: string;
+    reason: string;
+    paused_at?: string;
+    evidence?: Record<string, any>;
+  } | null;
   takeovers?: {
     lead_no: number; channel: string; owner: "allen"; state: string;
     reason: string; source_message_id: number | null; next_action: string;

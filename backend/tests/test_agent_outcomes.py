@@ -137,3 +137,52 @@ def test_every_full_agent_run_has_a_durable_success_or_failure_record(conn, monk
         run.run_once(conn, dt.datetime(2026, 8, 20, 15, 5))
     latest = oversight.latest_runs(conn)
     assert latest[0]["status"] == "failed" and "backend down" in latest[0]["error"]
+
+
+# ------------------------------------------------- Spec 28: blockers point somewhere
+
+def _discovery_proposal(conn, payload):
+    import json
+    proposals.ensure_schema(conn)
+    conn.execute(
+        "INSERT INTO agent_proposals(kind,title,payload,risk,status,fingerprint,"
+        " created_at,updated_at) VALUES ('discover_run','找客',?,'low','executed',?,"
+        " datetime('now'), datetime('now'))",   # UTC, as proposals.create writes it
+        (json.dumps(payload, ensure_ascii=False), f"fp-{id(payload)}"))
+    conn.commit()
+
+
+def test_candidates_waiting_to_be_imported_are_not_called_unqualified(conn):
+    """14 usable US leads sat in an executed proposal while the screen said no
+    candidate had passed the quality gate."""
+    _discovery_proposal(conn, {"found": [
+        {"domain": "edenusa.com", "fit_score": 100},
+        {"domain": "rentforevent.com", "fit_score": 100},
+        {"domain": "chipshowledusa.com", "fit_score": 0, "excluded": True},
+    ]})
+    blockers = oversight.daily_outcome(conn)["blockers"]
+    codes = {b["code"] for b in blockers}
+    assert "candidates_awaiting_import" in codes
+    assert "no_qualified_imports" not in codes
+    message = next(b["message"] for b in blockers if b["code"] == "candidates_awaiting_import")
+    assert "2" in message and "导入" in message
+
+
+def test_a_genuinely_empty_auto_import_still_reports_the_quality_gate(conn):
+    _discovery_proposal(conn, {"found": [{"domain": "x.com", "fit_score": 10}],
+                               "auto_import": {"accepted": 0, "imported": 0}})
+    codes = {b["code"] for b in oversight.daily_outcome(conn)["blockers"]}
+    assert "no_qualified_imports" in codes
+    assert "candidates_awaiting_import" not in codes
+
+
+def test_the_agent_status_carries_the_pause_so_the_ui_can_offer_a_way_out(conn):
+    _recent_email_sample(conn, size=25, bounced=1)
+    settings.set_value(conn, "reply_sync_last_status", "success")
+    autosend.set_enabled(conn, True)
+    oversight.evaluate(conn)
+
+    pause = run.status(conn)["safety_pause"]
+    assert pause["code"] == "bounce_rate"
+    assert "退信率" in pause["reason"]
+    assert pause["evidence"]["sends"] == 25

@@ -141,7 +141,13 @@ def _today_discoveries(conn) -> list[dict]:
             payload = json.loads(row["payload"] or "{}")
         except json.JSONDecodeError:
             payload = {}
-        out.append({"status": row["status"], "auto_import": payload.get("auto_import") or {}})
+        found = payload.get("found") or []
+        out.append({"status": row["status"],
+                    "auto_import": payload.get("auto_import") or {},
+                    # A run that never reached the auto-import branch has no such key.
+                    # Absent is not the same as 'imported nothing'.
+                    "auto_imported": "auto_import" in payload,
+                    "usable": len([c for c in found if not c.get("excluded")])})
     return out
 
 
@@ -167,7 +173,13 @@ def daily_outcome(conn) -> dict:
         blockers.append({"code": "no_discovery", "message": "今天还没有完成自动找客"})
     elif achieved < target and discoveries:
         imported = sum(int(d["auto_import"].get("imported") or 0) for d in discoveries)
-        if imported == 0:
+        waiting = sum(d["usable"] for d in discoveries if not d["auto_imported"])
+        if imported == 0 and waiting:
+            # These candidates are good and one click from the lead base. Calling that
+            # a failed quality gate hid 14 usable US accounts behind a fake blocker.
+            blockers.append({"code": "candidates_awaiting_import",
+                             "message": f"已搜到 {waiting} 个候选，去「已执行」里勾选导入"})
+        elif imported == 0:
             blockers.append({"code": "no_qualified_imports",
                              "message": "今天的找客结果没有候选通过自动质量门"})
         missing = [item for d in discoveries
