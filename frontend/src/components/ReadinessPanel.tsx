@@ -36,6 +36,7 @@ export function ReadinessPanel({ onGoto }: { onGoto: (page: string) => void }) {
       reload();
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
+      reload();
     } finally {
       setBusy(false);
     }

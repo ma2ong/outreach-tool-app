@@ -235,7 +235,7 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
       const updated = await fetchLead(lead.no);
       setDraft(updated); onChange(updated);
       await loadTasks(lead.no); onTasksChange();
-    } catch (e) { setErr(`完成任务失败：${String(e)}`); }
+    } catch (e) { setErr(`完成任务失败：${String(e)}`); await loadTasks(lead.no); onTasksChange(); }
     finally { setTaskBusy(false); }
   }
 
@@ -251,7 +251,7 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
       });
       setContactName(""); setContactTitle(""); setContactEmail(""); setContactPhone("");
       setContactRole("other"); setShowNewContact(false); await refreshContacts();
-    } catch (e) { setErr(`新建联系人失败：${String(e)}`); }
+    } catch (e) { setErr(`新建联系人失败：${String(e)}`); await refreshContacts(); }
     finally { setContactBusy(false); }
   }
 

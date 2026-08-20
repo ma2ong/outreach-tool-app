@@ -40,7 +40,14 @@ function OpportunityEditor({ item, onSaved, onClose }: {
         loss_reason: draft.loss_reason,
       });
       onSaved(saved); setDraft(saved); setMsg("已保存");
-    } catch (e) { setMsg(String(e)); }
+    } catch (e) {
+      setMsg(String(e));
+      // The save may well have landed before the error. Re-read this one opportunity so
+      // the form shows the server's version rather than the guess it was left holding.
+      const fresh = (await fetchOpportunities().catch(() => []))
+        .find((o) => o.id === item.id);
+      if (fresh) { onSaved(fresh); setDraft(fresh); }
+    }
     finally { setSaving(false); }
   }
   const text = (key: keyof Opportunity, label: string, placeholder = "") => (

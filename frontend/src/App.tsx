@@ -147,7 +147,7 @@ export function App() {
         reload();
       }
       setDetail(r.lead);
-    } catch (e) { setQuickMsg("添加失败：" + String(e)); }
+    } catch (e) { setQuickMsg("添加失败：" + String(e)); reload(); }
     finally { setQuickBusy(false); }
   }
 
@@ -207,7 +207,7 @@ export function App() {
         }
       }, 1500);
       timers.current.add(poll);
-    } catch (e) { setVerifying(false); setVerifyMsg("验证失败：" + String(e)); }
+    } catch (e) { setVerifying(false); setVerifyMsg("验证失败：" + String(e)); reload(); }
   }
 
   const [classifying, setClassifying] = useState(false);
@@ -225,7 +225,7 @@ export function App() {
         setVerifyMsg(`已合并 ${r.groups} 组，删除 ${r.removed} 条重复客户。`);
         reload();
       }
-    } catch (e) { setDupPending(null); setVerifyMsg("查重失败：" + String(e)); }
+    } catch (e) { setDupPending(null); setVerifyMsg("查重失败：" + String(e)); reload(); }
   }
   async function classifyLeads() {
     setClassifying(true); setVerifyMsg("客户分级中（逐个读官网判断客户类型，较慢）…");
@@ -243,7 +243,7 @@ export function App() {
         } else if (j.result && "error" in j.result) { setVerifyMsg("分级失败：" + j.result.error); }
       }, 2000);
       timers.current.add(poll);
-    } catch (e) { setClassifying(false); setVerifyMsg("分级失败：" + String(e)); }
+    } catch (e) { setClassifying(false); setVerifyMsg("分级失败：" + String(e)); reload(); }
   }
 
   const shown = leads;

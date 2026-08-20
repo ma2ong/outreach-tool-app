@@ -77,7 +77,7 @@ export function ActivitiesPanel({ onOpenLead, onChanged }: {
   async function finish(task: Activity) {
     setBusy(true); setErr("");
     try { await completeActivity(task.id); await load(); onChanged(); }
-    catch (e) { setErr(`完成任务失败：${String(e)}`); }
+    catch (e) { setErr(`完成任务失败：${String(e)}`); load(); onChanged(); }
     finally { setBusy(false); }
   }
 

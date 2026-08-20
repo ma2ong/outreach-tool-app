@@ -65,7 +65,7 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
       });
       setName(""); setSteps(BLANK_STEPS); setMsg(`已创建序列「${name.trim()}」`);
       reload();
-    } catch (e) { setMsg("创建失败：" + String(e)); }
+    } catch (e) { setMsg("创建失败：" + String(e)); reload(); }
   }
 
   async function send() {

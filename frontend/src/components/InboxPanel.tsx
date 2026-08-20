@@ -32,6 +32,7 @@ function DraftBox({ p, onDone }: { p: Proposal; onDone: () => void }) {
       onDone();
     } catch (ex) {
       setErr(String(ex instanceof Error ? ex.message : ex));
+      onDone();
     } finally {
       setBusy(false);
     }
@@ -120,7 +121,7 @@ export function InboxPanel({ onOpenLead, onPendingChange }: {
         : "";
       setMsg(`扫描完成：共 ${r.threads} 个会话，识别到真人回复 ${r.replies} 条、自动回复 ${r.auto ?? 0} 条（自动回复不算已回复，跟进继续）（新入库 ${r.stored} 条）${per ? "——" + per : ""}${un}${off}${bad}`);
       reload(); onPendingChange?.();
-    } catch (e) { setMsg("扫描失败：" + String(e)); }
+    } catch (e) { setMsg("扫描失败：" + String(e)); reload(); onPendingChange?.(); }
     finally { setScanning(false); }
   }
 

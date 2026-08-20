@@ -40,6 +40,9 @@ const ACTIVE_KINDS = [
   "send_outreach", "enroll_sequence", "stop_sequence", "discover_run",
 ];
 
+/** The server's way of saying "this was already done" — an outcome, not a failure. */
+const DONE_ALREADY = /已是\s*(executed|rejected|failed|expired)|不能重复/;
+
 /** Why a run that did everything right can still change nothing on screen. */
 function describePlan(r: any): string {
   if (!r) return "";
@@ -87,11 +90,24 @@ function ProposalCard({ p, meta, onDone, takenOver = false }: {
   async function act(fn: () => Promise<unknown>) {
     setBusy(true); setError("");
     try { await fn(); onDone(); }
-    catch (e) { setError(String(e instanceof Error ? e.message : e)); }
+    catch (e) {
+      // A long discover_run finishes on the server after the request has already timed
+      // out. Refreshing anyway is what makes a decided proposal leave the queue instead
+      // of sitting there looking un-clicked. And "已是 executed" means the work is done,
+      // not that anything failed — saying so in red is why it got clicked again.
+      const msg = String(e instanceof Error ? e.message : e);
+      if (!DONE_ALREADY.test(msg)) setError(msg);
+      onDone();
+    }
     finally { setBusy(false); }
   }
 
   const risk = RISK[p.risk] ?? RISK.medium;
+  // discover_run writes payload.progress live while it runs. A pending proposal that
+  // already has unfinished progress is not waiting for a click — it is mid-flight.
+  const progress = p.payload?.progress as
+    { status?: string; query_index?: number; query_total?: number; candidates?: number } | undefined;
+  const running = !!progress && progress.status !== "complete";
   return (
     <div className="card" style={{ marginBottom: 12, borderColor: p.risk === "high" ? "var(--danger)" : undefined }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -160,9 +176,13 @@ function ProposalCard({ p, meta, onDone, takenOver = false }: {
       ) : (
         <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
           {!takenOver && (
-            <button className="btn btn-sm btn-green" disabled={busy}
+            <button className="btn btn-sm btn-green" disabled={busy || running}
               onClick={() => act(() => approveProposal(p.id, isDraft ? { ...p.payload, body, subject } : undefined))}>
-              {busy ? "执行中…" : edited ? "改后确认" : "确认"}
+              {busy || running
+                ? `执行中…${progress?.query_total
+                    ? ` 第 ${progress.query_index}/${progress.query_total} 个关键词`
+                    : ""}${progress?.candidates ? `，已找到 ${progress.candidates} 个` : ""}`
+                : edited ? "改后确认" : "确认"}
             </button>
           )}
           {isDraft && !takenOver && p.lead_no && (
@@ -241,6 +261,7 @@ function FoundCandidates({ p, onDone }: { p: Proposal; onDone: () => void }) {
       onDone();
     } catch (e) {
       setErr(String(e instanceof Error ? e.message : e));
+      onDone();
     } finally { setBusy(false); }
   }
 
@@ -393,10 +414,9 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
     setMissionSaving(true); setError("");
     try {
       setMissionDraft(await updateAgentMission(missionDraft));
-      reload();
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
-    } finally { setMissionSaving(false); }
+    } finally { reload(); setMissionSaving(false); }
   }
 
   async function poll(jobId: string, get: (id: string) => Promise<{ status: string; result: any }>) {
@@ -417,10 +437,10 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
       const { job_id } = await startPlanRun();
       const job = await poll(job_id, fetchAgentRunJob);
       setNotice(describePlan(job?.result));
-      reload();
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
     } finally {
+      reload();          // the run finished on the server even if the poll gave up
       setPlanning(false);
     }
   }
@@ -429,10 +449,10 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
     setResuming(true); setError("");
     try {
       await setAutoSend(true, true);   // the risk was shown above this button
-      reload();
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
     } finally {
+      reload();                       // the pause banner must reflect the server, not the click
       setResuming(false);
     }
   }
@@ -443,10 +463,10 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
       const { job_id } = await startAgentRun();
       const job = await poll(job_id, fetchAgentRunJob);
       setNotice(describeRun(job?.result));
-      reload();
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
     } finally {
+      reload();          // the run finished on the server even if the poll gave up
       setRunning(false);
     }
   }

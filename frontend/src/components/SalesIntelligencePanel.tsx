@@ -77,7 +77,7 @@ export function SalesIntelligencePanel({ onOpenLead, onChanged }: {
       setLeadChoice(""); setHeadline(""); setEvidence(""); setSourceUrl("");
       setOccurredAt(localToday()); setConfidence(70); setUseCase(""); setProductFit(""); setAngle("");
       await load();
-    } catch (e) { setErr(`保存信号失败：${String(e)}`); }
+    } catch (e) { setErr(`保存信号失败：${String(e)}`); await load(); }
     finally { setBusy(null); }
   }
 
@@ -92,7 +92,7 @@ export function SalesIntelligencePanel({ onOpenLead, onChanged }: {
         await updateBuyingSignal(signal.id, { status: "dismissed" }); setMsg("已忽略该信号，不再参与评分。 ");
       }
       await load(); onChanged();
-    } catch (e) { setErr(`处理信号失败：${String(e)}`); }
+    } catch (e) { setErr(`处理信号失败：${String(e)}`); await load(); onChanged(); }
     finally { setBusy(null); }
   }
 

@@ -16,7 +16,7 @@ export function BlocklistPanel() {
     if (!v) return;
     setBusy(true); setErr("");
     try { await addBlocked(v, "手动添加"); setValue(""); reload(); }
-    catch (e) { setErr(String(e)); }
+    catch (e) { setErr(String(e)); reload(); }
     finally { setBusy(false); }
   }
 

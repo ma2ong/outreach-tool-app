@@ -20,7 +20,7 @@ export function MailboxPanel() {
     try {
       await createMailbox({ ...form, username: form.username || form.email });
       setForm({ ...BLANK }); setMsg("已添加发件邮箱"); reload();
-    } catch (e) { setMsg("添加失败：" + String(e)); }
+    } catch (e) { setMsg("添加失败：" + String(e)); reload(); }
   }
 
   const [testing, setTesting] = useState<number | null>(null);

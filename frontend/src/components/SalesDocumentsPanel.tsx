@@ -204,7 +204,7 @@ function QuoteEditor({ leads, opportunities, products, editing, onSaved, onClose
         await createFormalQuote(payload);
       }
       onSaved();
-    } catch (error) { setErr(String(error)); }
+    } catch (error) { setErr(String(error)); onSaved(); }
     finally { setSaving(false); }
   }
 
@@ -313,7 +313,7 @@ function OrderRow({ order, onSaved }: { order: SalesOrder; onSaved: () => void }
         shipped_at: draft.shipped_at, tracking_no: draft.tracking_no, note: draft.note,
       });
       setMsg("已保存"); onSaved();
-    } catch (error) { setMsg(String(error)); }
+    } catch (error) { setMsg(String(error)); onSaved(); }
     finally { setBusy(false); }
   }
   const terminal = ["completed", "cancelled"].includes(order.status);
@@ -379,10 +379,12 @@ export function SalesDocumentsPanel() {
     setBusy(true); setErr("");
     try {
       await setFormalQuoteStatus(quote.id, status);
-      await Promise.all([loadDocuments(), fetchOpportunities().then(setOpportunities)]);
     }
     catch (error) { setErr(String(error)); }
-    finally { setBusy(false); }
+    finally {
+      await Promise.all([loadDocuments(), fetchOpportunities().then(setOpportunities)]);
+      setBusy(false);
+    }
   }
 
   async function convert(quote: QuoteSummary) {
@@ -390,10 +392,12 @@ export function SalesDocumentsPanel() {
     setBusy(true); setErr("");
     try {
       await convertFormalQuoteToOrder(quote.id);
-      await Promise.all([loadDocuments(), fetchOpportunities().then(setOpportunities)]);
     }
     catch (error) { setErr(String(error)); }
-    finally { setBusy(false); }
+    finally {
+      await Promise.all([loadDocuments(), fetchOpportunities().then(setOpportunities)]);
+      setBusy(false);
+    }
   }
 
   const draftCount = quotes.filter((quote) => quote.status === "draft").length;

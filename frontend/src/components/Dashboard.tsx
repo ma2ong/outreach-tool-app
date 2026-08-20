@@ -95,7 +95,7 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
           setSending(false); refreshDue();
         }
       }, 1500);
-    } catch (e) { setSendMsg("发送失败：" + String(e)); setSending(false); }
+    } catch (e) { setSendMsg("发送失败：" + String(e)); setSending(false); refreshDue(); }
   }
 
   const f = stats.funnel;

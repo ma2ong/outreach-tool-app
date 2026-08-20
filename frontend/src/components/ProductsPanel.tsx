@@ -29,7 +29,7 @@ export function ProductsPanel() {
         use_case: form.use_case || null, ref_price_sqm: form.ref_price_sqm || null,
       });
       setForm({ ...BLANK }); reload();
-    } catch (e) { setMsg("添加失败：" + String(e)); }
+    } catch (e) { setMsg("添加失败：" + String(e)); reload(); }
   }
 
   async function makeQuote() {

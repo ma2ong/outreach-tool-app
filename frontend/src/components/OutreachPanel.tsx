@@ -144,7 +144,10 @@ export function OutreachPanel({ selected, countries = [], firstCompany = "", onD
                 const r = await loadSeeds();
                 setMsg(`已载入 ${r.templates} 条现成话术，在左边下拉里选`);
                 fetchTemplates(channel).then(setTemplates).catch((e) => setMsg(`模板刷新失败：${String(e)}`));
-              } catch (e) { setMsg("载入失败：" + String(e)); }
+              } catch (e) {
+                setMsg("载入失败：" + String(e));
+                fetchTemplates(channel).then(setTemplates).catch(() => undefined);
+              }
             }}>✨ 载入现成话术</button>
         )}
       </div>
