@@ -15,6 +15,10 @@ backend/logs/
 backend/auth_password.txt
 backend/deepseek_key.txt
 backend/agent_key.txt
+# 日报接收方式：webhook 地址本身就是凭据，号码是个人信息，都不进仓库
+backend/lark_webhook.txt
+backend/wecom_webhook.txt
+backend/report_whatsapp.txt
 backend/.session_key
 bin/
 .cf-token

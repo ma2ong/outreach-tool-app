@@ -119,7 +119,7 @@ export async function startPlanRun(): Promise<{ job_id: string }> {
   return jsonOrThrow(await fetch("/api/agent/plan/run", { method: "POST" }), "plan run");
 }
 
-export async function fetchDailyReport(): Promise<{ text: string; webhook_configured: boolean }> {
+export async function fetchDailyReport(): Promise<{ text: string; targets: string[]; webhook_configured: boolean }> {
   return jsonOrThrow(await fetch("/api/agent/report"), "report");
 }
 

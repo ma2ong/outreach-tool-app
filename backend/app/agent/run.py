@@ -244,12 +244,12 @@ def run_once(conn, now: dt.datetime | None = None) -> dict:
 def _maybe_report(conn, now: dt.datetime | None) -> None:
     """Push the evening summary once the day is done.
 
-    Only when a webhook exists: without one `send_daily` would mark the day as reported
+    Only when some route exists: without one `send_daily` would mark the day as reported
     and Allen would never see it anywhere but the page he did not open.
     """
     from app.agent import report
     now = now or dt.datetime.now()
-    if now.hour < REPORT_HOUR or not report.webhook_url():
+    if now.hour < REPORT_HOUR or not report.targets():
         return
     try:
         report.send_daily(conn, now.date())

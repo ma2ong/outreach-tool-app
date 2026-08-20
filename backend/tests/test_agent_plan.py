@@ -258,12 +258,59 @@ def test_the_report_says_what_happened_and_what_is_waiting(conn):
     assert "客户开发日报" in text and "1 条等你确认" in text
 
 
-def test_without_a_webhook_the_report_still_exists_and_says_why_it_did_not_send(conn,
-                                                                               monkeypatch):
-    monkeypatch.setattr(report, "webhook_url", lambda: "")
+def _no_routes(monkeypatch):
+    for fn in ("webhook_url", "wecom_url", "whatsapp_number"):
+        monkeypatch.setattr(report, fn, lambda: "")
+
+
+def test_without_any_route_the_report_still_exists_and_says_how_to_get_it(conn,
+                                                                         monkeypatch):
+    _no_routes(monkeypatch)
     result = report.send_daily(conn)
     assert result["sent"] is False
-    assert "lark_webhook" in result["reason"] and result["text"]
+    assert "report_whatsapp.txt" in result["reason"] and result["text"]
+
+
+def test_whatsapp_is_preferred_because_the_session_already_exists(conn, monkeypatch):
+    sent = {}
+    monkeypatch.setattr(report, "whatsapp_number", lambda: "8613800138000")
+    monkeypatch.setattr(report, "webhook_url", lambda: "https://open.feishu.cn/hook/x")
+    monkeypatch.setattr(report, "wecom_url", lambda: "")
+    monkeypatch.setattr(report, "_post", lambda *a: pytest.fail("WhatsApp 应该先成功"))
+    monkeypatch.setattr(report, "_push_whatsapp", lambda text: sent.update(text=text) or "")
+    assert report.push("今日日报") == ""
+    assert sent["text"] == "今日日报"
+
+
+def test_a_dead_route_falls_through_to_the_next_one(conn, monkeypatch):
+    monkeypatch.setattr(report, "whatsapp_number", lambda: "8613800138000")
+    monkeypatch.setattr(report, "webhook_url", lambda: "https://open.feishu.cn/hook/x")
+    monkeypatch.setattr(report, "wecom_url", lambda: "")
+    monkeypatch.setattr(report, "_push_whatsapp", lambda text: "WhatsApp 登录已过期")
+    monkeypatch.setattr(report, "_post", lambda url, payload, name: "")
+    assert report.push("今日日报") == ""
+
+
+def test_when_every_route_fails_the_reasons_are_all_reported(conn, monkeypatch):
+    monkeypatch.setattr(report, "whatsapp_number", lambda: "8613800138000")
+    monkeypatch.setattr(report, "wecom_url", lambda: "https://qyapi.weixin.qq.com/x")
+    monkeypatch.setattr(report, "webhook_url", lambda: "")
+    monkeypatch.setattr(report, "_push_whatsapp", lambda text: "登录过期")
+    monkeypatch.setattr(report, "_post", lambda url, payload, name: "网络不可达")
+    problem = report.push("今日日报")
+    assert "WhatsApp" in problem and "企业微信" in problem
+
+
+def test_a_number_is_read_past_whatever_formatting_allen_pasted(monkeypatch):
+    monkeypatch.setattr(report, "_read", lambda name: "+86 138-0013-8000")
+    assert report.whatsapp_number() == "8613800138000"
+
+
+def test_configured_routes_are_listed_for_the_ui(monkeypatch):
+    monkeypatch.setattr(report, "whatsapp_number", lambda: "8613800138000")
+    monkeypatch.setattr(report, "webhook_url", lambda: "")
+    monkeypatch.setattr(report, "wecom_url", lambda: "https://qyapi.weixin.qq.com/x")
+    assert report.targets() == ["whatsapp", "wecom"]
 
 
 def test_the_report_goes_out_once_a_day(conn, monkeypatch):
@@ -275,10 +322,10 @@ def test_the_report_goes_out_once_a_day(conn, monkeypatch):
 def test_the_evening_report_only_auto_pushes_when_a_webhook_exists(conn, monkeypatch):
     pushed = []
     monkeypatch.setattr(report, "push", lambda text: pushed.append(text) or "")
-    monkeypatch.setattr(report, "webhook_url", lambda: "")
+    monkeypatch.setattr(report, "targets", lambda: [])
     run._maybe_report(conn, dt.datetime(2026, 8, 20, 20, 0))
-    assert pushed == []          # no webhook: the day is not marked reported either
-    monkeypatch.setattr(report, "webhook_url", lambda: "https://open.feishu.cn/hook/x")
+    assert pushed == []          # no route: the day is not marked reported either
+    monkeypatch.setattr(report, "targets", lambda: ["feishu"])
     run._maybe_report(conn, dt.datetime(2026, 8, 20, 20, 0))
     assert len(pushed) == 1
 
@@ -286,7 +333,7 @@ def test_the_evening_report_only_auto_pushes_when_a_webhook_exists(conn, monkeyp
 def test_no_report_before_the_day_is_over(conn, monkeypatch):
     pushed = []
     monkeypatch.setattr(report, "push", lambda text: pushed.append(text) or "")
-    monkeypatch.setattr(report, "webhook_url", lambda: "https://open.feishu.cn/hook/x")
+    monkeypatch.setattr(report, "targets", lambda: ["feishu"])
     run._maybe_report(conn, dt.datetime(2026, 8, 20, 14, 0))
     assert pushed == []
 

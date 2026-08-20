@@ -164,7 +164,8 @@ def trigger_plan(background: BackgroundTasks):
 
 @router.get("/report")
 def daily_report(conn=Depends(get_conn)):
-    return {"text": report.compose(conn), "webhook_configured": bool(report.webhook_url())}
+    return {"text": report.compose(conn), "targets": report.targets(),
+            "webhook_configured": bool(report.targets())}
 
 
 @router.post("/report/send")

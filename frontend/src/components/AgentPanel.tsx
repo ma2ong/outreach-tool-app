@@ -347,7 +347,8 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
               })}>推到飞书</button>
               {report && !report.webhook_configured && (
                 <span className="muted" style={{ fontSize: 12 }}>
-                  要推飞书，把机器人 webhook 地址写进 backend/lark_webhook.txt
+                  想收到推送：把自己的 WhatsApp 号写进 backend/report_whatsapp.txt（最省事，本机已登录 WA），
+                  或把机器人地址写进 backend/lark_webhook.txt（飞书）/ backend/wecom_webhook.txt（企业微信）
                 </span>
               )}
             </div>
