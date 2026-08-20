@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   approveProposal, fetchAgentMeta, fetchAgentRunJob, fetchAgentStatus, fetchDailyReport,
   fetchProposals, rejectProposal, sendDailyReport, setAgentBackend, setAutonomy,
-  setPlanEnabled, startAgentRun, startPlanRun, fetchLearning, importCandidates,
+  setPlanEnabled, startAgentRun, startPlanRun, fetchLearning, importCandidates, nameFromDomain,
 } from "../agentApi";
 import type { AgentMeta, AgentStatus, FoundCandidate, Learning, Proposal } from "../agentApi";
 
@@ -166,9 +166,9 @@ function FoundCandidates({ p, onDone }: { p: Proposal; onDone: () => void }) {
         {usable.map((c, i) => (
           <label key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "3px 0" }}>
             <input type="checkbox" checked={picked.has(i)} onChange={() => toggle(i)} />
-            <span style={{ fontWeight: 600 }}>{c.company_en}</span>
+            <span style={{ fontWeight: 600 }}>{c.title || nameFromDomain(c.domain)}</span>
             <span className="muted" style={{ fontSize: 12 }}>
-              {[c.country, c.website, c.email, c.icp_type].filter(Boolean).join(" · ")}
+              {[c.country, c.domain, c.email, c.icp_type].filter(Boolean).join(" · ")}
             </span>
           </label>
         ))}
@@ -180,7 +180,7 @@ function FoundCandidates({ p, onDone }: { p: Proposal; onDone: () => void }) {
           </summary>
           {skipped.map((c, i) => (
             <div key={i} className="muted" style={{ fontSize: 12 }}>
-              · {c.company_en} —— {c.exclude_reason}
+              · {c.title || c.domain} —— {c.exclude_reason}
             </div>
           ))}
         </details>

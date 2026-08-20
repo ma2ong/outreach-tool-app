@@ -143,8 +143,10 @@ export async function fetchLearning(): Promise<Learning> {
   return jsonOrThrow(await fetch("/api/agent/learning"), "learning");
 }
 
+/** What discovery returns: keyed on `domain`, named by `title`. `company_en` and
+ *  `website` only come into being at import. */
 export type FoundCandidate = {
-  company_en: string; website?: string | null; email?: string | null;
+  domain: string; title?: string | null; email?: string | null;
   country?: string | null; city?: string | null; phone?: string | null;
   instagram?: string | null; facebook?: string | null; linkedin?: string | null;
   icp_type?: string | null; fit_score?: number | null; brief?: string | null;
@@ -152,9 +154,25 @@ export type FoundCandidate = {
   excluded?: boolean; exclude_reason?: string | null;
 };
 
+/** "blipbillboards.com" -> "Blipbillboards". Ugly, but a lead named after its own
+ *  domain is honest; one called "Contact" looks like a real answer and is not. */
+export function nameFromDomain(domain: string): string {
+  const label = (domain || "").split(".")[0].replace(/[-_]+/g, " ").trim();
+  return label.split(" ").filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
 export async function importCandidates(candidates: FoundCandidate[], country?: string) {
+  // Mapped the same way the discovery page maps it, so both routes create the same lead.
+  const payload = candidates.map((c) => ({
+    country: c.country && !c.country.includes("/") ? c.country : undefined,
+    company_en: c.title || nameFromDomain(c.domain),
+    website: c.domain, email: c.email, phone: c.phone,
+    instagram: c.instagram, facebook: c.facebook, linkedin: c.linkedin,
+    source: c.source, icp_type: c.icp_type, fit_score: c.fit_score,
+  }));
   return jsonOrThrow(await fetch("/api/leads/import", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ candidates, country }),
+    body: JSON.stringify({ candidates: payload, country }),
   }), "import");
 }

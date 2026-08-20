@@ -199,7 +199,10 @@ def discover_run(conn, p: dict) -> str:
     for query in queries:
         text = f"{query} {country}".strip() if country else query
         for cand in discovery.run_discovery(conn, text, limit=10) or []:
-            key = (cand.get("website") or cand.get("company_en") or "").lower()
+            # Deduplicate on `domain`, the same key /api/discover uses. Candidates carry
+            # `domain` and `title`; `company_en` and `website` are only filled in later,
+            # at import — keying on those dropped every single result.
+            key = (cand.get("domain") or "").lower()
             if key and key not in seen:
                 seen.add(key)
                 found.append(cand)
