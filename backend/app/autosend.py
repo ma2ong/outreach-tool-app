@@ -74,23 +74,31 @@ def should_run(conn, now: _dt.datetime | None = None) -> bool:
 def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None = None,
              email_delay=(16, 28)) -> dict:
     """Send today's due EMAIL steps within budget and record the outcome.
+
     Marks the day as done even on failure — retrying a failing send path every five
-    minutes all day would hammer the SMTP account, which is its own red flag."""
+    minutes all day would hammer the SMTP account, which is its own red flag.
+
+    Because of that, the run must ALWAYS leave a result behind. Reading the due queue
+    used to sit outside the try: on 2026-08-20 the scheduler woke while the DB was
+    mid-migration, the read raised, the day was already marked done, and the failure was
+    swallowed by the scheduler's catch-all. The readiness centre kept showing a green
+    tick next to a follow-up engine that had not sent since 08-05.
+    """
     from app import sequence_send, sequences
     now = now or _dt.datetime.now()
     settings.set_value(conn, _K_LAST_DATE, now.date().isoformat())
-    due_ids = [d["enrollment_id"] for d in sequences.due_queue(conn, "email")]
-    if not due_ids:
-        settings.set_value(conn, _K_LAST_RESULT, f"{now:%m-%d %H:%M} 无到期邮件跟进")
-        return {"sent": 0, "failed": 0, "deferred": 0}
     try:
+        due_ids = [d["enrollment_id"] for d in sequences.due_queue(conn, "email")]
+        if not due_ids:
+            settings.set_value(conn, _K_LAST_RESULT, f"{now:%m-%d %H:%M} 无到期邮件跟进")
+            return {"sent": 0, "failed": 0, "deferred": 0}
         res = sequence_send.send_due(
             conn, due_ids, sender=sender, image_default=image_default,
             email_delay=email_delay,
         )
     except Exception as exc:  # noqa: BLE001
         settings.set_value(conn, _K_LAST_RESULT, f"{now:%m-%d %H:%M} 运行失败：{str(exc)[:120]}")
-        return {"sent": 0, "failed": len(due_ids), "deferred": 0}
+        return {"sent": 0, "failed": 0, "deferred": 0}
     note = f"{now:%m-%d %H:%M} 自动发送：成功 {res['sent']}，失败 {res['failed']}"
     if res.get("deferred"):
         note += f"，额度外延后 {res['deferred']}（明天继续）"

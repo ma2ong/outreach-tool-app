@@ -115,10 +115,22 @@ def build(conn) -> dict:
         "email_quality", "邮箱质量", "ok" if coverage >= 80 else "attention",
         f"已验证 {email_checked}/{email_total} 个邮箱（{coverage}%）", "leads"))
 
-    checks.append(_check(
-        "autosend", "邮件自动跟进", "ok" if auto["enabled"] else "attention",
-        "已启用，每日只运行一次" if auto["enabled"] else "默认关闭，可确认预览后启用",
-        "dashboard"))
+    # "Enabled" is not "working". A run that marked the day done and then died leaves a
+    # result line from an older date, which is the only visible trace — so compare them
+    # rather than showing a green tick beside an engine that has not sent for a fortnight.
+    stale_autosend = bool(
+        auto["enabled"] and auto["last_date"] and auto["last_result"]
+        and not auto["last_result"].startswith(auto["last_date"][5:]))
+    if not auto["enabled"]:
+        autosend_level, autosend_detail = "attention", "默认关闭，可确认预览后启用"
+    elif stale_autosend:
+        autosend_level = "blocked"
+        autosend_detail = (f"已启用但今天没跑成：最近一次结果还停在「{auto['last_result']}」，"
+                           f"当前 {p['due']} 条到期未发")
+    else:
+        autosend_level, autosend_detail = "ok", "已启用，每日只运行一次"
+    checks.append(_check("autosend", "邮件自动跟进", autosend_level, autosend_detail,
+                         "dashboard"))
 
     # A model backend that quietly stops working looks exactly like "no replies worth
     # drafting today", which is the one failure Allen would never notice on his own.

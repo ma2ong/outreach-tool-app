@@ -78,3 +78,35 @@ def test_status_defaults(conn):
     assert st["last_date"] is None and st["last_result"] is None
     assert st["preview"]["due"] == 39
     assert st["preview"]["will_send"] == outreach.MAX_BATCH
+
+
+def test_a_run_that_cannot_read_the_queue_still_says_so(conn, monkeypatch):
+    """The day is marked done before sending, so a silent failure burns it. On
+    2026-08-20 the queue read raised mid-migration and the follow-up engine sat dead
+    for a fortnight behind a green tick."""
+    from app import autosend, sequences, settings
+    def boom(*a, **k):
+        raise RuntimeError("no such column: e.next_due_date")
+    monkeypatch.setattr(sequences, "due_queue", boom)
+    result = autosend.run_once(conn, sender=lambda *a: None, image_default=None)
+    assert result == {"sent": 0, "failed": 0, "deferred": 0}
+    assert "运行失败" in settings.get(conn, "autosend_last_result")
+    assert "no such column" in settings.get(conn, "autosend_last_result")
+
+
+def test_a_stale_result_line_turns_the_readiness_check_red(conn):
+    from app import autosend, readiness, settings
+    autosend.set_enabled(conn, True)
+    settings.set_value(conn, "autosend_last_date", "2026-08-20")
+    settings.set_value(conn, "autosend_last_result", "08-05 09:04 自动发送：成功 30，失败 0")
+    check = next(c for c in readiness.build(conn)["checks"] if c["id"] == "autosend")
+    assert check["status"] == "blocked" and "今天没跑成" in check["detail"]
+
+
+def test_a_result_from_today_stays_green(conn):
+    from app import autosend, readiness, settings
+    autosend.set_enabled(conn, True)
+    settings.set_value(conn, "autosend_last_date", "2026-08-20")
+    settings.set_value(conn, "autosend_last_result", "08-20 09:04 自动发送：成功 30，失败 0")
+    check = next(c for c in readiness.build(conn)["checks"] if c["id"] == "autosend")
+    assert check["status"] == "ok"
