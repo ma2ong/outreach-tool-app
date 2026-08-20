@@ -12,6 +12,7 @@ Detection signals, strongest first:
   4. known B2B directory / marketplace host
 Nothing else is guessed: an unknown country is left blank rather than assumed.
 """
+import re
 
 # Calling code -> country. Longest prefix wins, so 1-digit codes can't shadow 3-digit ones.
 _CALLING_CODES = {
@@ -53,6 +54,42 @@ _DIRECTORY_HOSTS = (
 
 # Countries whose companies are our competitors, not our customers.
 PEER_COUNTRIES = ("China", "Hong Kong", "Taiwan")
+
+# Chinese LED makers that sell abroad under .com/.ca/.com.br domains and answer a local
+# phone. None of the signals above catch them: the TLD is Western and the number has no
+# +86. They are the single most common way a competitor reaches the lead base, so the
+# brands are named. Matching is on the registrable name anywhere in the host, because
+# every one of them runs regional fronts (chipshowledusa.com, absen.com.br).
+PEER_BRANDS = (
+    "absen", "unilumin", "leyard", "liantronics", "chipshow", "ledman", "sansi",
+    "esdlumen", "gloshine", "infiled", "roe-visual", "roevisual", "linsn", "novastar",
+    "colorlight", "dicolor", "sharingled", "doitvision", "unit-led", "canbest",
+    "highmight", "yaham", "retop", "lightlink", "kingaurora", "shenzhen", "szled",
+    "hikvision", "gtek", "ledsino", "vision-led", "reissdisplay", "mrled",
+)
+
+# What a Chinese factory says about itself in English. Either signal alone is innocent —
+# a US integrator writes "manufacturer" too, and a customer may mention Shenzhen — so
+# both must appear before a candidate is called a peer.
+_CN_ORIGIN = re.compile(
+    r"shenzhen|shen\s?zhen|guangzhou|dongguan|guangdong|zhongshan|foshan|"
+    r"深圳|广州|东莞", re.I)
+_MAKER = re.compile(r"manufactur|factory|oem|odm|工厂|厂家", re.I)
+
+
+def is_peer_brand(domain: str | None) -> str | None:
+    """The brand name matched, or None. Substring on the host: absen.com.br counts."""
+    host = (domain or "").lower()
+    if not host:
+        return None
+    return next((b for b in PEER_BRANDS if b in host), None)
+
+
+def reads_as_chinese_maker(cand: dict) -> bool:
+    """Says both where it is and that it makes the panels."""
+    text = " ".join(str(cand.get(k) or "") for k in ("title", "business", "brief",
+                                                     "company_en", "description"))
+    return bool(_CN_ORIGIN.search(text) and _MAKER.search(text))
 
 
 def _country_from_phone(phone: str | None) -> str | None:
@@ -108,6 +145,14 @@ def screen(cand: dict, exclude_countries: list[str] | None = None,
         return {"country": country, "excluded": True, "exclude_reason": "B2B 目录站/平台"}
     if exclude_peers and country in PEER_COUNTRIES:
         return {"country": country, "excluded": True, "exclude_reason": f"同行/供应商（{country}）"}
+    if exclude_peers:
+        brand = is_peer_brand(cand.get("domain"))
+        if brand:
+            return {"country": country, "excluded": True,
+                    "exclude_reason": f"国内同行品牌（{brand}）"}
+        if reads_as_chinese_maker(cand):
+            return {"country": country, "excluded": True,
+                    "exclude_reason": "自称中国厂家（产地+制造字样同时出现）"}
     wanted_out = {c.strip() for c in (exclude_countries or []) if c.strip()}
     if country and country in wanted_out:
         return {"country": country, "excluded": True, "exclude_reason": f"排除国家（{country}）"}
