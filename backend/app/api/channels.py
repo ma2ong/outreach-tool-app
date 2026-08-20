@@ -18,16 +18,30 @@ def list_channels():
     return {c: ENGINE.status(c) for c in sorted(CHANNELS)}
 
 
+def _connect_hint(exc: Exception) -> str:
+    """Name the actual cause. The old message guessed "a leftover browser window is
+    holding the profile" for every failure — so when Playwright's chromium was simply
+    not installed, the screen sent Allen hunting for windows that did not exist."""
+    text = str(exc)
+    if "Executable doesn't exist" in text or "playwright install" in text:
+        return ("Playwright 的 Chromium 没有安装（或版本升级后需要重新下载）。"
+                "在 backend 目录运行：python -m playwright install chromium"
+                "。登录数据存在 ~/.outreach-tool/browser，装好后多半不用重新扫码。")
+    if "Timeout" in text or "timeout" in text:
+        return f"浏览器启动超时：{text[:200]}。机器忙或网络慢，稍等再点一次。"
+    if "ProcessSingleton" in text or "already in use" in text or "SingletonLock" in text:
+        return ("上次的浏览器窗口还占着登录数据。系统已尝试自动清理并重试；"
+                "若仍失败，关掉所有自动化浏览器窗口后再点一次连接。")
+    return f"浏览器启动失败：{text[:300]}"
+
+
 @router.post("/{channel}/connect")
 def connect(channel: str):
     _check(channel)
     try:
         ENGINE.connect(channel)
     except Exception as exc:  # noqa: BLE001 — a raw 500 told Allen nothing
-        raise HTTPException(
-            status_code=502,
-            detail=f"浏览器启动失败：{exc}。多半是上次的浏览器窗口还占着登录数据；"
-                   f"系统已尝试自动清理并重试。若仍失败，关掉所有自动化浏览器窗口后再点一次连接。")
+        raise HTTPException(status_code=502, detail=_connect_hint(exc))
     return {"status": ENGINE.status(channel)}
 
 

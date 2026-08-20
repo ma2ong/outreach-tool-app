@@ -16,6 +16,16 @@ def _reply_error_text(result) -> str:
     return str(result or "")[:140]
 
 
+def browser_installed() -> bool:
+    """Whether Playwright has a chromium to launch. Cheap: it is a directory test, and
+    the answer changes only when someone runs an install."""
+    import glob
+    import os
+    root = os.path.join(os.path.expanduser("~"), "AppData", "Local", "ms-playwright")
+    return bool(glob.glob(os.path.join(root, "chromium*", "chrome-win*", "chrome.exe"))
+                or glob.glob(os.path.join(root, "chromium*", "chrome-linux", "chrome")))
+
+
 def _check(check_id: str, label: str, status: str, detail: str, action_page: str) -> dict:
     return {
         "id": check_id,
@@ -145,6 +155,15 @@ def build(conn) -> dict:
             "agent_llm", "Agent 模型接入", "ok",
             f"分类走 {agent_status['llm']['tasks']['classify']['backend']}，"
             f"起草走 {agent_status['llm']['tasks']['draft']['backend']}", "agent"))
+
+    # A missing browser only announces itself when Allen clicks 连接 and gets a 502.
+    # Same lesson as autosend: the failure should be visible before he goes looking.
+    if not browser_installed():
+        checks.append(_check(
+            "browser", "社媒浏览器", "blocked",
+            "Playwright 的 Chromium 没装（升级后需重新下载）：在 backend 目录运行 "
+            "python -m playwright install chromium。WhatsApp/Instagram 的连接、"
+            "回复扫描和社媒起草在此之前都用不了", "channels"))
 
     pending_proposals = agent_status["pending"]
     checks.append(_check(
