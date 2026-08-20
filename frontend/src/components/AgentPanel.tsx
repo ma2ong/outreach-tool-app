@@ -103,11 +103,11 @@ function ProposalCard({ p, meta, onDone, takenOver = false }: {
   }
 
   const risk = RISK[p.risk] ?? RISK.medium;
-  // discover_run writes payload.progress live while it runs. A pending proposal that
-  // already has unfinished progress is not waiting for a click — it is mid-flight.
+  // The row says so itself now: approved-but-not-finished means it is running. The
+  // live payload.progress only fills in the detail.
   const progress = p.payload?.progress as
     { status?: string; query_index?: number; query_total?: number; candidates?: number } | undefined;
-  const running = !!progress && progress.status !== "complete";
+  const running = p.status !== "pending";
   return (
     <div className="card" style={{ marginBottom: 12, borderColor: p.risk === "high" ? "var(--danger)" : undefined }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -192,7 +192,7 @@ function ProposalCard({ p, meta, onDone, takenOver = false }: {
               我来接管
             </button>
           )}
-          <button className="btn btn-sm" disabled={busy} onClick={() => setRejecting(true)}>驳回</button>
+          <button className="btn btn-sm" disabled={busy || running} onClick={() => setRejecting(true)}>驳回</button>
         </div>
       )}
     </div>
@@ -408,6 +408,15 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
   // API until it is restarted. Keep the rest of Agent usable in that short window.
   useEffect(() => { fetchAgentMission().then(setMissionDraft).catch(() => undefined); }, []);
   useEffect(reload, [tab]);
+
+  // While something is executing, keep the list moving on its own — the whole point of
+  // running in the background is that Allen does not have to sit and refresh.
+  const inflight = items.some((p) => p.status !== "pending");
+  useEffect(() => {
+    if (tab !== "pending" || !inflight) return;
+    const timer = window.setInterval(reload, 3000);
+    return () => window.clearInterval(timer);
+  }, [tab, inflight]);
 
   async function saveMission() {
     if (!missionDraft) return;

@@ -133,11 +133,19 @@ export async function fetchProposals(params: Record<string, string> = {}): Promi
   return jsonOrThrow(await fetch(`/api/agent/proposals${qs ? "?" + qs : ""}`), "proposals");
 }
 
-export async function approveProposal(id: number, payload?: Record<string, any>, note = ""): Promise<Proposal> {
+/** Approve and return as soon as the decision is recorded. The action itself runs in
+ *  the background — a discovery run takes minutes and must not hold the request open. */
+export async function approveProposal(
+  id: number, payload?: Record<string, any>, note = "",
+): Promise<{ job_id: string; proposal: Proposal }> {
   return jsonOrThrow(await fetch(`/api/agent/proposals/${id}/approve`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ payload, note }),
   }), "approve");
+}
+
+export async function fetchProposalJob(jobId: string): Promise<{ status: string; result: any }> {
+  return jsonOrThrow(await fetch(`/api/agent/proposals/job/${jobId}`), "proposal job");
 }
 
 export async function rejectProposal(id: number, reason: string, note = ""): Promise<Proposal> {

@@ -115,14 +115,42 @@ def get_proposal(proposal_id: int, conn=Depends(get_conn)):
 
 
 @router.post("/proposals/{proposal_id}/approve")
-def approve(proposal_id: int, req: ApproveRequest, conn=Depends(get_conn)):
+def approve(proposal_id: int, req: ApproveRequest, background: BackgroundTasks,
+            conn=Depends(get_conn)):
+    """Record the decision now, do the work in the background.
+
+    A discover_run takes minutes; waiting for it inside the request is what let the
+    tunnel cut the connection while the server kept going."""
     try:
-        result = proposals.approve(conn, proposal_id, req.payload, req.note)
+        proposal = proposals.mark_approved(conn, proposal_id, req.payload, req.note)
     except proposals.ProposalError as exc:
         _bad(exc)
-    if result["status"] == "failed":
-        raise HTTPException(status_code=400, detail=result["execution_result"])
-    return result
+    job_id = jobs.create(1)
+    background.add_task(_execute_proposal, job_id, proposal_id, req.note, _db_path(conn))
+    return {"job_id": job_id, "proposal": proposal}
+
+
+def _execute_proposal(job_id: str, proposal_id: int, note: str, db_path: str) -> None:
+    from app.db import connect
+    conn = connect(db_path)
+    try:
+        result = proposals.execute_approved(conn, proposal_id, note=note)
+        if result["status"] == "failed":
+            jobs.fail(job_id, result["execution_result"])
+        else:
+            jobs.finish(job_id, result)
+    except Exception as exc:  # noqa: BLE001 — a failed action stays visible, not crashes
+        jobs.fail(job_id, str(exc))
+    finally:
+        conn.close()
+
+
+@router.get("/proposals/job/{job_id}")
+def proposal_job(job_id: str):
+    job = jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+    return job
 
 
 @router.post("/proposals/{proposal_id}/reject")
@@ -151,9 +179,20 @@ def set_backend(req: BackendRequest, conn=Depends(get_conn)):
     return llm.status(conn)
 
 
-def _run(job_id: str) -> None:
+def _db_path(conn) -> str:
+    """The file this request's connection is actually open on.
+
+    A background task outlives the request, so it needs its own connection — but
+    reading the module-level DB_PATH would send it to the live lead base even when the
+    caller was working on another database. Ask the connection instead.
+    """
+    row = conn.execute("PRAGMA database_list").fetchone()
+    return row[2] or DB_PATH
+
+
+def _run(job_id: str, db_path: str) -> None:
     from app.db import connect
-    conn = connect(DB_PATH)
+    conn = connect(db_path)
     try:
         jobs.finish(job_id, run.run_once(conn))
     except Exception as exc:  # noqa: BLE001
@@ -163,10 +202,10 @@ def _run(job_id: str) -> None:
 
 
 @router.post("/run")
-def trigger_run(background: BackgroundTasks):
+def trigger_run(background: BackgroundTasks, conn=Depends(get_conn)):
     """Classification and drafting take minutes, so the page never waits on them."""
     job_id = jobs.create(1)
-    background.add_task(_run, job_id)
+    background.add_task(_run, job_id, _db_path(conn))
     return {"job_id": job_id}
 
 
@@ -184,9 +223,9 @@ def set_plan_enabled(req: PlanRequest, conn=Depends(get_conn)):
     return run.status(conn)["plan"]
 
 
-def _plan_now(job_id: str) -> None:
+def _plan_now(job_id: str, db_path: str) -> None:
     from app.db import connect
-    conn = connect(DB_PATH)
+    conn = connect(db_path)
     try:
         jobs.finish(job_id, run.make_plan(conn))
     except Exception as exc:  # noqa: BLE001
@@ -196,11 +235,11 @@ def _plan_now(job_id: str) -> None:
 
 
 @router.post("/plan/run")
-def trigger_plan(background: BackgroundTasks):
+def trigger_plan(background: BackgroundTasks, conn=Depends(get_conn)):
     """Build today's plan on demand — the morning schedule is a convenience, not the
     only way in, and Allen should not have to wait until tomorrow to try it."""
     job_id = jobs.create(1)
-    background.add_task(_plan_now, job_id)
+    background.add_task(_plan_now, job_id, _db_path(conn))
     return {"job_id": job_id}
 
 

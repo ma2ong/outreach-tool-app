@@ -218,7 +218,11 @@ async def lifespan(app: FastAPI):
         from app.replies import backfill_bounced_at
         backfill_bounced_at(conn)  # idempotent: bounce dates the inbox still remembers
         from app.agent.proposals import ensure_schema as ensure_agent_schema
+        from app.agent.proposals import fail_interrupted
         ensure_agent_schema(conn)
+        # Background executions die with the process; their proposals would otherwise
+        # read 执行中 forever, neither finished nor failed.
+        fail_interrupted(conn)
     finally:
         conn.close()
     # background so a slow IMAP never delays the app coming up

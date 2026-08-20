@@ -42,7 +42,7 @@ def test_approving_a_task_proposal_creates_the_task(tmp_path):
     assert client.get("/api/agent/proposals").json()[0]["id"] == p["id"]
     approved = client.post(f"/api/agent/proposals/{p['id']}/approve", json={})
     assert approved.status_code == 200
-    assert approved.json()["status"] == "executed"
+    assert approved.json()["proposal"]["status"] == "approved"   # execution is queued
     assert client.get("/api/activities?lead_no=1").json()[0]["title"] == "Call them"
 
 
@@ -114,3 +114,56 @@ def test_the_backend_for_a_task_is_switchable(tmp_path):
     assert body["tasks"]["classify"]["backend"] == "cli"
     assert client.post("/api/agent/backend",
                        json={"task": "classify", "backend": "gpt"}).status_code == 400
+
+# ------------------------------------------------- Spec 31: execution leaves the request
+
+def test_approving_returns_a_job_instead_of_waiting_for_the_work(tmp_path):
+    """discover_run ran inside the request for 3m08s and the tunnel cut it off."""
+    client, db = _client(tmp_path)
+    conn = connect(db)
+    from app.agent import proposals
+    p = proposals.create(conn, "create_task", lead_no=1, title="打个电话",
+                         payload={"title": "打个电话", "due_at": "2026-09-01"})
+    conn.close()
+    body = client.post(f"/api/agent/proposals/{p['id']}/approve", json={}).json()
+    assert body["job_id"]
+    assert body["proposal"]["status"] == "approved"
+    job = client.get(f"/api/agent/proposals/job/{body['job_id']}")
+    assert job.status_code == 200 and job.json()["status"] in ("running", "done")
+
+
+def test_a_second_click_cannot_execute_the_same_proposal(tmp_path):
+    client, db = _client(tmp_path)
+    conn = connect(db)
+    from app.agent import proposals
+    p = proposals.create(conn, "create_task", lead_no=1, title="只做一次",
+                         payload={"title": "只做一次"})
+    conn.close()
+    assert client.post(f"/api/agent/proposals/{p['id']}/approve", json={}).status_code == 200
+    again = client.post(f"/api/agent/proposals/{p['id']}/approve", json={})
+    assert again.status_code == 400      # no longer pending: the race cannot double-run
+
+
+def test_an_in_flight_proposal_still_shows_in_the_pending_list(tmp_path):
+    client, db = _client(tmp_path)
+    conn = connect(db)
+    from app.agent import proposals
+    p = proposals.create(conn, "create_task", lead_no=1, title="执行中的", payload={})
+    proposals.mark_approved(conn, p["id"])
+    conn.close()
+    listed = client.get("/api/agent/proposals?status=pending").json()
+    assert [x["id"] for x in listed] == [p["id"]]   # three minutes is not a blank screen
+    assert listed[0]["status"] == "approved"
+
+
+def test_a_restart_does_not_leave_a_proposal_executing_forever(tmp_path):
+    """The background task dies with the process; the row would say 执行中 for good."""
+    client, db = _client(tmp_path)
+    conn = connect(db)
+    from app.agent import proposals
+    p = proposals.create(conn, "create_task", lead_no=1, title="重启前批准的", payload={})
+    proposals.mark_approved(conn, p["id"])
+    assert proposals.fail_interrupted(conn) == 1
+    after = proposals.get(conn, p["id"])
+    conn.close()
+    assert after["status"] == "failed" and "重启" in after["execution_result"]

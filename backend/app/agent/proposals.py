@@ -27,6 +27,9 @@ KINDS = (
 AUTONOMY = ("off", "propose", "auto")
 RISKS = ("low", "medium", "high")
 OPEN_STATUSES = ("pending",)
+# Approved but not finished — i.e. running right now. Kept in the pending
+# list so three minutes of work is not three minutes of blank screen.
+APPROVED_STATUSES = ("approved", "edited_approved")
 EXPIRE_DAYS = 7
 
 _K_AUTONOMY = "agent_autonomy_%s"
@@ -174,7 +177,10 @@ def list_proposals(conn, status: str | None = "pending", lead_no: int | None = N
     sql = ("SELECT p.*, l.company_en, l.country FROM agent_proposals p"
            " LEFT JOIN leads l ON l.no = p.lead_no WHERE 1=1")
     params: list = []
-    if status:
+    if status == "pending":
+        sql += " AND p.status IN (?,?,?)"
+        params.extend(["pending", *APPROVED_STATUSES])
+    elif status:
         sql += " AND p.status = ?"
         params.append(status)
     if lead_no is not None:
@@ -237,8 +243,34 @@ def reject(conn, proposal_id: int, reason: str, note: str = "") -> dict:
 
 
 def approve(conn, proposal_id: int, payload: dict | None = None, note: str = "") -> dict:
-    """Approve and execute. An edited payload is recorded as `edited_approved` — the
-    diff between what the agent wrote and what Allen sent is phase C's best data."""
+    """Approve and execute in one go — for the autonomous loop and for tests.
+
+    The HTTP path uses `mark_approved` + `execute_approved` instead, so a three-minute
+    discovery run does not happen inside the request.
+    """
+    mark_approved(conn, proposal_id, payload, note)
+    return execute_approved(conn, proposal_id, note=note)
+
+
+def execute_approved(conn, proposal_id: int, note: str = "") -> dict:
+    """Run the action of an already-approved proposal. Safe to call from a background
+    task: everything it needs is in the row."""
+    p = get(conn, proposal_id)
+    if not p:
+        raise ProposalError("提议不存在")
+    if p["status"] not in APPROVED_STATUSES:
+        raise ProposalError(f"提议是 {p['status']}，不是待执行状态")
+    return _execute(conn, p, note=note)
+
+
+def mark_approved(conn, proposal_id: int, payload: dict | None = None,
+                  note: str = "") -> dict:
+    """Record the decision without doing the work. An edited payload is recorded as
+    `edited_approved` — the diff between what the agent wrote and what Allen sent is
+    phase C's best data.
+
+    Taking `pending` away here is also what stops a double click from running the
+    action twice: the second one no longer finds a pending row."""
     p = get(conn, proposal_id)
     if not p:
         raise ProposalError("提议不存在")
@@ -260,7 +292,21 @@ def approve(conn, proposal_id: int, payload: dict | None = None, note: str = "")
         " WHERE id=?",
         ("edited_approved" if edited else "approved", _now(), note, _now(), proposal_id))
     conn.commit()
-    return _execute(conn, get(conn, proposal_id), note=note)
+    return get(conn, proposal_id)
+
+
+def fail_interrupted(conn) -> int:
+    """A background execution dies with the process. Without this, its proposal shows
+    「执行中」 forever — neither done nor failed. Marked failed rather than retried:
+    re-running an action that may already have sent an email is the worse risk."""
+    ensure_schema(conn)
+    cur = conn.execute(
+        "UPDATE agent_proposals SET status='failed', executed_at=?, execution_result=?,"
+        " updated_at=? WHERE status IN (?, ?)",
+        (_now(), "服务重启，执行中断——请确认结果后再决定是否重跑", _now(),
+         *APPROVED_STATUSES))
+    conn.commit()
+    return cur.rowcount
 
 
 # ---------------------------------------------------------------- execute
