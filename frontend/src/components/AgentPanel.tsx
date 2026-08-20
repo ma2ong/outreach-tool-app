@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   approveProposal, fetchAgentMeta, fetchAgentRunJob, fetchAgentStatus, fetchDailyReport,
   fetchProposals, rejectProposal, sendDailyReport, setAgentBackend, setAutonomy,
-  setPlanEnabled, startAgentRun, startPlanRun, fetchLearning, importCandidates, nameFromDomain,
+  setPlanEnabled, startAgentRun, startPlanRun, fetchLearning, importCandidates, proposedName,
 } from "../agentApi";
 import type { AgentMeta, AgentStatus, FoundCandidate, Learning, Proposal } from "../agentApi";
 
@@ -138,6 +138,9 @@ function FoundCandidates({ p, onDone }: { p: Proposal; onDone: () => void }) {
   const usable = all.filter((c) => !c.excluded);
   const skipped = all.filter((c) => c.excluded);
   const [picked, setPicked] = useState<Set<number>>(() => new Set(usable.map((_, i) => i)));
+  // The scraped title is often a tagline or an anti-bot page. No rule separates
+  // "Key Code Media" from "Premium LED Video Walls", so the name is offered, not imposed.
+  const [names, setNames] = useState<string[]>(() => usable.map(proposedName));
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState("");
   const [err, setErr] = useState("");
@@ -150,8 +153,10 @@ function FoundCandidates({ p, onDone }: { p: Proposal; onDone: () => void }) {
   async function doImport() {
     setBusy(true); setErr("");
     try {
-      const r = await importCandidates(usable.filter((_, i) => picked.has(i)),
-                                       p.payload?.country ?? undefined);
+      const r = await importCandidates(
+        usable.filter((_, i) => picked.has(i))
+              .map((c) => ({ ...c, company_en: names[usable.indexOf(c)] || proposedName(c) })),
+        p.payload?.country ?? undefined);
       setDone(`导入 ${r.imported} 家${r.skipped?.length ? `，${r.skipped.length} 家已在库跳过` : ""}`);
       onDone();
     } catch (e) {
@@ -166,10 +171,17 @@ function FoundCandidates({ p, onDone }: { p: Proposal; onDone: () => void }) {
         {usable.map((c, i) => (
           <label key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "3px 0" }}>
             <input type="checkbox" checked={picked.has(i)} onChange={() => toggle(i)} />
-            <span style={{ fontWeight: 600 }}>{c.title || nameFromDomain(c.domain)}</span>
+            <input className="input" style={{ width: 210, padding: "2px 6px", fontSize: 13 }}
+              value={names[i] ?? ""} onClick={(e) => e.preventDefault()}
+              onChange={(e) => setNames((n) => n.map((v, j) => (j === i ? e.target.value : v)))} />
             <span className="muted" style={{ fontSize: 12 }}>
               {[c.country, c.domain, c.email, c.icp_type].filter(Boolean).join(" · ")}
             </span>
+            {c.title && c.title !== names[i] && (
+              <span className="muted" style={{ fontSize: 11, opacity: 0.6 }}>
+                官网标题：{c.title}
+              </span>
+            )}
           </label>
         ))}
       </div>

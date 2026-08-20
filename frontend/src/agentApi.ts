@@ -154,6 +154,19 @@ export type FoundCandidate = {
   excluded?: boolean; exclude_reason?: string | null;
 };
 
+// Titles that are not company names. Anti-bot interstitials come back as page titles
+// when a site is shielded, and a tagline is not a name either. Letting these through is
+// how the base ended up with companies called "Contact" and "Page not found".
+const JUNK_TITLE = /^(contact|contact us|home|about|index|404|page not found)$/i;
+const BLOCKED_PAGE = /checking your browser|robot challenge|just a moment|attention required|enable javascript|access denied/i;
+
+/** Whether a scraped title can serve as the company's name. */
+export function looksLikeAName(title: string | null | undefined): boolean {
+  const t = (title || "").trim();
+  if (!t || t.length > 40 || JUNK_TITLE.test(t) || BLOCKED_PAGE.test(t)) return false;
+  return t.split(/\s+/).length <= 4;
+}
+
 /** "blipbillboards.com" -> "Blipbillboards". Ugly, but a lead named after its own
  *  domain is honest; one called "Contact" looks like a real answer and is not. */
 export function nameFromDomain(domain: string): string {
@@ -162,11 +175,20 @@ export function nameFromDomain(domain: string): string {
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
-export async function importCandidates(candidates: FoundCandidate[], country?: string) {
+/** The name to offer for a candidate: its title when that reads like a name, its own
+ *  domain otherwise. A "Contact Foo" title is really about Foo. */
+export function proposedName(c: FoundCandidate): string {
+  const title = (c.title || "").trim().replace(/^contact\s+/i, "").trim();
+  return looksLikeAName(title) ? title : nameFromDomain(c.domain);
+}
+
+export async function importCandidates(
+  candidates: (FoundCandidate & { company_en?: string })[], country?: string,
+) {
   // Mapped the same way the discovery page maps it, so both routes create the same lead.
   const payload = candidates.map((c) => ({
     country: c.country && !c.country.includes("/") ? c.country : undefined,
-    company_en: c.title || nameFromDomain(c.domain),
+    company_en: (c.company_en || "").trim() || proposedName(c),
     website: c.domain, email: c.email, phone: c.phone,
     instagram: c.instagram, facebook: c.facebook, linkedin: c.linkedin,
     source: c.source, icp_type: c.icp_type, fit_score: c.fit_score,
