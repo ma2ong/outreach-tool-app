@@ -42,6 +42,8 @@ def connect(channel: str):
         ENGINE.connect(channel)
     except Exception as exc:  # noqa: BLE001 — a raw 500 told Allen nothing
         raise HTTPException(status_code=502, detail=_connect_hint(exc))
+    # Returns while the browser is still coming up; the panel polls /status, which is
+    # also where a launch failure surfaces.
     return {"status": ENGINE.status(channel)}
 
 
@@ -49,7 +51,10 @@ def connect(channel: str):
 def status(channel: str):
     _check(channel)
     st = ENGINE.refresh(channel) if hasattr(ENGINE, "refresh") else ENGINE.status(channel)
-    return {"status": st}
+    # The launch runs after the connect request has already returned, so this is where
+    # its failure has to be told — otherwise the browser dies silently behind a grey dot.
+    raw = ENGINE.last_error(channel) if hasattr(ENGINE, "last_error") else ""
+    return {"status": st, "error": _connect_hint(Exception(raw)) if raw else ""}
 
 
 @router.get("/{channel}/qr")

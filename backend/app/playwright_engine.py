@@ -35,6 +35,7 @@ class PlaywrightEngine:
         self._thread: threading.Thread | None = None
         self._state: dict[str, str] = {}
         self._qr: dict[str, bytes | None] = {}
+        self._error: dict[str, str] = {}
         self._lock = threading.Lock()
 
     # ---- worker-thread plumbing ----
@@ -55,8 +56,22 @@ class PlaywrightEngine:
                     fut["result"] = fn(*args)
                 except Exception as exc:  # noqa: BLE001
                     fut["error"] = exc
+                    # Fire-and-forget callers are not waiting to be told, so the
+                    # failure has to be recorded here or it vanishes.
+                    if fut.get("on_error"):
+                        try:
+                            fut["on_error"](exc)
+                        except Exception:  # noqa: BLE001
+                            pass
                 finally:
                     fut["done"].set()
+
+    def _call_async(self, fn, *args, on_error=None):
+        """Run on the worker thread without waiting for the result."""
+        self._ensure_thread()
+        fut = {"done": threading.Event(), "result": None, "error": None,
+               "on_error": on_error}
+        self._q.put((fn, args, fut))
 
     def _call(self, fn, *args, timeout=180):
         self._ensure_thread()
@@ -106,18 +121,29 @@ class PlaywrightEngine:
             return self._p.chromium.launch_persistent_context(str(prof), headless=False, args=args)
 
     def _page(self, channel):
-        ctx = self._ctx.get(channel)
-        if ctx is not None:
-            try:  # a context whose window the user closed is dead — rebuild it
-                ctx.pages
-            except Exception:  # noqa: BLE001
+        """A live page for this channel, relaunching the browser if the cached one died.
+
+        `ctx.pages` is not a liveness probe: on a closed context Playwright returns an
+        empty list rather than raising, so the old check passed and the very next line
+        failed with "Target page, context or browser has been closed" — and it failed
+        again on every retry, because the dead context stayed in the cache. Instagram
+        was stuck that way. Actually using the context is the only honest test, so the
+        work is attempted and a failure costs one relaunch.
+        """
+        last: Exception | None = None
+        for attempt in (1, 2):
+            ctx = self._ctx.get(channel)
+            if ctx is None:
+                prof = DATA_DIR / channel
+                prof.mkdir(parents=True, exist_ok=True)
+                ctx = self._ctx[channel] = self._launch(prof)
+            try:
+                live = [p for p in ctx.pages if not p.is_closed()]
+                return live[0] if live else ctx.new_page()
+            except Exception as exc:  # noqa: BLE001 — a dead context must not persist
+                last = exc
                 self._ctx.pop(channel, None)
-                ctx = None
-        if ctx is None:
-            prof = DATA_DIR / channel
-            prof.mkdir(parents=True, exist_ok=True)
-            ctx = self._ctx[channel] = self._launch(prof)
-        return ctx.pages[0] if ctx.pages else ctx.new_page()
+        raise last  # type: ignore[misc]
 
     def _connect_op(self, channel):
         page = self._page(channel)
@@ -450,11 +476,34 @@ class PlaywrightEngine:
         return self._call(self._scan_op, channel, timeout=420)
 
     def connect(self, channel: str) -> None:
+        """Queue the launch and return; the caller polls status for the outcome.
+
+        Waiting here made the request hang for as long as the browser took to come up,
+        and through the Cloudflare tunnel that meant a gateway 502 at 100s — a failure
+        page for a connection that was in fact succeeding, with none of our own error
+        text in it. The panel already polls, so the answer arrives either way.
+        """
         self._state[channel] = "connecting"
-        self._call(self._connect_op, channel)
+        self._error[channel] = ""
+        self._call_async(self._connect_op, channel, on_error=self._note_error(channel))
+
+    def _note_error(self, channel: str):
+        def record(exc: Exception) -> None:
+            self._error[channel] = str(exc)
+            self._state[channel] = "disconnected"
+        return record
+
+    def last_error(self, channel: str) -> str:
+        return self._error.get(channel, "")
 
     def refresh(self, channel: str) -> str:
         st = self._call(self._refresh_op, channel)
+        # A launch still in flight has no context yet, so _refresh_op says
+        # "disconnected". Reporting that would blink the channel grey mid-connect and
+        # lose the only signal that something is happening. Failures do land here,
+        # because the error callback flips the state itself.
+        if st == "disconnected" and self._state.get(channel) == "connecting"                 and not self._error.get(channel):
+            return "connecting"
         self._state[channel] = st
         return st
 

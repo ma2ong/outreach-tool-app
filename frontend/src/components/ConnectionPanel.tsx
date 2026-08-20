@@ -17,10 +17,12 @@ export function ConnectionPanel() {
     if (!active) return;
     const t = setInterval(async () => {
       try {
-        const st = await channelStatus(active);
+        const { status: st, error } = await channelStatus(active);
         setStatus((s) => ({ ...s, [active]: st }));
         setQrTick((n) => n + 1);
-        if (st === "connected") { clearInterval(t); setActive(null); }
+        // The launch happens after the connect call returned, so its failure arrives here.
+        if (error) { setErr(error); clearInterval(t); setActive(null); return; }
+        if (st === "connected") { clearInterval(t); setActive(null); setErr(""); }
       } catch (e) {
         setErr(`无法检查 ${LABELS[active]} 状态：${String(e)}`);
       }

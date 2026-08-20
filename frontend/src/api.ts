@@ -641,10 +641,11 @@ export async function connectChannel(ch: string): Promise<void> {
   }
 }
 
-export async function channelStatus(ch: string): Promise<string> {
+export async function channelStatus(ch: string): Promise<{ status: string; error: string }> {
   const r = await fetch(`/api/channels/${ch}/status`);
   if (!r.ok) throw new Error(`status ${r.status}`);
-  return (await r.json()).status;
+  const d = await r.json();
+  return { status: d.status, error: d.error ?? "" };
 }
 
 export async function fetchReadiness(): Promise<import("./types").Readiness> {
