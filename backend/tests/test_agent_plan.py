@@ -208,7 +208,7 @@ def test_discovery_finds_candidates_but_never_imports_them(planned, monkeypatch)
     p = proposals.create(planned, "discover_run", title="找巴西经销商",
                          payload={"queries": ["LED distributor"], "country": "Brazil"})
     done = proposals.approve(planned, p["id"])
-    assert done["status"] == "executed" and "不自动入库" in done["execution_result"]
+    assert done["status"] == "executed" and "不会自动入库" in done["execution_result"]
     assert planned.execute("SELECT COUNT(*) c FROM leads").fetchone()["c"] == before
 
 

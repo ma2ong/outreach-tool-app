@@ -177,21 +177,39 @@ def stop_sequence(conn, p: dict) -> str:
 
 
 def discover_run(conn, p: dict) -> str:
-    """Search and enrich candidates, but never auto-import them.
+    """Search and enrich candidates, keep them on the proposal, never auto-import.
 
     Import stays manual on purpose: the discovery panel shows why each candidate was
     skipped and lets Allen pick. An agent that silently grew the lead base would make
     that screen a lie.
+
+    The candidates must be stored here or they cease to exist. `run_discovery` returns
+    them; the discovery page holds its own results in browser state and knows nothing
+    about a run the agent did. The first version searched, counted, threw the results
+    away and told Allen to go find them on a page that had never received them.
     """
+    import json
+
     from app import discovery
-    payload = p.get("payload") or {}
+    payload = dict(p.get("payload") or {})
     queries = payload.get("queries") or []
     country = payload.get("country")
-    found = 0
+    found: list[dict] = []
+    seen: set[str] = set()
     for query in queries:
         text = f"{query} {country}".strip() if country else query
-        found += len(discovery.run_discovery(conn, text, limit=10) or [])
-    return f"已搜到 {found} 个候选，去「客户开发」页勾选导入（不自动入库）"
+        for cand in discovery.run_discovery(conn, text, limit=10) or []:
+            key = (cand.get("website") or cand.get("company_en") or "").lower()
+            if key and key not in seen:
+                seen.add(key)
+                found.append(cand)
+    payload["found"] = found
+    conn.execute("UPDATE agent_proposals SET payload=? WHERE id=?",
+                 (json.dumps(payload, ensure_ascii=False), p["id"]))
+    conn.commit()
+    usable = [c for c in found if not c.get("excluded")]
+    return (f"已搜到 {len(found)} 个候选（其中 {len(usable)} 个可用），"
+            "就在这条提议里，展开勾选导入（不会自动入库）")
 
 
 HANDLERS = {

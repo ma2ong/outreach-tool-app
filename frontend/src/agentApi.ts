@@ -142,3 +142,19 @@ export type Learning = {
 export async function fetchLearning(): Promise<Learning> {
   return jsonOrThrow(await fetch("/api/agent/learning"), "learning");
 }
+
+export type FoundCandidate = {
+  company_en: string; website?: string | null; email?: string | null;
+  country?: string | null; city?: string | null; phone?: string | null;
+  instagram?: string | null; facebook?: string | null; linkedin?: string | null;
+  icp_type?: string | null; fit_score?: number | null; brief?: string | null;
+  hook?: string | null; source?: string | null;
+  excluded?: boolean; exclude_reason?: string | null;
+};
+
+export async function importCandidates(candidates: FoundCandidate[], country?: string) {
+  return jsonOrThrow(await fetch("/api/leads/import", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ candidates, country }),
+  }), "import");
+}

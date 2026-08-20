@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import {
   approveProposal, fetchAgentMeta, fetchAgentRunJob, fetchAgentStatus, fetchDailyReport,
   fetchProposals, rejectProposal, sendDailyReport, setAgentBackend, setAutonomy,
-  setPlanEnabled, startAgentRun, startPlanRun, fetchLearning,
+  setPlanEnabled, startAgentRun, startPlanRun, fetchLearning, importCandidates,
 } from "../agentApi";
-import type { AgentMeta, AgentStatus, Learning, Proposal } from "../agentApi";
+import type { AgentMeta, AgentStatus, FoundCandidate, Learning, Proposal } from "../agentApi";
 
 const KIND_LABEL: Record<string, string> = {
   reply_draft: "回复草稿",
@@ -128,6 +128,68 @@ function ProposalCard({ p, meta, onDone }: { p: Proposal; meta: AgentMeta; onDon
           </button>
           <button className="btn btn-sm" disabled={busy} onClick={() => setRejecting(true)}>驳回</button>
         </div>
+      )}
+    </div>
+  );
+}
+
+function FoundCandidates({ p, onDone }: { p: Proposal; onDone: () => void }) {
+  const all: FoundCandidate[] = p.payload?.found ?? [];
+  const usable = all.filter((c) => !c.excluded);
+  const skipped = all.filter((c) => c.excluded);
+  const [picked, setPicked] = useState<Set<number>>(() => new Set(usable.map((_, i) => i)));
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState("");
+  const [err, setErr] = useState("");
+  if (!all.length) return null;
+
+  function toggle(i: number) {
+    setPicked((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n; });
+  }
+
+  async function doImport() {
+    setBusy(true); setErr("");
+    try {
+      const r = await importCandidates(usable.filter((_, i) => picked.has(i)),
+                                       p.payload?.country ?? undefined);
+      setDone(`导入 ${r.imported} 家${r.skipped?.length ? `，${r.skipped.length} 家已在库跳过` : ""}`);
+      onDone();
+    } catch (e) {
+      setErr(String(e instanceof Error ? e.message : e));
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div className="stat-label">搜到的候选（勾选后导入客户库）</div>
+      <div style={{ maxHeight: 320, overflowY: "auto", margin: "6px 0" }}>
+        {usable.map((c, i) => (
+          <label key={i} style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "3px 0" }}>
+            <input type="checkbox" checked={picked.has(i)} onChange={() => toggle(i)} />
+            <span style={{ fontWeight: 600 }}>{c.company_en}</span>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {[c.country, c.website, c.email, c.icp_type].filter(Boolean).join(" · ")}
+            </span>
+          </label>
+        ))}
+      </div>
+      {skipped.length > 0 && (
+        <details style={{ marginBottom: 8 }}>
+          <summary className="muted" style={{ fontSize: 12, cursor: "pointer" }}>
+            {skipped.length} 家被自动筛掉（点开看原因）
+          </summary>
+          {skipped.map((c, i) => (
+            <div key={i} className="muted" style={{ fontSize: 12 }}>
+              · {c.company_en} —— {c.exclude_reason}
+            </div>
+          ))}
+        </details>
+      )}
+      {err && <div className="error-text" style={{ fontSize: 12 }}>{err}</div>}
+      {done ? <div className="muted" style={{ fontSize: 12 }}>{done}</div> : (
+        <button className="btn btn-green btn-sm" disabled={busy || !picked.size} onClick={doImport}>
+          {busy ? "导入中…" : `导入选中 ${picked.size} 家`}
+        </button>
       )}
     </div>
   );
@@ -412,6 +474,7 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
                   <button className="btn btn-sm" onClick={() => onOpenLead(p.lead_no!)}>打开客户</button>
                 )}
               </div>
+              {p.kind === "discover_run" && <FoundCandidates p={p} onDone={reload} />}
             </div>
           )}
         </div>
