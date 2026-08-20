@@ -214,15 +214,18 @@ def test_discovery_finds_candidates_but_never_imports_them(planned, monkeypatch)
 
 # ---------------------------------------------------------------- scheduling
 
-def test_planning_is_off_until_it_is_switched_on(conn):
+def test_planning_is_on_by_default_and_can_be_switched_off(conn):
+    """A plan only ever produces proposals, so the cost of running it is a queue Allen
+    ignores — the cost of not running it is a day nobody planned."""
     morning = dt.datetime(2026, 8, 20, 9, 0)
+    assert run.plan_due(conn, morning) is True
+    run.set_plan_enabled(conn, False)
     assert run.plan_due(conn, morning) is False
     run.set_plan_enabled(conn, True)
     assert run.plan_due(conn, morning) is True
 
 
 def test_the_plan_runs_once_in_the_morning_and_not_again(conn, monkeypatch):
-    run.set_plan_enabled(conn, True)
     monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"summary": "s", "plan": []})
     morning = dt.datetime(2026, 8, 20, 9, 0)
     assert run.plan_due(conn, morning)
@@ -232,13 +235,11 @@ def test_the_plan_runs_once_in_the_morning_and_not_again(conn, monkeypatch):
 
 
 def test_an_afternoon_wake_up_does_not_plan_a_stale_day(conn):
-    run.set_plan_enabled(conn, True)
     assert run.plan_due(conn, dt.datetime(2026, 8, 20, 15, 0)) is False
 
 
 def test_a_failing_planner_marks_the_day_done_instead_of_retrying_all_morning(conn,
                                                                              monkeypatch):
-    run.set_plan_enabled(conn, True)
     def boom(*a, **k):
         raise llm.LLMError("网络不可达")
     monkeypatch.setattr(llm, "complete_json", boom)

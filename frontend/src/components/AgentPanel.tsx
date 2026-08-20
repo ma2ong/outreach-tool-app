@@ -329,7 +329,7 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
                 {status.plan.enabled ? "已开启" : "已关闭"}
               </button>
               <span className="muted" style={{ fontSize: 12 }}>
-                每天 {status.plan.window[0]}:00–{status.plan.window[1]}:00 之间自动跑一次，出的仍然是待你确认的提议
+                默认开启。每天 {status.plan.window[0]}:00–{status.plan.window[1]}:00 之间自动跑一次，出的仍然是待你确认的提议
               </span>
             </div>
             {status.plan.last_result && (

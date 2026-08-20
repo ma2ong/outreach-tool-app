@@ -26,3 +26,6 @@ cf-token*
 # 存量回填的运行日志（本地跑，不进仓库）
 backend/backfill*.log
 backend/backfill*.log.err
+uvicorn.log
+uvicorn_preview.log
+backend/uvicorn.log

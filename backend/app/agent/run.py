@@ -187,9 +187,13 @@ REPORT_HOUR = 18          # the day is over; say what happened
 
 
 def plan_due(conn, now: dt.datetime | None = None) -> bool:
-    """Once per day, inside the morning window, only when planning is switched on."""
+    """Once per day, inside the morning window, unless planning was switched off.
+
+    On by default: the plan only ever produces proposals, so the cost of it running is
+    a queue Allen ignores, while the cost of it not running is a day nobody planned.
+    """
     now = now or dt.datetime.now()
-    if settings.get(conn, _K_PLAN_ENABLED, "0") != "1":
+    if settings.get(conn, _K_PLAN_ENABLED, "1") != "1":
         return False
     if not (PLAN_WINDOW[0] <= now.hour < PLAN_WINDOW[1]):
         return False
@@ -282,7 +286,7 @@ def status(conn) -> dict:
         "unclassified": len(classify.pending(conn, limit=999)),
         "llm": llm.status(conn),
         "plan": {
-            "enabled": settings.get(conn, _K_PLAN_ENABLED, "0") == "1",
+            "enabled": settings.get(conn, _K_PLAN_ENABLED, "1") == "1",
             "last_date": settings.get(conn, _K_PLAN_DATE) or None,
             "last_result": settings.get(conn, _K_PLAN_RESULT) or None,
             "window": list(PLAN_WINDOW),
