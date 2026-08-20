@@ -32,4 +32,8 @@ def update_status(req: AutoSendUpdate, conn=Depends(get_conn)):
             detail=f"邮件因安全风险暂停：{pause['reason']}。请阅读风险并明确确认后再恢复。",
         )
     autosend.set_enabled(conn, req.enabled)
+    if req.enabled and pause:
+        # He was shown this pause's reason and evidence and confirmed anyway. Without
+        # recording that, the next agent run re-pauses and his decision never lands.
+        autosend.acknowledge(conn, pause)
     return autosend.status(conn)

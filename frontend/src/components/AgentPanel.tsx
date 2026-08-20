@@ -507,6 +507,14 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
           </div>
         )}
 
+        {!pause && status.risk_ack && (
+          <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
+            自动发信在你确认风险后继续运行（确认时退信率 {status.risk_ack.bounce_rate}%）。
+            退信率涨过 {(status.risk_ack.bounce_rate + (status.bounce_limit ?? 1)).toFixed(1)}%
+            会重新暂停并再问你一次。
+          </div>
+        )}
+
         {pause && (
           <div style={{
             marginTop: 12, padding: "10px 12px", borderRadius: 6,

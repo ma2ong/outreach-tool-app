@@ -88,6 +88,19 @@ def evaluate(conn) -> dict:
     if not autosend.enabled(conn) or delivery["sends"] < MIN_SAFETY_SAMPLE:
         return result
     if delivery["blind"]:
+        pending_code = "deliverability_blind"
+    elif delivery["danger"]:
+        pending_code = "bounce_rate"
+    else:
+        return result
+    ack = autosend.risk_ack(conn)
+    if autosend.ack_covers(ack, pending_code, delivery["bounce_rate"]):
+        # Allen saw these numbers and said keep going. Re-pausing every run made his
+        # decision last exactly until the next one.
+        return {**result, "acknowledged": ack}
+    if ack:
+        autosend.clear_risk_ack(conn)   # spent: the situation is no longer the one he accepted
+    if delivery["blind"]:
         code = "deliverability_blind"
         reason = (f"近 {delivery['days']} 天发给 {delivery['sends']} 家，但有退信无法被监测"
                   f"（未测发送 {delivery['unmeasured']}，同步异常={delivery['sync_broken']}）")

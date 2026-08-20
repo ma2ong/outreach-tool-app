@@ -423,6 +423,10 @@ def status(conn) -> dict:
         # The reason and the evidence, so the panel can offer a way out instead of
         # only announcing that email went quiet.
         "safety_pause": autosend.safety_pause(conn),
+        # Present only while a resume is standing: says what was accepted and when it
+        # stops covering the situation.
+        "risk_ack": autosend.risk_ack(conn),
+        "bounce_limit": autosend.ACK_TOLERANCE_PCT,
         "recent_runs": oversight.latest_runs(conn),
         "takeovers": conversation.takeovers(conn),
         "llm": llm.status(conn),

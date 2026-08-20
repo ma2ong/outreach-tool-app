@@ -25,6 +25,12 @@ _K_ENABLED = "autosend_enabled"
 _K_LAST_DATE = "autosend_last_date"
 _K_LAST_RESULT = "autosend_last_result"
 _K_SAFETY_PAUSE = "autosend_safety_pause"
+_K_RISK_ACK = "autosend_risk_ack"
+
+# How much the bounce rate may drift above what Allen accepted before the safety gate
+# asks him again. Sending continues, bounces keep arriving, and the rate wobbles on the
+# same list; a sustained climb is a different fact than that wobble.
+ACK_TOLERANCE_PCT = 1.0
 
 
 def enabled(conn) -> bool:
@@ -37,6 +43,43 @@ def set_enabled(conn, on: bool) -> None:
         # Re-enabling is an explicit human decision. Clear the old circuit-breaker flag
         # so the UI does not claim the engine is still paused after Allen resumed it.
         settings.set_value(conn, _K_SAFETY_PAUSE, "")
+    else:
+        # Stopping by hand withdraws the standing acceptance: whatever he agreed to
+        # before, he should see the current numbers again before sending resumes.
+        clear_risk_ack(conn)
+
+
+def acknowledge(conn, pause: dict) -> dict:
+    """Record that Allen read this specific evidence and chose to keep sending.
+
+    The snapshot is the point: he accepts a risk level, not a permanently open gate.
+    `oversight.evaluate` honours it until the numbers move past what he agreed to.
+    """
+    evidence = pause.get("evidence") or pause.get("deliverability") or {}
+    data = {"code": pause.get("code"),
+            "bounce_rate": float(evidence.get("bounce_rate") or 0.0),
+            "acked_at": _dt.datetime.now(_dt.UTC).isoformat()}
+    settings.set_value(conn, _K_RISK_ACK, json.dumps(data, ensure_ascii=False))
+    return data
+
+
+def risk_ack(conn) -> dict | None:
+    raw = settings.get(conn, _K_RISK_ACK)
+    try:
+        return json.loads(raw) if raw else None
+    except json.JSONDecodeError:
+        return None
+
+
+def clear_risk_ack(conn) -> None:
+    settings.set_value(conn, _K_RISK_ACK, "")
+
+
+def ack_covers(ack: dict | None, code: str, bounce_rate: float) -> bool:
+    """True while the acknowledged decision still describes what is happening."""
+    if not ack or ack.get("code") != code:
+        return False        # he accepted a different failure than the one now firing
+    return bounce_rate <= float(ack.get("bounce_rate") or 0.0) + ACK_TOLERANCE_PCT
 
 
 def safety_pause(conn) -> dict | None:
@@ -81,6 +124,7 @@ def status(conn) -> dict:
             "last_date": settings.get(conn, _K_LAST_DATE) or None,
             "last_result": settings.get(conn, _K_LAST_RESULT) or None,
             "safety_pause": safety_pause(conn),
+            "risk_ack": risk_ack(conn),
             "preview": preview(conn)}
 
 

@@ -44,6 +44,8 @@ export type AgentStatus = {
     paused_at?: string;
     evidence?: Record<string, any>;
   } | null;
+  risk_ack?: { code: string; bounce_rate: number; acked_at: string } | null;
+  bounce_limit?: number;
   takeovers?: {
     lead_no: number; channel: string; owner: "allen"; state: string;
     reason: string; source_message_id: number | null; next_action: string;
