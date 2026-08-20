@@ -1,0 +1,50 @@
+{
+  "rdl_led": {
+    "msg": "Running both rental and permanent installs means sourcing across a pretty wide spec range — refresh rate and brightness requirements are pretty different between the two use cases. On the rental side, what cabinet system are you running? And are most of your events indoors or outdoor open venues?",
+    "company": "RDL LED",
+    "country": "USA",
+    "status": "pending"
+  },
+  "avt.ca": {
+    "msg": "AV integration with LED video walls is an interesting position — you cover both the display and the integration layer. What pixel pitch range do you spec most for corporate installs in Canada, and is fine-pitch indoor growing faster than the outdoor work right now?",
+    "company": "AVT Canada",
+    "country": "Canada",
+    "status": "pending"
+  },
+  "fenixevolution_led": {
+    "msg": "Covering six cities for events means logistics and quick setup matter as much as specs. What cabinet system are you running for the longer-haul setups — aluminum or carbon fiber? And what screen size do you deploy most for outdoor stages across the region?",
+    "company": "Fénix-Evolution LED",
+    "country": "Mexico",
+    "status": "pending"
+  },
+  "pantallas_led_de_colombia": {
+    "msg": "Running P5 through P2 across indoor and outdoor is a wide range to source for. The P2 indoor work is usually where specs get most specific — viewing distance, refresh rate, calibration. What is driving most of your P2 inquiries lately — corporate installs, control rooms, or something else?",
+    "company": "Pantallas LED de Colombia",
+    "country": "Colombia",
+    "status": "pending"
+  },
+  "ledwave": {
+    "msg": "B Corp certification in the LED industry is rare — real differentiator with ESG-conscious corporate clients. OOH media, rental, and direct panel sales in the same operation is a broad model. What is the main focus right now — rental fleet, fixed outdoor, or indoor fine pitch?",
+    "company": "LedWave",
+    "country": "Brazil",
+    "status": "pending"
+  },
+  "dinalight.led": {
+    "msg": "Manufacturing for 20 years and expanding across LatAm puts you in a different position than most regional distributors. Mesh panels are still a niche — curious what applications are driving your mesh inquiries. Building facades, or more temporary event installs?",
+    "company": "Dinalight",
+    "country": "Argentina",
+    "status": "pending"
+  },
+  "cgschile.pantallasled.hd": {
+    "msg": "Concert-grade LED alongside congress and seminar setups means managing very different viewing distances and ambient light in the same fleet. What pixel pitch are you running for the indoor congress work — P2.5 range, or have clients been pushing for tighter?",
+    "company": "CGS Chile",
+    "country": "Chile",
+    "status": "pending"
+  },
+  "pantallasledperu": {
+    "msg": "Stadium LED is its own challenge — camera-capture refresh rates, sun exposure on open stadiums, viewing angles across different seat distances. What specs do Peru stadium projects typically land on? Are you seeing more indoor arena work or open outdoor venues?",
+    "company": "EXCTECLED Peru",
+    "country": "Peru",
+    "status": "pending"
+  }
+}

@@ -1,0 +1,12 @@
+[
+  {
+    "no": 894,
+    "company_en": "SOHO LED Rentals",
+    "phone": "+1 212 431 8920",
+    "note": "2_美国_SOHO LED Rentals",
+    "ok": false,
+    "reason": "WebSocketTimeoutException",
+    "detail": "Connection timed out",
+    "ts": "2026-06-06 11:45:09"
+  }
+]

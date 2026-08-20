@@ -1,0 +1,80 @@
+{
+  "publimastersj": {
+    "msg": "Juggling events, indoor installs, and outdoor in the same operation means completely different specs on every project. For the events side — what rental panels are you running? Curious whether you've gone carbon fiber cabinets or still prefer aluminum at the price points that actually move in Colombia.",
+    "status": "ok",
+    "company": "PubliMaster Colombia",
+    "country": "Colombia"
+  },
+  "digitalsignagecolombia": {
+    "msg": "15 years doing LED in Colombia — respect. Running Samsung distribution alongside your own video wall installs is an interesting setup. Are you seeing more traction in fine pitch indoor (P2 range) for corporate/control rooms these days, or is outdoor still the main driver in your market?",
+    "status": "ok",
+    "company": "Digital Signage Colombia",
+    "country": "Colombia"
+  },
+  "inoutsoluciones": {
+    "msg": "Came across your profile — 15 years building LED walls for education, offices, and malls in Colombia is real tenure. We've been doing a lot of education installs lately and the pixel pitch spec for classrooms keeps moving. What pitch range are your clients actually landing on these days?",
+    "status": "ok",
+    "company": "InOut Soluciones",
+    "country": "Colombia"
+  },
+  "ciber_colombia_": {
+    "msg": "Two decades in LED is rare — most operations come and go. Curious what your setup looks like right now: are you running more indoor fine pitch or outdoor fixed installs? And does the Colombian market push on specs like refresh rate and pixel pitch, or is it still mostly a price-first conversation?",
+    "status": "ok",
+    "company": "CIBER CORP Colombia",
+    "country": "Colombia"
+  },
+  "pantallasledencolombia": {
+    "msg": "Came across your account — covering the Colombian market with LED is no small operation. The region's been picking up serious momentum on both rental events and outdoor fixed installs. I'm on the manufacturing side in Shenzhen. What's your main focus these days — rental, fixed install, or a bit of both?",
+    "status": "ok",
+    "company": "Pantallas Colombia (LED)",
+    "country": "Colombia"
+  },
+  "pantallasledbogota": {
+    "msg": "Noticed your setup covers concerts and events all across Colombia — that's a serious range of venues. Curious what cabinet system you're running for the bigger outdoor shows. Are you on aluminum frames or has your team moved to carbon fiber for the rigging speed?",
+    "status": "ok",
+    "company": "Pantallas LED Bogota",
+    "country": "Colombia"
+  },
+  "ledproductionsmiami": {
+    "msg": "Full stage production — LED tunnels and floor panels in the same rig is a different spec game than a standard video wall. Floor tile surface texture and viewing angle specs are always tricky at short distance. What are you running for the floor tiles, and do you source them separately from the wall panels?",
+    "status": "ok",
+    "company": "LED Productions Miami",
+    "country": "USA"
+  },
+  "ledproductionsorlando": {
+    "msg": "Floor panels running alongside cold flame and cloud effects in the same rig — that's a production combo most crews don't touch. Orlando's entertainment scene must keep things busy year-round. What are you running for the floor tiles, P3.91 or something tighter?",
+    "status": "ok",
+    "company": "LED Productions Orlando",
+    "country": "USA"
+  },
+  "ledmiamirentalsigns": {
+    "msg": "Running rental in Miami — busy market between corporate events and venue installs. Curious what cabinet setup you're on. Most US rental operators I talk with are split between P3.91 and P4.81, and carbon fiber vs. aluminum keeps coming up depending on fly rigging or ground stack. What's your go-to?",
+    "status": "ok",
+    "company": "LED Miami Rental Signs",
+    "country": "USA"
+  },
+  "ledmiamisigns": {
+    "msg": "Dual ops in NYC and Miami is an interesting combo — the project types in those two markets can be pretty different. Is most of your volume retail storefronts, or more indoor commercial installs? We're on the factory side in Shenzhen; curious what's actually moving volume for US-based LED operations right now.",
+    "status": "ok",
+    "company": "LED Miami Signs",
+    "country": "USA"
+  },
+  "screenled.us": {
+    "msg": "Noticed your mobile LED operation — Poland factory feeding into a Tampa warehouse is a model I don't see often. Makes sense for the US market. What cabinet system do you run for the mobile units? Curious whether you're on standard aluminum or going carbon fiber to cut the transport weight.",
+    "status": "ok",
+    "company": "Screen LED US",
+    "country": "USA"
+  },
+  "americanledscreens": {
+    "msg": "Advertising and events in the same operation is an interesting mix — the LED specs you're optimizing for are pretty different between the two. Curious what you're running for event installs — do you own rental inventory, or source per-project? And what pitch range are you mostly working with?",
+    "status": "ok",
+    "company": "American LED Screens",
+    "country": "USA"
+  },
+  "losangelesledscreens": {
+    "msg": "Video walls in LA — the entertainment market there must push specs in some interesting directions. We've been running a lot of P2.5 fine pitch for indoor installs lately, 7680Hz refresh for camera-heavy environments. What pixel pitches do you find yourself specifying most for your clients?",
+    "status": "ok",
+    "company": "Los Angeles LED Screens",
+    "country": "USA"
+  }
+}

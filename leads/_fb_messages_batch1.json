@@ -1,0 +1,44 @@
+{
+  "publimasterSJ": {
+    "msg": "Saw you're running both event rentals and fixed outdoor advertising — that's a wide range to be sourcing for. I'm on the supply side out of Shenzhen, been paying attention to what's moving in Latin America lately. What's the split like for you — more rental panels for events, or permanent installs? And what pixel pitch range do you work with most?",
+    "status": "ok",
+    "company": "PubliMaster Colombia",
+    "country": "Colombia"
+  },
+  "DigitalSignageColombia": {
+    "msg": "Fifteen years running display projects in Colombia, with Samsung on one side and LED video walls on the other — that's an interesting position to be in, especially as fine pitch keeps pushing into spaces that used to be LCD territory.\n\nWhat pixel pitch are you seeing most demand for in Bogotá lately — still mostly P2.5 and above, or are clients starting to ask for sub-2mm?",
+    "status": "ok",
+    "company": "Digital Signage Colombia",
+    "country": "Colombia"
+  },
+  "MachineTronics": {
+    "msg": "Saw you're both making and distributing screens across Colombia — that's a different supply chain position than most. For the events side of the business, are you running your own rental fleet or supplying panels to AV companies? I've been curious how altitude affects panel specs in Bogotá — 2,600m really changes heat dissipation expectations. What pixel pitch moves best in your market?",
+    "status": "ok",
+    "company": "MachineTronics",
+    "country": "Colombia"
+  },
+  "AmericanLedDisplays": {
+    "msg": "Noticed your setup covers sports venues — that's a segment we've been spending more time on lately. Sports LED is tricky: camera-capture refresh rates, ambient light variance in open stadiums, pixel pitch tradeoffs across different seat distances. We just wrapped a Korean wedding hall project (P2.5, 7680Hz) where color uniformity was the whole conversation.\n\nWhat's driving most of your sports inquiries right now — indoor arenas or outdoor?",
+    "status": "ok",
+    "company": "American LED Display Solutions",
+    "country": "USA"
+  },
+  "magoarlekin": {
+    "msg": "Noticed your setup covers both rental events and media facades in Medellín — two pretty different animals to manage on the same team. Facades demand long-term color consistency across fixed installs; rental is all about fast rigging and surviving the road. What cabinet system are you running for events — aluminum or carbon fiber? And what pitch are your panels?",
+    "status": "ok",
+    "company": "Visionled Colombia",
+    "country": "Colombia"
+  },
+  "Alquilerpantallasledcolombia": {
+    "msg": "Running 24-hour rental service across an entire country is no small operation — especially when something goes down mid-event at 3am. I'm in Shenzhen, working with rental companies on P2.6 and P3.91 setups.\n\nFor the large format screens you're deploying at events — are you running aluminum or carbon fiber cabinets? Curious how they hold up in the Colombian climate.",
+    "status": "ok",
+    "company": "Alquiler Pantallas LED Colombia",
+    "country": "Colombia"
+  },
+  "brightlinkav": {
+    "msg": "Noticed you're doing both indoor fine-pitch walls and outdoor LED across North America — broader range than most AV distributors we come across. We're a Shenzhen-based panel supplier, mostly P1.5–P2.5 for corporate installs and control rooms. Always curious what's actually pulling demand on the North American side right now. Is the fine-pitch indoor business growing for you, or are you seeing more traction on the outdoor fixed side?",
+    "status": "ok",
+    "company": "Brightlink AV",
+    "country": "USA"
+  }
+}

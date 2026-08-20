@@ -1,0 +1,42 @@
+{
+  "svsolutions.usa": {
+    "msg": "Saw SV Solutions covers church installs across the country — curious what pixel pitch you're specifying for those spaces. We did a P2.5 project in a Korean wedding hall where refresh rate and color uniformity were the main concerns. Church sanctuaries feel similar. What's your go-to panel for that environment?",
+    "wc": 50,
+    "status": "ok"
+  },
+  "americanledgroup": {
+    "msg": "Saw you guys cover everything from outdoor billboards to video walls in Miami — that's a tough mix to source consistently. We've been working a lot on the rental/video wall side lately, just finished a P2.6 job with some tricky refresh rate requirements. How are you handling color matching between indoor and outdoor panels on the same project?",
+    "wc": 58,
+    "status": "ok"
+  },
+  "techledwall": {
+    "msg": "Saw TechLed handles full turnkey LED installs across the US — that's a wide variety of environments to spec for. What pixel pitch do you default to for indoor corporate installs? We've been seeing a pull toward P1.8 on conference room projects lately but P2.5 still wins a lot of bids.",
+    "wc": 51,
+    "status": "ok"
+  },
+  "fastinstall.us": {
+    "msg": "Saw the same-day video wall installs you're doing across Seattle — curious what that turnaround actually looks like on a full LED project. We do panels on the manufacturing side in Shenzhen. What pixel pitch are most of your commercial clients asking for lately?",
+    "wc": 44,
+    "status": "ok"
+  },
+  "ledfactoryusa": {
+    "msg": "Came across your account — a Houston-based LED retailer and supplier is actually not that common in the US market. We're based in Shenzhen, mostly doing fine pitch indoor panels (P1.8–P2.5) and outdoor fixed installs. Curious what your bread-and-butter looks like — is most of your volume commercial signage, or are you moving into video walls?",
+    "wc": 56,
+    "status": "ok"
+  },
+  "avrental305": {
+    "msg": "Saw you're running video wall rentals across South Florida — that's a solid market to cover. We supply rental panels to a few AV companies in the US, mostly P2.6 and P3.91 aluminum cabinets. What sizes do you typically spec for Miami corporate events?",
+    "wc": 44,
+    "status": "ok"
+  },
+  "event_smart_technology": {
+    "msg": "Covering East Coast, West Coast, and Midwest all out of Vegas is a serious operation — that's a lot of freight and load-in logistics per show. Curious what you're running most events on. We're seeing a shift toward P2.6 from P3.91 for higher-end corporate work — are you finding the same demand in your market?",
+    "wc": 55,
+    "status": "ok"
+  },
+  "showbossav": {
+    "msg": "Saw you're covering the whole US from Arizona — that's a real logistics commitment. What panel system do you rely on for multi-state jobs? Curious whether cabinet weight has ever pushed you toward a different product choice when you're shipping that far.",
+    "wc": 42,
+    "status": "ok"
+  }
+}

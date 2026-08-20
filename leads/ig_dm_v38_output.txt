@@ -1,0 +1,64 @@
+=== IG DM v38 | 6 USA v36 accounts | 2026-05-22 ===
+
+[1/6] @elitedisplays | Elite Displays
+  消息 (64 词): Hi, I'm Allen from Shenzhen Maxcolor Visual — we manufacture LED display panels ...
+  → 打开主页: @elitedisplays
+  type: {'ok': True, 'len': 426}
+  input len: 426
+  verify: {'inputEmpty': True}
+  → pipeline 已更新: @elitedisplays
+  ✓ SENT
+
+  waiting 313s (5min)...
+
+[2/6] @verumavsolutions | Verum AV Solutions
+  消息 (50 词): Hi, I'm Allen from Shenzhen Maxcolor Visual — we manufacture LED display panels ...
+  → 打开主页: @verumavsolutions
+  type: {'ok': True, 'len': 304}
+  input len: 304
+  verify: {'inputEmpty': True}
+  → pipeline 已更新: @verumavsolutions
+  ✓ SENT
+
+  waiting 432s (7min)...
+
+[3/6] @powerfactoryproductions | Power Factory Productions
+  消息 (54 词): Hi, I'm Allen from Shenzhen Maxcolor Visual — we manufacture LED display panels ...
+  → 打开主页: @powerfactoryproductions
+  type: {'ok': True, 'len': 332}
+  input len: 332
+  verify: {'inputEmpty': True}
+  → pipeline 已更新: @powerfactoryproductions
+  ✓ SENT
+
+  waiting 389s (6min)...
+
+[4/6] @arizonastage | Arizona Stage
+  消息 (49 词): Hi, I'm Allen from Shenzhen Maxcolor Visual — we manufacture LED display panels ...
+  → 打开主页: @arizonastage
+  type: {'ok': True, 'len': 315}
+  input len: 315
+  verify: {'inputEmpty': True}
+  → pipeline 已更新: @arizonastage
+  ✓ SENT
+
+  waiting 319s (5min)...
+
+[5/6] @palmproductionsandevents | Palm Productions and Events
+  消息 (56 词): Hi, I'm Allen from Shenzhen Maxcolor Visual — we manufacture LED display panels ...
+  → 打开主页: @palmproductionsandevents
+  ✗ 输入框未出现: not found
+  ✗ FAILED
+
+  waiting 428s (7min)...
+
+[6/6] @empire_djs | Empire AV
+  消息 (50 词): Hi, I'm Allen from Shenzhen Maxcolor Visual — we manufacture LED display panels ...
+  → 打开主页: @empire_djs
+  type: {'ok': True, 'len': 310}
+  input len: 310
+  verify: {'inputEmpty': True}
+  → pipeline 已更新: @empire_djs
+  ✓ SENT
+
+=== Done: 5/6 DMs sent ===

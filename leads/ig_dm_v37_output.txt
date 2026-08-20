@@ -1,0 +1,86 @@
+=== IG DM v37 | 8 USA v35 accounts | 2026-05-22 ===
+
+[1/8] @paentertainmentgroup | PA Entertainment Group
+  消息 (59 词): Hi, I'm Allen from Shenzhen Maxcolor Visual — we manufacture LED display panels ...
+  → 打开主页: @paentertainmentgroup
+  type: {'ok': True, 'len': 373}
+  input len: 373
+  verify: {'inputEmpty': True}
+  → pipeline 已更新: @paentertainmentgroup
+  ✓ SENT
+
+  waiting 437s (7min)...
+
+[2/8] @miteyav | Mitey AV
+  消息 (54 词): Hi, I'm Allen from Shenzhen Maxcolor Visual — we manufacture LED display panels ...
+  → 打开主页: @miteyav
+  type: {'ok': True, 'len': 330}
+  input len: 330
+  verify: {'inputEmpty': True}
+  → pipeline 已更新: @miteyav
+  ✓ SENT
+
+  waiting 480s (8min)...
+
+[3/8] @getrefreshled | Refresh LED
+  消息 (46 词): Hi, I'm Allen from Shenzhen Maxcolor Visual — we manufacture LED display panels ...
+  → 打开主页: @getrefreshled
+  type: {'ok': True, 'len': 298}
+  input len: 298
+  verify: {'inputEmpty': True}
+  → pipeline 已更新: @getrefreshled
+  ✓ SENT
+
+  waiting 354s (5min)...
+
+[4/8] @worshipproductions | Worship Productions
+  消息 (51 词): Hi, I'm Allen from Shenzhen Maxcolor Visual — we manufacture LED display panels ...
+  → 打开主页: @worshipproductions
+  ✗ 输入框未出现: not found
+  ✗ FAILED
+
+  waiting 402s (6min)...
+
+[5/8] @cprmms | CPR MultiMedia Solutions
+  消息 (51 词): Hi, I'm Allen from Shenzhen Maxcolor Visual — we manufacture LED display panels ...
+  → 打开主页: @cprmms
+  type: {'ok': True, 'len': 322}
+  input len: 322
+  verify: {'inputEmpty': True}
+  → pipeline 已更新: @cprmms
+  ✓ SENT
+
+  waiting 427s (7min)...
+
+[6/8] @mediaquestpgh | MediaQuest
+  消息 (55 词): Hi, I'm Allen from Shenzhen Maxcolor Visual — we manufacture LED display panels ...
+  → 打开主页: @mediaquestpgh
+  type: {'ok': True, 'len': 338}
+  input len: 338
+  verify: {'inputEmpty': True}
+  → pipeline 已更新: @mediaquestpgh
+  ✓ SENT
+
+  waiting 305s (5min)...
+
+[7/8] @vortexledwall | Vortex LED Wall
+  消息 (53 词): Hi, I'm Allen from Shenzhen Maxcolor Visual — we manufacture LED display panels ...
+  → 打开主页: @vortexledwall
+  type: {'ok': True, 'len': 338}
+  input len: 338
+  verify: {'inputEmpty': True}
+  → pipeline 已更新: @vortexledwall
+  ✓ SENT
+
+  waiting 423s (7min)...
+
+[8/8] @theoneupgroup | The One Up Group
+  消息 (56 词): Hi, I'm Allen from Shenzhen Maxcolor Visual — we manufacture LED display panels ...
+  → 打开主页: @theoneupgroup
+  type: {'ok': True, 'len': 350}
+  input len: 350
+  verify: {'inputEmpty': True}
+  → pipeline 已更新: @theoneupgroup
+  ✓ SENT
+
+=== Done: 7/8 DMs sent ===

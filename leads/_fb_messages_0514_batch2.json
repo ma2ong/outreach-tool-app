@@ -1,0 +1,26 @@
+{
+  "ledwavesaopaulo": {
+    "msg": "B Corp certification in the LED business is rare — curious how that plays out with corporate clients. OOH media, rental, and direct panel sales in the same operation is a broad model. On the rental side, what are your typical event setups — outdoor stages with large-format panels, or more indoor corporate? And what pixel pitch moves most in the São Paulo market right now?",
+    "company": "LedWave",
+    "country": "Brazil",
+    "status": "pending"
+  },
+  "grupounoled": {
+    "msg": "3,000+ clients and your own CMS platform is a different business model than most regional LED suppliers — the software layer changes what you can offer. What has been driving the most volume lately — outdoor fixed installs, the mobile units, or indoor? And do you run your own production or mixed supply chain?",
+    "company": "Grupo UNO LED",
+    "country": "Argentina",
+    "status": "pending"
+  },
+  "produccionesfenixevolution": {
+    "msg": "Multi-city event coverage across Mexico is a serious logistics operation — keeping panels in spec condition across locations is not easy. For the events you cover across the region, are you running a centralized rental fleet or maintaining gear in each city? And what cabinet system — aluminum or carbon fiber for the longer hauls?",
+    "company": "Fénix-Evolution LED",
+    "country": "Mexico",
+    "status": "pending"
+  },
+  "CGSincChile": {
+    "msg": "Concert and congress setups are about as far apart as two LED applications get — one needs wide viewing angle and high refresh for camera capture, the other needs close-range clarity in controlled light. Curious how you spec for each in your fleet. What pixel pitch are you running for indoor seminar work versus outdoor concert stages?",
+    "company": "CGS Chile",
+    "country": "Chile",
+    "status": "pending"
+  }
+}

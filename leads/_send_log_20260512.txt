@@ -1,0 +1,69 @@
+今日已发: 1 条 | 已发账号: ['svsolutions.usa']
+队列: ['americanledgroup', 'techledwall', 'fastinstall.us', 'ledfactoryusa', 'avrental305', 'event_smart_technology', 'showbossav']
+
+[1/8] @svsolutions.usa 今日已发，跳过
+
+[2/8] 发送 @americanledgroup
+  消息预览: Saw you guys cover everything from outdoor billboards to video walls in Miami — ...
+  ⏱ 等待 5 分钟间隔...
+  → 打开主页: @americanledgroup
+  → 点击发消息按钮
+  ✗ DM 输入框未出现: {'value': 'not found'}
+  ✗ 发送失败，跳过
+
+
+[2/8] 发送 @techledwall
+  消息预览: Saw TechLed handles full turnkey LED installs across the US — that's a wide vari...
+  ⏱ 等待 5 分钟间隔...
+  → 打开主页: @techledwall
+  → 点击发消息按钮
+  ✗ DM 输入框未出现: {'value': 'not found'}
+  ✗ 发送失败，跳过
+
+
+[2/8] 发送 @fastinstall.us
+  消息预览: Saw the same-day video wall installs you're doing across Seattle — curious what ...
+  ⏱ 等待 5 分钟间隔...
+  → 打开主页: @fastinstall.us
+  → 点击发消息按钮
+  ✗ DM 输入框未出现: {'value': 'not found'}
+  ✗ 发送失败，跳过
+
+
+[2/8] 发送 @ledfactoryusa
+  消息预览: Came across your account — a Houston-based LED retailer and supplier is actually...
+  ⏱ 等待 5 分钟间隔...
+  → 打开主页: @ledfactoryusa
+  → 点击发消息按钮
+  ✗ DM 输入框未出现: {'value': 'not found'}
+  ✗ 发送失败，跳过
+
+
+[2/8] 发送 @avrental305
+  消息预览: Saw you're running video wall rentals across South Florida — that's a solid mark...
+  ⏱ 等待 5 分钟间隔...
+  → 打开主页: @avrental305
+  → 点击发消息按钮
+  ✗ DM 输入框未出现: {'value': 'not found'}
+  ✗ 发送失败，跳过
+
+
+[2/8] 发送 @event_smart_technology
+  消息预览: Covering East Coast, West Coast, and Midwest all out of Vegas is a serious opera...
+  ⏱ 等待 5 分钟间隔...
+  → 打开主页: @event_smart_technology
+  → 点击发消息按钮
+  ✗ DM 输入框未出现: {'value': 'not found'}
+  ✗ 发送失败，跳过
+
+
+[2/8] 发送 @showbossav
+  消息预览: Saw you're covering the whole US from Arizona — that's a real logistics commitme...
+  ⏱ 等待 5 分钟间隔...
+  → 打开主页: @showbossav
+  → 点击发消息按钮
+  ✗ DM 输入框未出现: {'value': 'not found'}
+  ✗ 发送失败，跳过
+
+
+完成. 今日共发送: 1 条

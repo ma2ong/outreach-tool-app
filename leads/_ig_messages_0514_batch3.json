@@ -1,0 +1,37 @@
+{
+  "illusionuniverse": {
+    "msg": "AV and LED under the same roof in Toronto is a broader position than most — you are covering both the display hardware and the integration layer. What pixel pitch are you speccing most for the corporate video wall work, and is fine-pitch indoor demand growing faster than your outdoor business right now?",
+    "company": "Illusion Universe",
+    "country": "Canada"
+  },
+  "abklightingoficial": {
+    "msg": "Rental across Mexico with that kind of coverage means the logistics side is as demanding as the specs. For outdoor stage setups — what cabinet system are you running? Curious whether the operation has moved to carbon fiber to cut transport weight or still running aluminum.",
+    "company": "ABK Lighting",
+    "country": "Mexico"
+  },
+  "led_vk3133": {
+    "msg": "Full-color outdoor advertising panels require very different specs than indoor custom signage — brightness, IP rating, viewing angle all shift significantly. What segment drives more of your volume right now, outdoor fixed installs or custom indoor projects?",
+    "company": "LED VK",
+    "country": "Korea"
+  },
+  "led_master_colombia": {
+    "msg": "Sales and installation under one roof in Colombia means you are on the hook for the full spec decision, not just the sale. What pixel pitch range are you installing most — and is the market pushing toward finer pitch for indoor, or is outdoor fixed still the main volume driver?",
+    "company": "LED Master Colombia",
+    "country": "Colombia"
+  },
+  "exodoled": {
+    "msg": "Offering 24-month financing on LED screens in Argentina is a smart differentiator — most suppliers just sell. Curious what that does to your product mix: are buyers going for larger formats when financing is available, or more fine-pitch indoor installs?",
+    "company": "Exodo LED",
+    "country": "Argentina"
+  },
+  "fixledchile": {
+    "msg": "LED screen repair and technical service as the main focus is a different business model than most — you are seeing every brand and failure mode that comes through Chile. What are the most common issues you are seeing on outdoor panels right now, driver failure or something else?",
+    "company": "Fix LED Chile",
+    "country": "Chile"
+  },
+  "alquiler_de_pantallas_led_peru": {
+    "msg": "Event rental in Lima with your own technical team is a solid setup — you control quality end to end. What panel system are you running for outdoor stages? Curious whether you are on P3.91 or something tighter, and how the Lima humidity affects your maintenance cycle.",
+    "company": "Alquiler Pantallas LED Peru",
+    "country": "Peru"
+  }
+}
