@@ -224,6 +224,7 @@ def safety_net(conn, *, today: dt.date | None = None,
         title = f"商机体检：{row['company_en']} / {row['title']}"
         proposal = proposals.create(
             conn, "create_task", lead_no=row["lead_no"],
+            opportunity_id=row["opportunity_id"],
             title=title[:200],
             reasoning=(f"LED Opportunity Coach：健康度 {row['health']}/100（{row['severity']}）。"
                        + ("；".join(row["risks"]) if row["risks"] else "需要明确下一步")),
