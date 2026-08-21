@@ -8,17 +8,23 @@ from __future__ import annotations
 
 
 def build(conn, lead_no: int) -> dict | None:
-    from app import activities, contacts, opportunities, sales_documents, sales_intelligence
+    from app import (
+        activities, contacts, decision_maker_radar, opportunities,
+        sales_documents, sales_intelligence,
+    )
     from app.agent import opportunity_coach
 
     sales_intelligence.ensure_schema(conn)
     sales_documents.ensure_schema(conn)
+    decision_maker_radar.ensure_schema(conn)
     lead = conn.execute("SELECT * FROM leads WHERE no=?", (lead_no,)).fetchone()
     if lead is None:
         return None
 
     account = dict(lead)
     people = contacts.list_all(conn, lead_no=lead_no)
+    contact_candidates = decision_maker_radar.list_candidates(
+        conn, lead_no=lead_no, status="new", limit=10)
     opps = opportunities.list_all(conn, lead_no=lead_no)
     coached = [opportunity_coach.coach_opportunity(conn, opp) for opp in opps
                if opp["stage"] in opportunities.OPEN_STAGES]
@@ -59,6 +65,8 @@ def build(conn, lead_no: int) -> dict | None:
         risks.extend(f"{row['title']}：{risk}" for risk in row["risks"][:3])
     if coverage["missing"]:
         risks.extend(f"联系人缺口：{item['label']}" for item in coverage["missing"])
+    if contact_candidates:
+        risks.append(f"有 {len(contact_candidates)} 个公开关键联系人候选尚未确认")
     if account.get("email_status") == "invalid" and not account.get("phone") and not account.get("instagram"):
         risks.append("主邮箱无效且没有替代联系渠道")
 
@@ -73,6 +81,13 @@ def build(conn, lead_no: int) -> dict | None:
         next_actions.append({"priority": "urgent", "source": "quote",
                              "action": f"报价 {accepted['quote_no']} 已接受，转为订单",
                              "ref_id": accepted["id"]})
+    if contact_candidates:
+        best = contact_candidates[0]
+        next_actions.append({
+            "priority": "high", "source": "contact_candidate",
+            "action": f"确认关键联系人候选：{best['name']} / {best['title']}（{best['confidence']}/100）",
+            "ref_id": best["id"],
+        })
     for row in coached[:3]:
         next_actions.append({"priority": "high" if row["severity"] in ("critical", "high") else "normal",
                              "source": "opportunity", "action": row["next_best_action"],
@@ -85,6 +100,7 @@ def build(conn, lead_no: int) -> dict | None:
         "account": account,
         "score": score,
         "contacts": people,
+        "contact_candidates": contact_candidates,
         "contact_coverage": coverage,
         "opportunities": opps,
         "opportunity_coaching": coached,
