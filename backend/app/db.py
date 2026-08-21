@@ -187,6 +187,18 @@ _TABLE_COLUMNS = {
         # the healthy mailboxes' status and keep the whole sync reading 'partial'.
         "imap_enabled": "INTEGER NOT NULL DEFAULT 1",
     },
+    "products": {
+        # The old product table was built for a quick reference-price card. These extra
+        # fields turn user-approved rows into a safe Agent knowledge source without
+        # creating a second catalog table. Existing/default rows start unapproved.
+        "indoor_outdoor": "TEXT",
+        "refresh_rate_hz": "INTEGER",
+        "maintenance_access": "TEXT",
+        "cabinet_size": "TEXT",
+        "control_system": "TEXT",
+        "notes": "TEXT",
+        "agent_approved": "INTEGER NOT NULL DEFAULT 0",
+    },
     # agent_proposals is created by app.agent.proposals.ensure_schema, but a DB that
     # already has the table predates this column.
     "agent_proposals": {
