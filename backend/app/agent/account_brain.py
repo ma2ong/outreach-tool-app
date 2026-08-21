@@ -104,12 +104,14 @@ def due_accounts(conn, *, today: dt.date | None = None,
 
 def safety_net(conn, *, today: dt.date | None = None,
                limit: int = MAX_SAFETY_NET) -> dict:
-    """Ensure the best due accounts have an owned, dated next step.
+    """Ensure both dormant accounts and unhealthy live deals have an owned next step.
 
     At the default `propose` autonomy this only creates visible recommendations. If Allen
     explicitly sets create_task to `auto`, the normal proposal executor creates the task.
-    Repeated runs are idempotent because the last-touch facts are part of the fingerprint.
+    Customer-facing messages are never sent here.
     """
+    from app.agent import opportunity_coach
+
     today = today or dt.date.today()
     made: list[int] = []
     considered = due_accounts(conn, today=today, limit=limit)
@@ -140,5 +142,16 @@ def safety_net(conn, *, today: dt.date | None = None,
         )
         if p:
             made.append(p["id"])
-    return {"due": len(considered), "proposed": len(made), "ids": made,
-            "accounts": considered}
+
+    # Live opportunities are a separate portfolio: a quoted deal with no next-action
+    # date is more dangerous than a cold account being late by a day. Reuse the same
+    # internal proposal/autonomy mechanism instead of building another executor.
+    opportunity_result = opportunity_coach.safety_net(conn, today=today, limit=limit)
+    ids = [*made, *opportunity_result["ids"]]
+    return {
+        "due": len(considered),
+        "proposed": len(ids),
+        "ids": ids,
+        "accounts": considered,
+        "opportunity_coach": opportunity_result,
+    }
