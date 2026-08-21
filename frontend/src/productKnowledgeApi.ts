@@ -11,6 +11,14 @@ export interface KnowledgeProduct {
   cabinet_size: string | null;
   control_system: string | null;
   notes: string | null;
+  cabinet_width_mm: number | null;
+  cabinet_height_mm: number | null;
+  cabinet_resolution_w: number | null;
+  cabinet_resolution_h: number | null;
+  module_width_mm: number | null;
+  module_height_mm: number | null;
+  max_power_w_cabinet: number | null;
+  avg_power_w_cabinet: number | null;
   agent_approved: number | boolean;
 }
 
@@ -26,6 +34,14 @@ export interface ProductInput {
   cabinet_size?: string | null;
   control_system?: string | null;
   notes?: string | null;
+  cabinet_width_mm?: number | null;
+  cabinet_height_mm?: number | null;
+  cabinet_resolution_w?: number | null;
+  cabinet_resolution_h?: number | null;
+  module_width_mm?: number | null;
+  module_height_mm?: number | null;
+  max_power_w_cabinet?: number | null;
+  avg_power_w_cabinet?: number | null;
   agent_approved?: boolean;
 }
 
