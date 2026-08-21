@@ -35,6 +35,7 @@ from app.api import activities as activities_api
 from app.api import contacts as contacts_api
 from app.api import sales_documents as sales_documents_api
 from app.api import sales_intelligence as sales_intelligence_api
+from app.api import decision_makers as decision_makers_api
 from app.api import agent as agent_api
 
 BACKUP_KEEP = 14
@@ -162,15 +163,16 @@ def auto_prune_sequences() -> None:
 def auto_agent_run() -> None:
     """Run the autonomous sales operator against the current local business state.
 
-    Reply handling and morning planning are owned by `agent.run`. If the local machine
-    missed the morning window, `catchup` may run one bounded afternoon plan using the
-    same attempt/cooldown state. Account Brain then makes sure a contacted account with
-    no reply, task or active sequence does not disappear simply because no new event
-    fired. All paths create auditable proposals and retain the existing autonomy gates.
+    Reply handling and planning are owned by `agent.run`/`catchup`. Account Brain keeps
+    silent contacted accounts alive, Opportunity Coach owns unhealthy real projects,
+    and Decision Maker Radar researches a tiny bounded set of high-value authority gaps.
+    Every customer-facing action still goes through proposals/autonomy and existing send
+    guards; the radar itself only reads public company pages and stages/records contacts.
     """
     if os.environ.get("OUTREACH_AGENT", "1") == "0":
         return
-    from app.agent import account_brain, catchup
+    from app import decision_maker_radar
+    from app.agent import account_brain, catchup, opportunity_coach
     from app.agent import run as agent_run
     conn = None
     try:
@@ -178,6 +180,9 @@ def auto_agent_run() -> None:
         agent_run.run_once(conn)
         catchup.run_if_due(conn)
         account_brain.safety_net(conn)
+        opportunity_coach.safety_net(conn)
+        if os.environ.get("OUTREACH_AUTO_RESEARCH", "1") != "0":
+            decision_maker_radar.sweep(conn)
     except Exception:  # noqa: BLE001 — the agent must not kill the scheduler loop
         pass
     finally:
@@ -221,6 +226,7 @@ async def lifespan(app: FastAPI):
     from app.contacts import ensure_schema as ensure_contact_schema, migrate_existing as migrate_contacts
     from app.sales_documents import ensure_schema as ensure_sales_document_schema
     from app.sales_intelligence import ensure_schema as ensure_sales_intelligence_schema
+    from app.decision_maker_radar import ensure_schema as ensure_decision_maker_schema
     backup_db()  # the lead base is the business asset — snapshot before touching it
     conn = connect(DB_PATH)
     try:
@@ -231,6 +237,7 @@ async def lifespan(app: FastAPI):
         ensure_sales_document_schema(conn)
         ensure_activity_schema(conn)
         ensure_sales_intelligence_schema(conn)
+        ensure_decision_maker_schema(conn)
         migrate_existing(conn)
         normalize_all_websites(conn)  # idempotent data fix: consistent website form
         from app.replies import backfill_bounced_at
@@ -287,6 +294,7 @@ app.include_router(activities_api.router)
 app.include_router(contacts_api.router)
 app.include_router(sales_documents_api.router)
 app.include_router(sales_intelligence_api.router)
+app.include_router(decision_makers_api.router)
 app.include_router(agent_api.router)
 from app.api import auth as auth_api  # noqa: E402
 from app.api import health as health_api  # noqa: E402
