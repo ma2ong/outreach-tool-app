@@ -1,7 +1,10 @@
 import pytest
+from fastapi.testclient import TestClient
 
+import app.main as main
 from app import opportunities
 from app.agent import solution_engineer
+from app.db import connect, init_schema
 
 
 def _product(conn, *, approved=1, pitch="P2.5", indoor_outdoor="Indoor", exact=True):
@@ -103,7 +106,7 @@ def test_exact_engineering_calculates_layout_resolution_power_control_and_spares
     assert power["theoretical_max_current_a_per_screen"] == pytest.approx(21.82)
 
     control = result["control"]
-    assert control["minimum_controller_units_by_pixel_capacity_per_screen"] == 1
+    assert control["minimum_units_by_pixel_capacity_per_screen"] == 1
     assert control["required_output_ports_per_screen"] == 2
     assert control["minimum_controller_units_per_screen"] == 1
 
@@ -116,8 +119,6 @@ def test_exact_engineering_calculates_layout_resolution_power_control_and_spares
 
 def test_nominal_pitch_never_becomes_exact_resolution(conn):
     pid = _product(conn, exact=False)
-    # Exact cabinet dimensions are enough for physical layout, but exact pixel
-    # resolution is deliberately absent.
     conn.execute(
         "UPDATE products SET cabinet_width_mm=500, cabinet_height_mm=500 WHERE id=?", (pid,)
     )
@@ -140,22 +141,34 @@ def test_current_and_spares_require_explicit_project_inputs(conn):
     assert any("备品比例" in gap for gap in result["gaps"])
 
 
-def test_solution_endpoint_and_additive_fields(client, conn):
+def test_solution_endpoint_and_additive_fields(tmp_path):
+    db = str(tmp_path / "solution-api.db")
+    conn = connect(db)
+    init_schema(conn)
+    conn.execute("INSERT INTO leads(no,company_en,country) VALUES (1,'API AV','USA')")
+    conn.commit()
     pid = _product(conn)
     opp = _opportunity(conn)
-    r = client.get(f"/api/opportunities/{opp['id']}/solution?product_id={pid}")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["ready"] is True
-    assert body["selected_layout"]["actual_width_m"] == 3.0
+    conn.close()
 
-    r = client.patch(f"/api/opportunities/{opp['id']}", json={
-        "input_voltage_v": 110,
-        "controller_capacity_px": 1_000_000,
-        "controller_output_ports": 4,
-        "max_pixels_per_port": 300_000,
-        "spare_pct": 5,
-    })
-    assert r.status_code == 200
-    assert r.json()["input_voltage_v"] == 110
-    assert r.json()["spare_pct"] == 5
+    main.app.dependency_overrides[main.get_conn] = lambda: connect(db)
+    client = TestClient(main.app)
+    try:
+        r = client.get(f"/api/opportunities/{opp['id']}/solution?product_id={pid}")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ready"] is True
+        assert body["selected_layout"]["actual_width_m"] == 3.0
+
+        r = client.patch(f"/api/opportunities/{opp['id']}", json={
+            "input_voltage_v": 110,
+            "controller_capacity_px": 1_000_000,
+            "controller_output_ports": 4,
+            "max_pixels_per_port": 300_000,
+            "spare_pct": 5,
+        })
+        assert r.status_code == 200
+        assert r.json()["input_voltage_v"] == 110
+        assert r.json()["spare_pct"] == 5
+    finally:
+        main.app.dependency_overrides.pop(main.get_conn, None)
