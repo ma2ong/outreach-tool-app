@@ -16,6 +16,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import re
 import sqlite3
 
 from app import settings
@@ -321,6 +322,22 @@ def _finish(conn, proposal_id: int, ok: bool, result: str) -> dict:
     return get(conn, proposal_id)
 
 
+def _mark_created_task_as_agent(conn, proposal_id: int, result: str) -> None:
+    """Executors intentionally reuse activities.create(), whose public/manual API stamps
+    new rows as `manual`. Once that shared path returns the exact task id, correct only
+    that one row's provenance. Never rewrite historical rows by guessing from titles."""
+    match = re.search(r"销售任务 #(\d+)", result or "")
+    if not match:
+        return
+    activity_id = int(match.group(1))
+    conn.execute(
+        "UPDATE activities SET source='agent', source_ref=?, updated_at=?"
+        " WHERE id=? AND source='manual'",
+        (f"proposal:{proposal_id}", _now(), activity_id),
+    )
+    conn.commit()
+
+
 def _execute(conn, p: dict, note: str = "") -> dict:
     from app.agent import executors
     handler = executors.HANDLERS.get(p["kind"])
@@ -329,6 +346,8 @@ def _execute(conn, p: dict, note: str = "") -> dict:
     try:
         mode = "auto" if p["status"] == "pending" else "approved"
         result = handler(conn, {**p, "execution_mode": mode})
+        if p["kind"] == "create_task":
+            _mark_created_task_as_agent(conn, p["id"], result)
     except Exception as exc:  # noqa: BLE001 — a failed action must stay visible, not crash
         return _finish(conn, p["id"], False, f"{type(exc).__name__}: {exc}")
     return _finish(conn, p["id"], True, result)
