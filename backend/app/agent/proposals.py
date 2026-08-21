@@ -26,9 +26,9 @@ KINDS = (
 )
 AUTONOMY = ("off", "propose", "auto")
 RISKS = ("low", "medium", "high")
-OPEN_STATUSES = ("pending",)
-# Approved but not finished — i.e. running right now. Kept in the pending
-# list so three minutes of work is not three minutes of blank screen.
+# Approved but not finished is still open work. Keep one definition so list, summary and
+# planner-world visibility do not disagree about whether the Agent is busy.
+OPEN_STATUSES = ("pending", "approved", "edited_approved")
 APPROVED_STATUSES = ("approved", "edited_approved")
 EXPIRE_DAYS = 7
 
@@ -178,8 +178,8 @@ def list_proposals(conn, status: str | None = "pending", lead_no: int | None = N
            " LEFT JOIN leads l ON l.no = p.lead_no WHERE 1=1")
     params: list = []
     if status == "pending":
-        sql += " AND p.status IN (?,?,?)"
-        params.extend(["pending", *APPROVED_STATUSES])
+        sql += f" AND p.status IN ({','.join('?' * len(OPEN_STATUSES))})"
+        params.extend(OPEN_STATUSES)
     elif status:
         sql += " AND p.status = ?"
         params.append(status)
@@ -201,11 +201,12 @@ def summary(conn) -> dict:
     rows = conn.execute(
         "SELECT status, COUNT(*) c FROM agent_proposals GROUP BY status").fetchall()
     by_status = {r["status"]: r["c"] for r in rows}
+    placeholders = ",".join("?" * len(OPEN_STATUSES))
     risk = conn.execute(
-        "SELECT risk, COUNT(*) c FROM agent_proposals WHERE status='pending' GROUP BY risk"
-    ).fetchall()
+        f"SELECT risk, COUNT(*) c FROM agent_proposals WHERE status IN ({placeholders})"
+        " GROUP BY risk", OPEN_STATUSES).fetchall()
     return {
-        "pending": by_status.get("pending", 0),
+        "pending": sum(by_status.get(status, 0) for status in OPEN_STATUSES),
         "by_status": by_status,
         "pending_by_risk": {r["risk"]: r["c"] for r in risk},
         "autonomy": autonomy_map(conn),
