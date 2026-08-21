@@ -35,15 +35,21 @@ export function WorkerRuntimeStatus() {
 
   if (!status) return null;
 
-  const lastFailed = status.state?.last_cycle_ok === 0;
+  const cycleFailed = status.state?.last_cycle_ok === 0;
+  const mailDegraded = status.state?.last_email_poll_ok === 0;
   const active = status.active;
+  const degraded = active && !cycleFailed && mailDegraded;
   const label = active
-    ? `Sales Worker 运行中 · ${status.lease?.mode === "worker" ? "独立 Worker" : "内嵌"}`
+    ? degraded
+      ? `Sales Worker 运行中 · 邮件同步异常`
+      : `Sales Worker 运行中 · ${status.lease?.mode === "worker" ? "独立 Worker" : "内嵌"}`
     : status.dedicated_worker_expected
       ? "Sales Worker 未运行"
       : "Sales Worker 无活跃租约";
-  const border = active && !lastFailed ? "var(--green)" : "var(--danger)";
-  const dot = active && !lastFailed ? "●" : "⚠";
+  const border = active && !cycleFailed && !mailDegraded
+    ? "var(--green)"
+    : degraded ? "var(--warn)" : "var(--danger)";
+  const dot = active && !cycleFailed && !mailDegraded ? "●" : degraded ? "◆" : "⚠";
 
   return (
     <div style={{ position: "fixed", right: 16, bottom: 14, zIndex: 1000, maxWidth: 390 }}>
@@ -55,6 +61,11 @@ export function WorkerRuntimeStatus() {
             <div>心跳：{age(status.heartbeat_age_seconds)}</div>
             <div>最近周期：{when(status.state?.last_cycle_finished_at)}</div>
             <div>累计周期：{status.state?.cycle_count ?? 0}</div>
+            {status.state?.last_email_poll_ok === 0 && (
+              <div style={{ color: "var(--warn)", marginTop: 5 }}>
+                Worker 仍在运行，但最近一次邮箱同步没有完整成功；系统会缩短间隔自动重试。
+              </div>
+            )}
             {status.state?.last_cycle_ok === 0 && (
               <div className="error-text" style={{ marginTop: 5 }}>
                 最近周期失败：{status.state.last_error || "未记录错误详情"}
