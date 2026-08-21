@@ -162,19 +162,21 @@ def auto_prune_sequences() -> None:
 def auto_agent_run() -> None:
     """Run the autonomous sales operator against the current local business state.
 
-    Reply handling and planning are still owned by `agent.run`. Account Brain is a
-    deterministic safety net after that pass: it makes sure a contacted account with no
-    reply, task or active sequence does not disappear simply because no new event fired.
-    Both paths create auditable proposals and retain the existing autonomy controls.
+    Reply handling and morning planning are owned by `agent.run`. If the local machine
+    missed the morning window, `catchup` may run one bounded afternoon plan using the
+    same attempt/cooldown state. Account Brain then makes sure a contacted account with
+    no reply, task or active sequence does not disappear simply because no new event
+    fired. All paths create auditable proposals and retain the existing autonomy gates.
     """
     if os.environ.get("OUTREACH_AGENT", "1") == "0":
         return
-    from app.agent import account_brain
+    from app.agent import account_brain, catchup
     from app.agent import run as agent_run
     conn = None
     try:
         conn = connect(DB_PATH)
         agent_run.run_once(conn)
+        catchup.run_if_due(conn)
         account_brain.safety_net(conn)
     except Exception:  # noqa: BLE001 — the agent must not kill the scheduler loop
         pass
