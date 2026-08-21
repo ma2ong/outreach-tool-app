@@ -11,7 +11,9 @@ import datetime as dt
 import os
 import socket
 import sqlite3
+import threading
 import uuid
+from collections.abc import Callable
 
 
 LEASE_NAME = "sales-operator"
@@ -80,19 +82,14 @@ def acquire(conn: sqlite3.Connection, *, name: str = LEASE_NAME, owner: str,
     try:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
-            "SELECT owner, expires_at FROM runtime_leases WHERE name=?", (name,)
+            "SELECT owner, acquired_at, expires_at FROM runtime_leases WHERE name=?", (name,)
         ).fetchone()
         if row is not None:
             existing_expiry = _parse(row["expires_at"])
             if row["owner"] != owner and existing_expiry and existing_expiry > now:
                 conn.rollback()
                 return False
-        acquired_at = _iso(now)
-        if row is not None and row["owner"] == owner:
-            previous = conn.execute(
-                "SELECT acquired_at FROM runtime_leases WHERE name=?", (name,)
-            ).fetchone()
-            acquired_at = previous["acquired_at"] if previous else acquired_at
+        acquired_at = row["acquired_at"] if row is not None and row["owner"] == owner else _iso(now)
         conn.execute(
             "INSERT INTO runtime_leases(name,owner,mode,acquired_at,heartbeat_at,expires_at)"
             " VALUES (?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET"
@@ -182,3 +179,82 @@ def status(conn: sqlite3.Connection, *, name: str = LEASE_NAME,
         "state": state_data,
         "heartbeat_age_seconds": heartbeat_age_seconds,
     }
+
+
+def _heartbeat_loop(db_path: str, owner: str, mode: str, stop: threading.Event,
+                    ttl_seconds: int, interval_seconds: int) -> None:
+    """Renew from a separate connection while a potentially slow sales cycle is running."""
+    from app.db import connect
+
+    while not stop.wait(interval_seconds):
+        conn = None
+        try:
+            conn = connect(db_path)
+            if not renew(conn, owner=owner, ttl_seconds=ttl_seconds):
+                return  # ownership was lost; never fight the new leader
+        except Exception:  # the current cycle still owns its normal error handling
+            pass
+        finally:
+            if conn is not None:
+                conn.close()
+
+
+def run_leased_cycle(db_path: str, cycle_fn: Callable[[], bool], *, owner: str,
+                     mode: str, ttl_seconds: int = DEFAULT_TTL_SECONDS,
+                     release_after: bool = False) -> dict:
+    """Run one full operating cycle only when this process owns the renewable lease.
+
+    `cycle_fn` returns the email-poll health used by the scheduler's retry cadence. A
+    separate heartbeat connection renews the lease during slow website/mailbox work, so
+    another process cannot take over mid-send merely because a cycle ran longer than the
+    normal interval. One-shot/cron callers set `release_after=True` to hand off at once.
+    """
+    from app.db import connect, init_schema
+
+    conn = connect(db_path)
+    heartbeat_stop: threading.Event | None = None
+    heartbeat: threading.Thread | None = None
+    try:
+        init_schema(conn)
+        ensure_schema(conn)
+        if not acquire(conn, owner=owner, mode=mode, ttl_seconds=ttl_seconds):
+            return {
+                "acquired": False, "cycle_ok": None, "email_poll_ok": None,
+                "error": None, "owner": owner, "mode": mode,
+            }
+        record_start(conn, owner=owner, mode=mode)
+        heartbeat_stop = threading.Event()
+        heartbeat_interval = max(10, min(300, int(ttl_seconds) // 3))
+        heartbeat = threading.Thread(
+            target=_heartbeat_loop,
+            args=(db_path, owner, mode, heartbeat_stop, ttl_seconds, heartbeat_interval),
+            daemon=True,
+            name=f"outreach-heartbeat-{mode}",
+        )
+        heartbeat.start()
+        try:
+            email_poll_ok = bool(cycle_fn())
+        except Exception as exc:  # noqa: BLE001 — runtime records rather than hides a crashed cycle
+            error = f"{type(exc).__name__}: {exc}"
+            record_finish(conn, ok=False, error=error, owner=owner, mode=mode)
+            return {
+                "acquired": True, "cycle_ok": False, "email_poll_ok": None,
+                "error": error, "owner": owner, "mode": mode,
+            }
+        record_finish(conn, ok=True, error=None, owner=owner, mode=mode)
+        renew(conn, owner=owner, ttl_seconds=ttl_seconds)
+        return {
+            "acquired": True, "cycle_ok": True, "email_poll_ok": email_poll_ok,
+            "error": None, "owner": owner, "mode": mode,
+        }
+    finally:
+        if heartbeat_stop is not None:
+            heartbeat_stop.set()
+        if heartbeat is not None:
+            heartbeat.join(timeout=2)
+        if release_after:
+            try:
+                release(conn, owner=owner)
+            except Exception:
+                pass
+        conn.close()
