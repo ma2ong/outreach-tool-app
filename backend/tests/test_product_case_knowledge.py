@@ -78,6 +78,19 @@ def test_explicit_product_conflict_is_excluded_not_hand_waved(conn):
     assert advice["ready_to_recommend"] is False
 
 
+def test_approved_but_vague_product_is_not_customer_recommendable(conn):
+    conn.execute("INSERT INTO products(model,agent_approved) VALUES ('Bare approved model',1)")
+    conn.commit()
+    opp = _qualified_opportunity(conn)
+    advice = product_advisor.advise(conn, opp)
+    assert advice["status"] == "insufficient_product_evidence"
+    assert advice["ready_to_recommend"] is False
+    assert advice["recommendations"][0]["model"] == "Bare approved model"
+    safe = product_advisor.customer_safe_context(advice)
+    assert safe["products"] == []
+    assert "Bare approved model" not in str(safe)
+
+
 def test_customer_safe_product_context_strips_price_history_and_internal_notes(conn):
     _product(conn, approved=True, price="USD 8888")
     opp = _qualified_opportunity(conn)
@@ -122,6 +135,19 @@ def test_shareable_case_never_exposes_internal_name(conn):
     assert "internal_name" not in matches[0]
     assert "Customer X" not in str(matches)
     assert case_library.get(conn, row["id"])["internal_name"].startswith("Customer X")
+
+
+def test_shareable_but_unrelated_case_stays_out_of_auto_reply_context(conn):
+    case_library.create(conn, {
+        "internal_name": "Approved but generic case",
+        "public_label": "Generic LED reference",
+        "public_summary": "A completed LED display project.",
+        "shareable": True,
+    })
+    internal = case_library.match(conn, {}, limit=3, shareable_only=True)
+    assert internal and internal[0]["public_label"] == "Generic LED reference"
+    assert internal[0]["match_score"] < case_library.MIN_CUSTOMER_MATCH_SCORE
+    assert case_library.customer_safe_matches(conn, {}) == []
 
 
 def test_reply_context_contains_only_approved_product_and_shareable_case(conn):
