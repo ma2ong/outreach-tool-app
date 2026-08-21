@@ -119,7 +119,7 @@ def _weak(conn) -> list[dict]:
 
 def build(conn) -> dict:
     from app import activities, autosend, sequences
-    from app.agent import mission, proposals
+    from app.agent import account_brain, mission, proposals
     proposals.ensure_schema(conn)
     return {
         "today": dt.date.today().isoformat(),
@@ -128,6 +128,9 @@ def build(conn) -> dict:
         "pending_replies": _pending_replies(conn),
         "tasks": {**activities.stats(conn), "overdue_list": _overdue_tasks(conn)},
         "stalled_opportunities": _stalled_opportunities(conn),
+        # Contacted accounts that have no other mechanism owning their next step.
+        # This is the deterministic portfolio an experienced salesperson keeps in mind.
+        "due_followups": account_brain.due_accounts(conn, limit=MAX_ROWS),
         "untouched": _untouched(conn),
         "sequence_due_today": len(sequences.due_queue(conn)),
         "capacity": _channel_capacity(conn),
@@ -137,8 +140,9 @@ def build(conn) -> dict:
         "weak_campaigns": _weak(conn),
         "templates": _rows(conn, "SELECT id, name, channel FROM templates ORDER BY id"),
         "sequences": _rows(conn, "SELECT id, name, channel FROM sequences ORDER BY id"),
-        # So the plan does not re-propose what is already waiting for a decision.
+        # So the plan does not re-propose what is already waiting or running.
         "already_pending": _rows(
-            conn, "SELECT kind, lead_no, title FROM agent_proposals"
-                  " WHERE status='pending' ORDER BY id DESC LIMIT 50"),
+            conn, "SELECT kind, lead_no, title, status FROM agent_proposals"
+                  " WHERE status IN ('pending','approved','edited_approved')"
+                  " ORDER BY id DESC LIMIT 50"),
     }
