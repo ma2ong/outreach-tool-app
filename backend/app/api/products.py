@@ -23,11 +23,71 @@ class ProductCreate(BaseModel):
     brightness: str | None = None
     use_case: str | None = None
     ref_price_sqm: str | None = None
+    indoor_outdoor: str | None = None
+    refresh_rate_hz: int | None = None
+    maintenance_access: str | None = None
+    cabinet_size: str | None = None
+    control_system: str | None = None
+    notes: str | None = None
+    agent_approved: bool = False
+
+
+class ProductUpdate(BaseModel):
+    model: str | None = None
+    pixel_pitch: str | None = None
+    brightness: str | None = None
+    use_case: str | None = None
+    ref_price_sqm: str | None = None
+    indoor_outdoor: str | None = None
+    refresh_rate_hz: int | None = None
+    maintenance_access: str | None = None
+    cabinet_size: str | None = None
+    control_system: str | None = None
+    notes: str | None = None
+    agent_approved: bool | None = None
 
 
 class QuoteRequest(BaseModel):
     product_ids: list[int]
     note: str = ""
+
+
+_PRODUCT_FIELDS = (
+    "model", "pixel_pitch", "brightness", "use_case", "ref_price_sqm",
+    "indoor_outdoor", "refresh_rate_hz", "maintenance_access", "cabinet_size",
+    "control_system", "notes", "agent_approved",
+)
+
+
+def _clean_product(data: dict, *, partial: bool = False) -> dict:
+    clean = {k: v for k, v in data.items() if k in _PRODUCT_FIELDS}
+    if not partial or "model" in clean:
+        model = str(clean.get("model") or "").strip()
+        if not model:
+            raise HTTPException(status_code=400, detail="model required")
+        clean["model"] = model[:160]
+    for field in (
+        "pixel_pitch", "brightness", "use_case", "ref_price_sqm", "indoor_outdoor",
+        "maintenance_access", "cabinet_size", "control_system", "notes",
+    ):
+        if field in clean:
+            clean[field] = str(clean[field] or "").strip()[:1000] or None
+    if clean.get("indoor_outdoor"):
+        value = clean["indoor_outdoor"].lower()
+        if value not in ("indoor", "outdoor"):
+            raise HTTPException(status_code=400, detail="indoor_outdoor must be Indoor or Outdoor")
+        clean["indoor_outdoor"] = value.title()
+    if "refresh_rate_hz" in clean and clean["refresh_rate_hz"] is not None:
+        try:
+            refresh = int(clean["refresh_rate_hz"])
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="refresh_rate_hz must be an integer") from exc
+        if not 240 <= refresh <= 20000:
+            raise HTTPException(status_code=400, detail="refresh_rate_hz out of range")
+        clean["refresh_rate_hz"] = refresh
+    if "agent_approved" in clean:
+        clean["agent_approved"] = int(bool(clean["agent_approved"]))
+    return clean
 
 
 @router.get("/products")
@@ -37,25 +97,39 @@ def list_products(conn=Depends(get_conn)):
 
 @router.post("/products")
 def create_product(req: ProductCreate, conn=Depends(get_conn)):
-    if not req.model.strip():
-        raise HTTPException(status_code=400, detail="model required")
+    clean = _clean_product(req.model_dump())
+    fields = list(clean)
     cur = conn.execute(
-        "INSERT INTO products(model, pixel_pitch, brightness, use_case, ref_price_sqm)"
-        " VALUES (?, ?, ?, ?, ?)",
-        (req.model.strip(), req.pixel_pitch, req.brightness, req.use_case, req.ref_price_sqm))
+        f"INSERT INTO products({','.join(fields)}) VALUES ({','.join('?' * len(fields))})",
+        [clean[field] for field in fields],
+    )
     conn.commit()
     return dict(conn.execute("SELECT * FROM products WHERE id=?", (cur.lastrowid,)).fetchone())
 
 
+@router.patch("/products/{pid}")
+def update_product(pid: int, req: ProductUpdate, conn=Depends(get_conn)):
+    if conn.execute("SELECT 1 FROM products WHERE id=?", (pid,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="product not found")
+    clean = _clean_product(req.model_dump(exclude_unset=True), partial=True)
+    if clean:
+        conn.execute(
+            f"UPDATE products SET {', '.join(f'{field}=?' for field in clean)} WHERE id=?",
+            [*clean.values(), pid],
+        )
+        conn.commit()
+    return dict(conn.execute("SELECT * FROM products WHERE id=?", (pid,)).fetchone())
+
+
 @router.post("/products/seed")
 def seed_products(conn=Depends(get_conn)):
-    """Load the default Maxcolor range (only when the table is empty)."""
+    """Load the default Maxcolor ranges as reference rows, never Agent-approved facts."""
     if conn.execute("SELECT 1 FROM products LIMIT 1").fetchone():
         raise HTTPException(status_code=400, detail="products already exist")
     for p in quote.DEFAULT_PRODUCTS:
         conn.execute(
-            "INSERT INTO products(model, pixel_pitch, brightness, use_case, ref_price_sqm)"
-            " VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO products(model, pixel_pitch, brightness, use_case, ref_price_sqm, agent_approved)"
+            " VALUES (?, ?, ?, ?, ?, 0)",
             (p["model"], p["pixel_pitch"], p["brightness"], p["use_case"], p["ref_price_sqm"]))
     conn.commit()
     return {"seeded": len(quote.DEFAULT_PRODUCTS)}
