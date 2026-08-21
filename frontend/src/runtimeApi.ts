@@ -14,6 +14,7 @@ export interface RuntimeState {
   last_cycle_started_at: string | null;
   last_cycle_finished_at: string | null;
   last_cycle_ok: number | null;
+  last_email_poll_ok: number | null;
   last_error: string | null;
   cycle_count: number;
   updated_at: string;
