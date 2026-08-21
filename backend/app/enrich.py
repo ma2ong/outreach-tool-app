@@ -79,9 +79,6 @@ def extract_socials(text: str) -> dict:
     return {"instagram": ig, "facebook": fb, "linkedin": li}
 
 
-# Page titles that name the page rather than the company. The contact page is fetched
-# first, so without this the company name came back as "Contact", "Inicio", "Contact Us"
-# — and on a site whose /contact 404s, "Página não encontrada".
 _GENERIC_TITLES = {
     "contact", "contact us", "contacts", "contact-us", "contacto", "contáctanos",
     "contactanos", "contato", "contate-nos", "kontakt", "문의", "연락처",
@@ -93,11 +90,7 @@ _GENERIC_TITLES = {
 
 
 def extract_company_name(text: str) -> str | None:
-    """Best-effort company name from a page title / first markdown H1.
-
-    Returns None for titles that name the page instead of the company — a lead called
-    "Contact" is worse than one called after its own domain, because it looks like a
-    real answer."""
+    """Best-effort company name from a page title / first markdown H1."""
     m = _TITLE.search(text)
     if not m:
         return None
@@ -107,47 +100,39 @@ def extract_company_name(text: str) -> str | None:
     return name
 
 
-# Which page an address was read off. Kept per-email so the address we end up choosing
-# can say where it came from: a contact page address and a footer address are both real,
-# but only one of them was put there for buyers to use.
 _PATH_SOURCE = {"/contact": "site.contact-page", "/contact-us": "site.contact-page",
                 "": "site.homepage"}
 _CONTACT_PATHS = ("/contact", "/contact-us", "")
 
-# Where the description of the business actually lives, when the contact pass found none.
-#
-# Guessing paths does not work. rgbkorea.com answers its homepage with a navigation shell
-# and keeps every word about itself at /shopinfo/company.html — a Cafe24 convention no
-# list of English guesses would ever contain. But the shell links to it, in plain sight.
-# So instead of guessing, read the page's own links and follow the one it says is about
-# the company or the products.
-#
-# The vocabulary is multilingual for the same reason the gloss table is: the markets that
-# most need this are the ones that do not write their nav in English. That is not a
-# per-country branch — every site is scored by the same table, and a Korean site scores
-# on 회사소개 exactly as an English one scores on "about".
 _LINK_RE = re.compile(r'\[([^\]]{0,80})\]\((https?://[^)\s]+)\)')
-_LINK_WORDS = {
-    # products — the strongest signal, since specs live there
+# Evergreen company/product pages are used to improve ICP and cold-message evidence.
+_CONTENT_LINK_WORDS = {
     "product": 3, "products": 3, "productos": 3, "produtos": 3, "goods": 3,
     "catalog": 3, "catalogo": 3, "catálogo": 3, "제품": 3, "상품": 3,
-    # who they are
     "about": 2, "aboutus": 2, "about-us": 2, "company": 2, "corp": 2, "profile": 2,
     "empresa": 2, "sobre": 2, "nosotros": 2, "quienes": 2, "shopinfo": 2,
     "회사": 2, "회사소개": 2, "소개": 2,
-    # what they do
     "service": 1, "services": 1, "servicios": 1, "solution": 1, "solutions": 1,
     "business": 1, "portfolio": 1, "project": 1, "projects": 1, "사업": 1, "서비스": 1,
+}
+# Current-event pages are followed independently. A company already listing P2.5 on the
+# homepage may still announce an RFQ tomorrow; product evidence must not suppress radar.
+_SIGNAL_LINK_WORDS = {
+    "news": 4, "press": 4, "updates": 3, "career": 4, "careers": 4, "jobs": 4,
+    "tender": 5, "procurement": 5, "rfp": 5, "rfq": 5, "bid": 4,
+    "event": 3, "events": 3, "expo": 3, "exhibition": 3,
+    "뉴스": 4, "소식": 4, "공지": 4, "채용": 5, "입찰": 5, "조달": 5, "전시": 3,
+    "新闻": 4, "资讯": 4, "招聘": 5, "招标": 5, "采购": 5, "展会": 3,
 }
 _LINK_SKIP = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".pdf", ".zip",
               "facebook.com", "instagram.com", "youtube.com", "linkedin.com",
               "twitter.com", "x.com", "kakao", "naver.me")
 _MAX_FOLLOWED = 2
+_MAX_SIGNAL_FOLLOWED = 2
 
 
-def _content_links(text: str, domain: str, seen: set[str]) -> list[str]:
-    """The page's own links, best candidates first. Same host only — a supplier's link to
-    a partner's catalogue would describe the wrong company."""
+def _rank_links(text: str, domain: str, seen: set[str], words: dict[str, int],
+                limit: int) -> list[str]:
     host = domain.split("/")[0].lower().removeprefix("www.")
     scored: dict[str, int] = {}
     for label, url in _LINK_RE.findall(text or ""):
@@ -158,14 +143,34 @@ def _content_links(text: str, domain: str, seen: set[str]) -> list[str]:
         if host not in low.split("?")[0]:
             continue
         haystack = f"{low} {label.lower()}"
-        score = sum(w for word, w in _LINK_WORDS.items() if word in haystack)
+        score = sum(weight for word, weight in words.items() if word in haystack)
         if score:
             scored[clean] = max(scored.get(clean, 0), score)
-    return sorted(scored, key=lambda u: -scored[u])[:_MAX_FOLLOWED]
+    return sorted(scored, key=lambda u: (-scored[u], u))[:limit]
+
+
+def _content_links(text: str, domain: str, seen: set[str]) -> list[str]:
+    """Same-host evergreen pages, best evidence candidates first."""
+    return _rank_links(text, domain, seen, _CONTENT_LINK_WORDS, _MAX_FOLLOWED)
+
+
+def _signal_links(text: str, domain: str, seen: set[str]) -> list[str]:
+    """Same-host current-event pages, independently capped from product enrichment."""
+    return _rank_links(text, domain, seen, _SIGNAL_LINK_WORDS, _MAX_SIGNAL_FOLLOWED)
+
+
+def _fetch_extra(pages: list[dict], urls: list[str], fetch: Callable[[str], str]) -> None:
+    for url in urls:
+        try:
+            text = fetch(url)
+        except Exception:  # noqa: BLE001
+            continue
+        pages.append({"url": url, "text": text})
 
 
 def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict:
     from app.brief import _pitches
+    from app.signal_detector import detect_pages
 
     emails: list[str] = []
     email_sources: dict[str, str] = {}
@@ -173,13 +178,14 @@ def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict
     socials = {"instagram": None, "facebook": None, "linkedin": None}
     company = None
     home_company = None
-    all_text: list[str] = []
+    pages: list[dict] = []
     for path in _CONTACT_PATHS:
+        url = f"https://{domain}{path}"
         try:
-            text = fetch(f"https://{domain}{path}")
+            text = fetch(url)
         except Exception:  # noqa: BLE001
             continue
-        all_text.append(text)
+        pages.append({"url": url, "text": text})
         name = extract_company_name(text)
         if path == "":
             home_company = name
@@ -197,24 +203,24 @@ def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict
                 socials[k] = v
         if emails and phones and all(socials.values()):
             break
-    # The homepage titles itself after the company; a subpage titles itself after itself.
     company = home_company or company
 
-    # Triggered by a missing spec, not by a missing category. "Saw P1–P10 panels listed
-    # on your site" is worth far more in a cold message than "Saw the rental work on your
-    # site", and the pitch is almost never on the contact page — so a site that has told
-    # us what it does but not what it sells is exactly the one worth two more fetches.
-    joined = "\n".join(all_text)
+    joined = "\n".join(page["text"] for page in pages)
+    seen = {page["url"] for page in pages}
+    # Improve product/company evidence only when the contact pass did not already find a
+    # specific pitch. This keeps the old bounded behavior.
     if not _pitches(joined):
-        seen = {f"https://{domain}{p}" for p in _CONTACT_PATHS}
-        for url in _content_links(joined, domain, seen):
-            try:
-                followed = fetch(url)
-            except Exception:  # noqa: BLE001
-                continue
-            all_text.append(followed)
+        urls = _content_links(joined, domain, seen)
+        _fetch_extra(pages, urls, fetch)
+        seen.update(urls)
 
-    text = "\n".join(all_text)
+    # Buying-window pages are a separate bounded pass. This still reuses links from the
+    # pages we already fetched and never becomes a site-wide crawler.
+    radar_text = "\n".join(page["text"] for page in pages)
+    signal_urls = _signal_links(radar_text, domain, seen)
+    _fetch_extra(pages, signal_urls, fetch)
+
+    text = "\n".join(page["text"] for page in pages)
     icp = classify_text(text)
     best = None
     for e in emails:
@@ -224,14 +230,10 @@ def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict
     if best is None and emails:
         best = emails[0]
     written = build_brief(text, icp=icp)
-    # How many pages actually came back. Every fetch failure above is swallowed per-path
-    # so one dead URL cannot lose the others — which means an entirely unreachable site
-    # returns the same empty result as a site with nothing on it. Callers that care about
-    # the difference (the backfill writes one off permanently, the other it must retry)
-    # have no way to tell them apart without this.
-    return {"domain": domain, "pages": len(all_text),
+    return {"domain": domain, "pages": len(pages),
             "emails": emails, "email": best, "company": company,
             "email_source": email_sources.get(best.lower()) if best else None,
             "phone": phones[0] if phones else None, "phones": phones,
             "icp_type": icp["icp_type"], "fit_score": icp["fit_score"],
-            "brief": written["brief"], "hook": written["hook"], **socials}
+            "brief": written["brief"], "hook": written["hook"],
+            "buying_signals": detect_pages(pages), **socials}

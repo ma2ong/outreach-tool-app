@@ -68,7 +68,8 @@ def test_lookback_widens_to_cover_the_outage(conn, monkeypatch):
 
 def test_failed_poll_does_not_narrow_the_next_window(conn, monkeypatch):
     from app import settings
-    monkeypatch.setattr("app.channels.email_adapter.get_password", lambda: "pw")
+    # replies.py imports get_password directly; patch the dependency at its use site.
+    monkeypatch.setattr("app.replies.get_password", lambda: "pw")
 
     def boom(mailbox, since_days):
         raise OSError("[WinError 10060] network not up yet")
@@ -83,7 +84,7 @@ def test_failed_poll_does_not_narrow_the_next_window(conn, monkeypatch):
 
 def test_successful_poll_records_success_timestamp(conn, monkeypatch):
     from app import settings
-    monkeypatch.setattr("app.channels.email_adapter.get_password", lambda: "pw")
+    monkeypatch.setattr("app.replies.get_password", lambda: "pw")
     fake = [{"from_addr": "g@gamma.com", "subject": "Re: LED", "body": "hi", "received_at": ""}]
     res = replies.poll_all_replies(conn, fetcher=lambda mailbox, since_days: fake)
     assert res["replies"] == 1 and res["since_days"] == replies.SINCE_DAYS_MAX

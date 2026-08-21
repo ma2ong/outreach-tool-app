@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -15,7 +16,14 @@ router = APIRouter(prefix="/api/send")
 # Injectable for tests; defaults to real SMTP send.
 SENDER = send_email
 DELAY_RANGE = (16, 28)
-DEFAULT_ATTACHMENT = r"C:\Users\Administrator\Desktop\Recent-led-projects-poster-4k.jpg"
+# A machine-specific Desktop path cannot be a business API contract: it makes clean
+# installs, Linux CI and a future hosted Agent reject otherwise valid sends. Preserve
+# Allen's legacy local convenience when that file really exists, while making the
+# portable/default behavior no attachment unless explicitly configured.
+_LEGACY_ATTACHMENT = r"C:\Users\Administrator\Desktop\Recent-led-projects-poster-4k.jpg"
+_configured_attachment = os.environ.get("OUTREACH_DEFAULT_ATTACHMENT", "").strip()
+DEFAULT_ATTACHMENT = (_configured_attachment or
+                      (_LEGACY_ATTACHMENT if Path(_LEGACY_ATTACHMENT).is_file() else None))
 
 
 def clean_path(value: str | None) -> str | None:
@@ -98,7 +106,7 @@ class ChannelSendRequest(BaseModel):
     channel: str
     lead_nos: list[int]
     message: str
-    image: str | None = DEFAULT_ATTACHMENT  # 规矩：DM 必须同步发案例图
+    image: str | None = DEFAULT_ATTACHMENT
     campaign: str | None = None
 
     _clean_image = field_validator("image")(clean_path)

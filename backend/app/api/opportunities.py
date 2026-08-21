@@ -27,6 +27,17 @@ class OpportunityCreate(BaseModel):
     incoterm: str | None = None
     competitor: str | None = None
     loss_reason: str | None = None
+    viewing_distance_m: float | None = None
+    brightness_nits: int | None = None
+    refresh_rate_hz: int | None = None
+    maintenance_access: str | None = None
+    cabinet_size: str | None = None
+    control_system: str | None = None
+    installation_type: str | None = None
+    project_timing: str | None = None
+    budget_range: str | None = None
+    decision_process: str | None = None
+    technical_notes: str | None = None
 
 
 class OpportunityUpdate(BaseModel):
@@ -48,6 +59,17 @@ class OpportunityUpdate(BaseModel):
     incoterm: str | None = None
     competitor: str | None = None
     loss_reason: str | None = None
+    viewing_distance_m: float | None = None
+    brightness_nits: int | None = None
+    refresh_rate_hz: int | None = None
+    maintenance_access: str | None = None
+    cabinet_size: str | None = None
+    control_system: str | None = None
+    installation_type: str | None = None
+    project_timing: str | None = None
+    budget_range: str | None = None
+    decision_process: str | None = None
+    technical_notes: str | None = None
 
 
 def _bad(exc: opportunities.OpportunityValidation):
@@ -64,6 +86,30 @@ def list_opportunities(stage: str | None = None, lead_no: int | None = None,
 @router.get("/stats")
 def opportunity_stats(conn=Depends(get_conn)):
     return opportunities.stats(conn)
+
+
+@router.get("/coach")
+def opportunity_coaching(limit: int = 50, conn=Depends(get_conn)):
+    from app.agent import opportunity_coach
+    return opportunity_coach.portfolio(conn, limit=limit)
+
+
+@router.get("/customer/{lead_no}/360")
+def customer_360(lead_no: int, conn=Depends(get_conn)):
+    from app.agent import customer360
+    result = customer360.build(conn, lead_no)
+    if result is None:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    return result
+
+
+@router.get("/{opportunity_id}/coach")
+def coach_one(opportunity_id: int, conn=Depends(get_conn)):
+    from app.agent import opportunity_coach
+    opportunity = opportunities.get(conn, opportunity_id)
+    if opportunity is None:
+        raise HTTPException(status_code=404, detail="商机不存在")
+    return opportunity_coach.coach_opportunity(conn, opportunity)
 
 
 @router.post("")
@@ -85,4 +131,3 @@ def update_opportunity(opportunity_id: int, req: OpportunityUpdate, conn=Depends
     if result is None:
         raise HTTPException(status_code=404, detail="商机不存在")
     return result
-

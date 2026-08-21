@@ -1,5 +1,5 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app import discovery, jobs
 from app.db import connect
@@ -44,6 +44,10 @@ class Candidate(BaseModel):
     brief: str | None = None
     hook: str | None = None
     email_source: str | None = None
+    # Public evidence found during the same website reads. Keep it attached until the
+    # candidate is actually imported; discovery results that are rejected create no CRM
+    # signal rows.
+    buying_signals: list[dict] = Field(default_factory=list)
 
 
 class ImportRequest(BaseModel):

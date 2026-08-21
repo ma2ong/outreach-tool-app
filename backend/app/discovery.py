@@ -104,9 +104,11 @@ def qualify_for_auto_import(candidates: list[dict], minimum_fit: int,
 
 def import_candidates(conn, candidates: list[dict], default_country: str | None = None) -> dict:
     """The one import path shared by the browser and autonomous Agent."""
-    from app import blocklist, icp as icp_mod
+    from app import blocklist, icp as icp_mod, sales_intelligence
     imported: list[int] = []
     skipped: list[dict] = []
+    signals_imported = 0
+    signal_errors: list[dict] = []
     for candidate in candidates:
         website = candidate.get("website") or candidate.get("domain")
         company = candidate_name(candidate)
@@ -139,8 +141,22 @@ def import_candidates(conn, candidates: list[dict], default_country: str | None 
                 "fit_score": candidate.get("fit_score") or 0,
             })
         imported.append(no)
-    return {"imported": len(imported), "imported_lead_nos": imported,
-            "skipped": skipped}
+        # Signal candidates are evidence from the same public pages already used to
+        # qualify this company. Persist only after the lead exists; rejected candidates
+        # therefore cannot create orphan signal rows.
+        for signal in candidate.get("buying_signals") or []:
+            try:
+                sales_intelligence.create_signal(conn, no, signal)
+                signals_imported += 1
+            except (sales_intelligence.SalesIntelligenceValidation, TypeError, ValueError) as exc:
+                signal_errors.append({"lead_no": no, "headline": signal.get("headline"),
+                                      "error": str(exc)})
+    result = {"imported": len(imported), "imported_lead_nos": imported,
+              "skipped": skipped}
+    if signals_imported or signal_errors:
+        result["signals_imported"] = signals_imported
+        result["signal_errors"] = signal_errors
+    return result
 
 
 def _enrich_candidates(conn, domains: list[dict], enrich_fn: Callable,
@@ -166,6 +182,7 @@ def _enrich_candidates(conn, domains: list[dict], enrich_fn: Callable,
             "brief": info.get("brief") or None,
             "hook": info.get("hook") or None,
             "email_source": info.get("email_source"),
+            "buying_signals": info.get("buying_signals") or [],
             "source": source,
         }
         # Re-screen with the enriched phone/email: +86 in the contact details is the

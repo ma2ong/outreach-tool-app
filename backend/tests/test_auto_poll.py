@@ -9,7 +9,7 @@ def test_disabled_by_env_never_touches_anything(monkeypatch):
     monkeypatch.setenv("OUTREACH_AUTO_POLL", "0")
     monkeypatch.setattr("app.channels.email_adapter.get_password",
                         lambda: (_ for _ in ()).throw(AssertionError("must not be called")))
-    main.auto_poll_replies()  # returns before looking at credentials
+    assert main.auto_poll_replies() is True  # healthy skip, before looking at credentials
 
 
 def test_no_password_skips_quietly(monkeypatch):
@@ -65,6 +65,7 @@ def test_loop_retries_fast_until_first_success(monkeypatch):
     monkeypatch.setattr(main, "auto_scan_social", lambda: None)
     monkeypatch.setattr(main, "auto_recheck", lambda: None)
     monkeypatch.setattr(main, "auto_prune_sequences", lambda: None)
+    monkeypatch.setattr(main, "auto_agent_run", lambda: None)
     monkeypatch.setattr(main.time, "sleep", fake_sleep)
     with pytest.raises(KeyboardInterrupt):
         main.reply_poll_loop()
@@ -72,8 +73,17 @@ def test_loop_retries_fast_until_first_success(monkeypatch):
                      main.REPLY_POLL_SECONDS]
 
 
-def test_loop_disabled_by_env_returns_immediately(monkeypatch):
+def test_disabling_email_poll_keeps_scheduler_alive(monkeypatch):
+    """Email sync is one capability, not the switch for the whole autonomous operator."""
     monkeypatch.setenv("OUTREACH_AUTO_POLL", "0")
+    calls = []
+    monkeypatch.setattr(main, "auto_scan_social", lambda: calls.append("social"))
+    monkeypatch.setattr(main, "auto_recheck", lambda: calls.append("recheck"))
+    monkeypatch.setattr(main, "auto_prune_sequences", lambda: calls.append("prune"))
+    monkeypatch.setattr(main, "auto_agent_run", lambda: calls.append("agent"))
     monkeypatch.setattr(main.time, "sleep",
-                        lambda s: (_ for _ in ()).throw(AssertionError("must not loop")))
-    main.reply_poll_loop()
+                        lambda seconds: (_ for _ in ()).throw(KeyboardInterrupt))
+
+    with pytest.raises(KeyboardInterrupt):
+        main.reply_poll_loop()
+    assert calls == ["social", "recheck", "prune", "agent"]

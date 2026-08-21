@@ -35,6 +35,7 @@ from app.api import activities as activities_api
 from app.api import contacts as contacts_api
 from app.api import sales_documents as sales_documents_api
 from app.api import sales_intelligence as sales_intelligence_api
+from app.api import decision_makers as decision_makers_api
 from app.api import agent as agent_api
 
 BACKUP_KEEP = 14
@@ -74,9 +75,13 @@ def auto_poll_replies() -> bool:
     """Pull replies so the inbox is current without Allen remembering to click 拉取邮件
     — a missed pull means the sequences keep chasing people who already answered.
     Fully fault-tolerant: no Gmail password or a network hiccup just skips this round;
-    the manual button still exists. Returns True when every mailbox was read."""
+    the manual button still exists. Returns True when every mailbox was read.
+
+    An intentionally disabled poll is healthy for scheduler timing: email polling is one
+    capability, not the master switch for every other autonomous job.
+    """
     if os.environ.get("OUTREACH_AUTO_POLL", "1") == "0":
-        return False
+        return True
     from app import replies
     conn = None
     try:
@@ -156,40 +161,58 @@ def auto_prune_sequences() -> None:
 
 
 def auto_agent_run() -> None:
-    """Classify new replies and draft what should be answered.
+    """Run the autonomous sales operator against the current local business state.
 
-    Runs right after the poll so a reply that lands at 09:00 has a draft waiting rather
-    than sitting until Allen opens the page. Nothing here sends: the output is proposals
-    (Spec 22). Off by default in tests, and silent when no model backend is configured."""
+    Reply handling and planning are owned by `agent.run`/`catchup`. Account Brain keeps
+    silent contacted accounts alive, Opportunity Coach owns unhealthy real projects,
+    and Decision Maker Radar researches a tiny bounded set of high-value authority gaps.
+    Every customer-facing action still goes through proposals/autonomy and existing send
+    guards; the radar itself only reads public company pages and stages/records contacts.
+    """
     if os.environ.get("OUTREACH_AGENT", "1") == "0":
         return
+    from app import decision_maker_radar
+    from app.agent import account_brain, catchup, opportunity_coach
     from app.agent import run as agent_run
     conn = None
     try:
         conn = connect(DB_PATH)
         agent_run.run_once(conn)
-    except Exception:  # noqa: BLE001 — the agent must not kill the poll loop
+        catchup.run_if_due(conn)
+        account_brain.safety_net(conn)
+        opportunity_coach.safety_net(conn)
+        if os.environ.get("OUTREACH_AUTO_RESEARCH", "1") != "0":
+            decision_maker_radar.sweep(conn)
+    except Exception:  # noqa: BLE001 — the agent must not kill the scheduler loop
         pass
     finally:
         if conn is not None:
             conn.close()
 
 
-def reply_poll_loop() -> None:
-    """Keep pulling for as long as the app runs.
+def background_cycle() -> bool:
+    """Run one independent maintenance/Agent cycle and return email-poll health.
 
-    Polling used to happen exactly once, at startup. The app now auto-starts at logon,
-    where the network is routinely not up yet — the pull timed out, the failure was
-    swallowed, and nothing ever retried, so replies stayed invisible until someone
-    clicked the button. Retry fast until the first clean sweep, then settle down."""
-    if os.environ.get("OUTREACH_AUTO_POLL", "1") == "0":
-        return
+    Kept separate from the infinite loop so each capability can be tested without
+    starting a daemon thread. Most importantly, `OUTREACH_AUTO_POLL=0` now skips only
+    email polling instead of disabling the sales Agent, social scan and data hygiene.
+    """
+    ok = auto_poll_replies()
+    auto_scan_social()
+    auto_recheck()
+    auto_prune_sequences()  # after poll: a fresh bounce parks its enrollment now
+    auto_agent_run()        # last: it reads whatever new state the other jobs produced
+    return ok
+
+
+def reply_poll_loop() -> None:
+    """Keep the background operating cycle alive for as long as the app runs.
+
+    A failed email sync retries quickly, while an intentionally disabled email sync uses
+    the normal interval. Other autonomous capabilities are independent of that setting.
+    """
     while True:
-        ok = auto_poll_replies()
-        auto_scan_social()
-        auto_recheck()
-        auto_prune_sequences()  # after the poll: a fresh bounce parks its enrollment now
-        auto_agent_run()        # last: it reads the replies the poll just stored
+        ok = background_cycle()
         time.sleep(REPLY_POLL_SECONDS if ok else REPLY_RETRY_SECONDS)
 
 
@@ -203,6 +226,7 @@ async def lifespan(app: FastAPI):
     from app.contacts import ensure_schema as ensure_contact_schema, migrate_existing as migrate_contacts
     from app.sales_documents import ensure_schema as ensure_sales_document_schema
     from app.sales_intelligence import ensure_schema as ensure_sales_intelligence_schema
+    from app.decision_maker_radar import ensure_schema as ensure_decision_maker_schema
     backup_db()  # the lead base is the business asset — snapshot before touching it
     conn = connect(DB_PATH)
     try:
@@ -213,6 +237,7 @@ async def lifespan(app: FastAPI):
         ensure_sales_document_schema(conn)
         ensure_activity_schema(conn)
         ensure_sales_intelligence_schema(conn)
+        ensure_decision_maker_schema(conn)
         migrate_existing(conn)
         normalize_all_websites(conn)  # idempotent data fix: consistent website form
         from app.replies import backfill_bounced_at
@@ -269,6 +294,7 @@ app.include_router(activities_api.router)
 app.include_router(contacts_api.router)
 app.include_router(sales_documents_api.router)
 app.include_router(sales_intelligence_api.router)
+app.include_router(decision_makers_api.router)
 app.include_router(agent_api.router)
 from app.api import auth as auth_api  # noqa: E402
 from app.api import health as health_api  # noqa: E402
