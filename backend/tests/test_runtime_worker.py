@@ -78,7 +78,20 @@ def test_leased_cycle_records_success_and_keeps_lease(tmp_path):
     state = runtime.status(conn)["state"]
     assert state["cycle_count"] == 1
     assert state["last_cycle_ok"] == 1
+    assert state["last_email_poll_ok"] == 1
     assert runtime.status(conn)["lease"]["owner"] == "worker-a"
+
+
+def test_mail_poll_failure_is_degraded_health_not_dead_worker(tmp_path):
+    path, conn = _db(tmp_path)
+    result = runtime.run_leased_cycle(
+        path, lambda: False, owner="worker-a", mode="worker", ttl_seconds=120)
+    assert result["cycle_ok"] is True
+    assert result["email_poll_ok"] is False
+    state = runtime.status(conn)["state"]
+    assert state["last_cycle_ok"] == 1
+    assert state["last_email_poll_ok"] == 0
+    assert runtime.status(conn)["active"] is True
 
 
 def test_leased_cycle_records_crash_instead_of_losing_it(tmp_path):
@@ -95,6 +108,7 @@ def test_leased_cycle_records_crash_instead_of_losing_it(tmp_path):
     assert "broken cycle" in result["error"]
     state = runtime.status(conn)["state"]
     assert state["last_cycle_ok"] == 0
+    assert state["last_email_poll_ok"] is None
     assert "broken cycle" in state["last_error"]
     assert runtime.status(conn)["lease"] is None
 
