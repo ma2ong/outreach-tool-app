@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 from app import opportunities
-from app.agent import solution_engineer
+from app.agent import proposals, solution_engineer
 from app.db import connect, init_schema
 
 
@@ -172,3 +172,28 @@ def test_solution_endpoint_and_additive_fields(tmp_path):
         assert r.json()["spare_pct"] == 5
     finally:
         main.app.dependency_overrides.pop(main.get_conn, None)
+
+
+def test_agent_create_task_records_agent_provenance(conn):
+    proposals.set_autonomy(conn, "create_task", "auto")
+    p = proposals.create(
+        conn,
+        "create_task",
+        lead_no=1,
+        title="Agent next step",
+        payload={
+            "title": "Agent next step",
+            "type": "task",
+            "due_at": "2026-08-22",
+            "priority": "normal",
+        },
+        risk="low",
+        dedupe_key="agent-task-provenance-test",
+    )
+    assert p is not None and p["status"] == "executed"
+    task = conn.execute(
+        "SELECT source, source_ref FROM activities WHERE title='Agent next step'"
+    ).fetchone()
+    assert task is not None
+    assert task["source"] == "agent"
+    assert task["source_ref"] == f"proposal:{p['id']}"
