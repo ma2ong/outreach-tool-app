@@ -9,7 +9,7 @@ from __future__ import annotations
 
 def build(conn, lead_no: int) -> dict | None:
     from app import (
-        activities, contacts, decision_maker_radar, opportunities,
+        activities, case_library, contacts, decision_maker_radar, opportunities,
         sales_documents, sales_intelligence,
     )
     from app.agent import opportunity_coach
@@ -17,6 +17,7 @@ def build(conn, lead_no: int) -> dict | None:
     sales_intelligence.ensure_schema(conn)
     sales_documents.ensure_schema(conn)
     decision_maker_radar.ensure_schema(conn)
+    case_library.ensure_schema(conn)
     lead = conn.execute("SELECT * FROM leads WHERE no=?", (lead_no,)).fetchone()
     if lead is None:
         return None
@@ -29,6 +30,25 @@ def build(conn, lead_no: int) -> dict | None:
     coached = [opportunity_coach.coach_opportunity(conn, opp) for opp in opps
                if opp["stage"] in opportunities.OPEN_STAGES]
     coached.sort(key=lambda row: (-row["urgency"], row["health"], row["opportunity_id"]))
+    product_advice = [
+        {
+            "opportunity_id": row["opportunity_id"],
+            "title": row["title"],
+            "status": row["product_advice"].get("status"),
+            "ready_to_recommend": row["product_advice"].get("ready_to_recommend"),
+            "reason": row["product_advice"].get("reason"),
+            "recommendations": row["product_advice"].get("recommendations", []),
+        }
+        for row in coached
+    ]
+    approved_case_matches = []
+    for opp in opps:
+        if opp["stage"] not in opportunities.OPEN_STAGES:
+            continue
+        matches = case_library.match(conn, opp, limit=5, shareable_only=True)
+        approved_case_matches.append({
+            "opportunity_id": opp["id"], "title": opp["title"], "cases": matches,
+        })
     primary_opp = opps[0] if opps else None
     coverage = opportunity_coach.contact_coverage(conn, lead_no, primary_opp or {})
     signals = sales_intelligence.list_signals(conn, lead_no=lead_no, limit=10)
@@ -104,6 +124,8 @@ def build(conn, lead_no: int) -> dict | None:
         "contact_coverage": coverage,
         "opportunities": opps,
         "opportunity_coaching": coached,
+        "product_advice": product_advice,
+        "approved_case_matches": approved_case_matches,
         "buying_signals": signals,
         "open_tasks": open_tasks,
         "recent_inbound": inbound,
