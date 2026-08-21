@@ -13,6 +13,7 @@ lines he actually sends.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 
 from app import autosend
@@ -57,11 +58,22 @@ Rules:
 - Do not propose anything already listed in `already_pending`.
 - Unhandled replies are the highest-value thing in the pipeline. If one is sitting there,
   dealing with it outranks any amount of new outreach.
+- `due_followups` contains already-contacted accounts whose next step is currently owned
+  by nobody else. Treat high-score overdue accounts as real pipeline work, ahead of
+  filling the day with more low-value cold volume.
 - `untouched.emailable_untouched` is how many contactable companies have never been
   written to. `untouched.top` is only the highest-scoring dozen — a short list there
   does NOT mean the pool is empty.
 - `weak_campaigns` lists campaigns that reached enough people to judge and got zero
   replies. Worth saying out loud in the summary; do not silently keep feeding them.
+- Think like an experienced LED-display export salesperson. Once a buyer has a real
+  project, progressively establish the application/use case, indoor vs outdoor,
+  physical screen dimensions, viewing distance or justified pixel pitch, environment
+  and brightness requirement, quantity, destination, installation/maintenance access,
+  control-system constraints and decision/timing. Never manufacture a missing fact.
+- A real LED opportunity should have one explicit next action and date. If the buyer has
+  not given enough technical context, the next action is to obtain the missing project
+  facts, not to guess a configuration or commercial promise.
 - You do NOT write outreach copy. send_outreach picks who; the template supplies what.
 - You do NOT price anything. When a customer wants a quote, the only action is a task
   for Allen — never a message, never an amount, never a discount. This is absolute.
@@ -223,17 +235,19 @@ def build_mission_fallback(conn, state: dict | None = None,
 
 
 def _dedupe_key(today: str, clean: dict) -> str:
-    """What counts as 'already proposed today'.
+    """Stable idempotency without collapsing different same-day batches.
 
-    Discovery carries no lead_no, so a single key for the whole day made every
-    discovery in every plan share one fingerprint: the first one won and the rest of
-    the day's planning vanished. Key it by market instead — one discovery run per
-    market per day — matching `build_mission_fallback`. Everything else keeps the
-    per-day key, because those actions carry a lead_no that already separates them.
+    Proposal fingerprints already include kind and lead_no. Batch actions normally have
+    no lead_no, however, so a key containing only the date made two different outreach
+    or enrollment batches of the same kind collide. Use the validated payload as part
+    of the key: exact repeats still collapse, genuinely different work does not.
     """
     if clean["kind"] == "discover_run":
         return f"plan-{today}-discover-{clean['payload'].get('country') or 'any'}"
-    return f"plan-{today}"
+    raw = json.dumps({"lead_no": clean["lead_no"], "payload": clean["payload"]},
+                     ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+    return f"plan-{today}-{digest}"
 
 
 def build_plan(conn) -> dict:
