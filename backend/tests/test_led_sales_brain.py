@@ -135,6 +135,23 @@ def test_opportunity_coach_safety_net_is_idempotent(conn):
     assert any("商机体检" in p["title"] for p in pending)
 
 
+def test_auto_coach_task_is_bound_to_the_opportunity(conn):
+    opp = opportunities.create(conn, 1, {
+        "title": "Auto-owned project",
+        "stage": "requirements",
+        "use_case": "Retail",
+    })
+    proposals.set_autonomy(conn, "create_task", "auto")
+    result = opportunity_coach.safety_net(conn, today=TODAY, limit=3)
+    assert result["proposed"] == 1
+    task = conn.execute(
+        "SELECT opportunity_id, status FROM activities"
+        " WHERE opportunity_id=? ORDER BY id DESC LIMIT 1", (opp["id"],)
+    ).fetchone()
+    assert task is not None and task["opportunity_id"] == opp["id"] and task["status"] == "open"
+    assert opportunity_coach.coach_opportunity(conn, opp, today=TODAY)["open_task"] is not None
+
+
 def test_existing_open_opportunity_task_prevents_duplicate_coach_task(conn):
     opp = opportunities.create(conn, 1, {
         "title": "Owned project",
