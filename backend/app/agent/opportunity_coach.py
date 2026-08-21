@@ -1,9 +1,9 @@
 """Pipeline coaching for real LED opportunities.
 
 Stage labels are not progress. A healthy deal has enough project facts for its stage,
-relevant authority coverage and one dated next action. This module turns those rules
-into deterministic coaching and, when nobody else owns the step, an internal task
-proposal. It never sends a customer-facing message.
+relevant authority coverage, evidence that an approved product can fit, and one dated
+next action. This module turns those rules into deterministic coaching and, when nobody
+else owns the step, an internal task proposal. It never sends a customer-facing message.
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import hashlib
 import json
 import re
 
-from app.agent import led_playbook, proposals
+from app.agent import led_playbook, product_advisor, proposals
 
 MAX_WORLD_ROWS = 12
 MAX_SAFETY_NET = 3
@@ -90,6 +90,7 @@ def _fresh_signal(conn, lead_no: int, today: dt.date) -> dict | None:
 def coach_opportunity(conn, opportunity: dict, *, today: dt.date | None = None) -> dict:
     today = today or dt.date.today()
     qual = led_playbook.qualification(opportunity)
+    products = product_advisor.advise(conn, opportunity, limit=3)
     coverage = contact_coverage(conn, opportunity["lead_no"], opportunity)
     signal = _fresh_signal(conn, opportunity["lead_no"], today)
     next_date = _date(opportunity.get("next_action_date"))
@@ -131,9 +132,23 @@ def coach_opportunity(conn, opportunity: dict, *, today: dt.date | None = None) 
     if not coverage["project_authority"]:
         health -= 8
         risks.append("缺项目/技术负责人")
+
+    product_issue = None
+    if qual["completeness"] >= 45:
+        if products["status"] == "no_approved_products":
+            health -= 10
+            product_issue = "项目已经具备产品匹配条件，但产品库没有批准给 Agent 使用的产品事实"
+            risks.append(product_issue)
+        elif not products.get("recommendations"):
+            health -= 12
+            product_issue = "现有已批准产品与项目明确条件不兼容，需要人工确认产品方向"
+            risks.append(product_issue)
     if opportunity.get("stage") in ("quoted", "negotiation") and qual["completeness"] < 60:
         health -= 8
         risks.append("已进入报价/谈判，但技术资格仍偏弱")
+    if opportunity.get("stage") in ("quoted", "negotiation") and not products.get("ready_to_recommend"):
+        health -= 8
+        risks.append("已进入报价/谈判，但还没有可追溯的已批准产品匹配")
     health = max(0, min(100, health))
 
     if overdue and opportunity.get("next_action"):
@@ -142,6 +157,10 @@ def coach_opportunity(conn, opportunity: dict, *, today: dt.date | None = None) 
         next_best = qual["next_question"] or "先给这个商机定义一个具体下一步动作"
     elif missing_next_date:
         next_best = f"给下一步“{opportunity['next_action']}”确定日期和负责人"
+    elif product_issue and products["status"] == "no_approved_products":
+        next_best = "先在产品库核实真实规格并批准至少一个可用于 Agent 的产品，再继续自动产品推荐"
+    elif product_issue:
+        next_best = "人工确认是否有兼容产品或需要新增产品事实，不要让 Agent 猜规格"
     elif opportunity.get("stage") in ("quoted", "negotiation") and not coverage["commercial_authority"]:
         next_best = "补齐 Owner / Purchasing / Procurement 等商务决策人，再推进报价决定"
     elif opportunity.get("stage") in ("quoted", "negotiation") and not coverage["project_authority"]:
@@ -158,6 +177,7 @@ def coach_opportunity(conn, opportunity: dict, *, today: dt.date | None = None) 
     urgency += STAGE_WEIGHT.get(opportunity.get("stage"), 0) * 10
     urgency += 25 if overdue else 15 if missing_next_date or missing_next_action else 0
     urgency += 10 if signal else 0
+    urgency += 8 if product_issue else 0
     urgency += min(20, round(float(opportunity.get("amount") or 0) / 5000))
 
     return {
@@ -172,6 +192,7 @@ def coach_opportunity(conn, opportunity: dict, *, today: dt.date | None = None) 
         "severity": severity,
         "urgency": urgency,
         "qualification": qual,
+        "product_advice": products,
         "contact_coverage": coverage,
         "next_action": opportunity.get("next_action"),
         "next_action_date": opportunity.get("next_action_date"),
@@ -197,6 +218,7 @@ def portfolio(conn, *, today: dt.date | None = None,
 
 
 def _issue_digest(row: dict) -> str:
+    products = row.get("product_advice") or {}
     facts = {
         "health": row["health"], "risks": row["risks"],
         "next": row["next_best_action"],
@@ -204,6 +226,8 @@ def _issue_digest(row: dict) -> str:
         "commercial": row["contact_coverage"]["commercial_authority"],
         "project": row["contact_coverage"]["project_authority"],
         "next_action_date": row.get("next_action_date"),
+        "product_status": products.get("status"),
+        "product_ids": [p.get("product_id") for p in products.get("recommendations", [])[:3]],
     }
     raw = json.dumps(facts, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
