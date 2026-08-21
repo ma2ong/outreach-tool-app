@@ -30,22 +30,22 @@ FIELD_META = {
     "decision_process": ("决策流程", "知道谁参与、何时决定，才能安排下一步"),
 }
 
-COMMON = (
-    "use_case", "indoor_outdoor", "width_m", "height_m", "destination",
-    "project_timing",
-)
+# Establish the physical project first. Application-specific technical questions then
+# come before logistics/commercial tail fields such as destination and timing.
+COMMON = ("use_case", "indoor_outdoor", "width_m", "height_m")
+TAIL = ("destination", "project_timing")
 
 # Ordered by discovery value, not by database column order.
 APPLICATION_FIELDS = {
     "Rental": (
-        "pixel_pitch", "viewing_distance_m", "refresh_rate_hz", "cabinet_size",
+        "viewing_distance_m", "pixel_pitch", "refresh_rate_hz", "cabinet_size",
         "maintenance_access", "control_system", "quantity", "installation_type",
         "budget_range", "decision_process",
     ),
     "Virtual Production": (
-        "pixel_pitch", "viewing_distance_m", "refresh_rate_hz", "control_system",
+        "viewing_distance_m", "pixel_pitch", "refresh_rate_hz", "control_system",
         "cabinet_size", "maintenance_access", "installation_type", "brightness_nits",
-        "project_timing", "decision_process",
+        "decision_process",
     ),
     "DOOH": (
         "brightness_nits", "viewing_distance_m", "pixel_pitch", "maintenance_access",
@@ -123,6 +123,7 @@ def ordered_fields(opportunity: dict) -> list[str]:
     use_case = normalize_use_case(opportunity.get("use_case"))
     fields = list(COMMON)
     fields.extend(APPLICATION_FIELDS.get(use_case, APPLICATION_FIELDS["Fixed Installation"]))
+    fields.extend(TAIL)
     # Indoor/outdoor also changes priority even if the application name is generic.
     environment = (opportunity.get("indoor_outdoor") or "").strip().lower()
     if "out" in environment or "户外" in environment:
