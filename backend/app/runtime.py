@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS runtime_state (
     last_cycle_started_at TEXT,
     last_cycle_finished_at TEXT,
     last_cycle_ok INTEGER,
+    last_email_poll_ok INTEGER,
     last_error TEXT,
     cycle_count INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
@@ -69,6 +70,12 @@ def owner_id(mode: str = "embedded") -> str:
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    # Runtime tables may already exist from an earlier draft/deployment. Keep this
+    # upgrade additive just like the CRM schemas instead of requiring a destructive
+    # recreation for a new health field.
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(runtime_state)")}
+    if "last_email_poll_ok" not in columns:
+        conn.execute("ALTER TABLE runtime_state ADD COLUMN last_email_poll_ok INTEGER")
     conn.commit()
 
 
@@ -140,18 +147,22 @@ def record_start(conn: sqlite3.Connection, *, name: str = LEASE_NAME,
 
 
 def record_finish(conn: sqlite3.Connection, *, ok: bool, error: str | None,
+                  email_poll_ok: bool | None = None,
                   name: str = LEASE_NAME, owner: str, mode: str,
                   now: dt.datetime | None = None) -> None:
     ensure_schema(conn)
     now = now or utcnow()
+    email_value = None if email_poll_ok is None else int(bool(email_poll_ok))
     conn.execute(
-        "INSERT INTO runtime_state(name,owner,mode,last_cycle_finished_at,last_cycle_ok,last_error,"
-        " cycle_count,updated_at) VALUES (?,?,?,?,?,?,1,?)"
+        "INSERT INTO runtime_state(name,owner,mode,last_cycle_finished_at,last_cycle_ok,"
+        " last_email_poll_ok,last_error,cycle_count,updated_at) VALUES (?,?,?,?,?,?,?,1,?)"
         " ON CONFLICT(name) DO UPDATE SET owner=excluded.owner, mode=excluded.mode,"
         " last_cycle_finished_at=excluded.last_cycle_finished_at,"
-        " last_cycle_ok=excluded.last_cycle_ok, last_error=excluded.last_error,"
-        " cycle_count=runtime_state.cycle_count+1, updated_at=excluded.updated_at",
-        (name, owner, mode, _iso(now), int(bool(ok)), (error or "")[:2000] or None, _iso(now)),
+        " last_cycle_ok=excluded.last_cycle_ok, last_email_poll_ok=excluded.last_email_poll_ok,"
+        " last_error=excluded.last_error, cycle_count=runtime_state.cycle_count+1,"
+        " updated_at=excluded.updated_at",
+        (name, owner, mode, _iso(now), int(bool(ok)), email_value,
+         (error or "")[:2000] or None, _iso(now)),
     )
     conn.commit()
 
@@ -236,12 +247,14 @@ def run_leased_cycle(db_path: str, cycle_fn: Callable[[], bool], *, owner: str,
             email_poll_ok = bool(cycle_fn())
         except Exception as exc:  # noqa: BLE001 — runtime records rather than hides a crashed cycle
             error = f"{type(exc).__name__}: {exc}"
-            record_finish(conn, ok=False, error=error, owner=owner, mode=mode)
+            record_finish(conn, ok=False, error=error, email_poll_ok=None,
+                          owner=owner, mode=mode)
             return {
                 "acquired": True, "cycle_ok": False, "email_poll_ok": None,
                 "error": error, "owner": owner, "mode": mode,
             }
-        record_finish(conn, ok=True, error=None, owner=owner, mode=mode)
+        record_finish(conn, ok=True, error=None, email_poll_ok=email_poll_ok,
+                      owner=owner, mode=mode)
         renew(conn, owner=owner, ttl_seconds=ttl_seconds)
         return {
             "acquired": True, "cycle_ok": True, "email_poll_ok": email_poll_ok,
