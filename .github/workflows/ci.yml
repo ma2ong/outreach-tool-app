@@ -24,7 +24,9 @@ jobs:
       OUTREACH_AUTO_POLL: "0"
       OUTREACH_AUTO_SCAN: "0"
       OUTREACH_AUTO_RECHECK: "0"
+      OUTREACH_AUTO_RESEARCH: "0"
       OUTREACH_AUTOSEND_SCHEDULER: "0"
+      OUTREACH_EMBEDDED_WORKER: "0"
       OUTREACH_AGENT: "0"
     steps:
       - uses: actions/checkout@v4

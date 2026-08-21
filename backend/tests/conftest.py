@@ -8,10 +8,8 @@ def _never_touch_the_live_db(tmp_path, monkeypatch):
 
     DB_PATH defaults to a bare 'outreach.db' and pytest runs from backend/, so any code
     path that connects by DB_PATH instead of the injected connection lands on the live
-    lead base. That is not hypothetical: the poll-loop timing test ran auto_recheck and
-    auto_scan_social against production on every single run — real website fetches, and
-    a browser window whenever a channel happened to be logged in. Overriding the module
-    attributes (not just the env var) closes it for good, whatever a test forgets.
+    lead base. Overriding the module attributes (not just the env var) closes it for
+    good, whatever a test forgets.
     """
     from app import main, main_deps
     sandbox = str(tmp_path / "sandbox.db")
@@ -26,14 +24,15 @@ def _auth_disabled(tmp_path, monkeypatch):
     from app import auth
     monkeypatch.setattr(auth, "PASSWORD_FILE", str(tmp_path / "no_pw.txt"))
     monkeypatch.setattr(auth, "SESSION_KEY_FILE", str(tmp_path / ".session_key"))
-    # Each external background capability is disabled explicitly. Email polling is no
-    # longer the master scheduler switch, so relying on OUTREACH_AUTO_POLL alone would
-    # let website/browser/research work run during tests again.
+    # Every external/background capability is disabled explicitly. Email polling is no
+    # longer a master switch, and the durable runtime can also start an embedded leader,
+    # so tests disable each source of live I/O/threading independently.
     monkeypatch.setenv("OUTREACH_AUTO_POLL", "0")
     monkeypatch.setenv("OUTREACH_AUTO_SCAN", "0")
     monkeypatch.setenv("OUTREACH_AUTO_RECHECK", "0")
     monkeypatch.setenv("OUTREACH_AUTO_RESEARCH", "0")
     monkeypatch.setenv("OUTREACH_AUTOSEND_SCHEDULER", "0")
+    monkeypatch.setenv("OUTREACH_EMBEDDED_WORKER", "0")
     # never let a test reach a real model backend via the startup operating loop
     monkeypatch.setenv("OUTREACH_AGENT", "0")
 

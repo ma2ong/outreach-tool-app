@@ -36,11 +36,12 @@ from app.api import contacts as contacts_api
 from app.api import sales_documents as sales_documents_api
 from app.api import sales_intelligence as sales_intelligence_api
 from app.api import decision_makers as decision_makers_api
+from app.api import runtime as runtime_api
 from app.api import agent as agent_api
 
 BACKUP_KEEP = 14
-REPLY_POLL_SECONDS = 900   # steady-state inbox refresh
-REPLY_RETRY_SECONDS = 60   # until the first clean sweep — covers "network not up yet at logon"
+REPLY_POLL_SECONDS = 900   # steady-state operating cycle
+REPLY_RETRY_SECONDS = 60   # transient mail/DB failure or standby behind another leader
 RECHECK_PER_DAY = 20       # website re-reads per day; each one is a live page fetch
 
 
@@ -72,10 +73,7 @@ def backup_db(db_path: str = DB_PATH) -> str | None:
 
 
 def auto_poll_replies() -> bool:
-    """Pull replies so the inbox is current without Allen remembering to click 拉取邮件
-    — a missed pull means the sequences keep chasing people who already answered.
-    Fully fault-tolerant: no Gmail password or a network hiccup just skips this round;
-    the manual button still exists. Returns True when every mailbox was read.
+    """Pull replies so the inbox is current without Allen remembering to click 拉取邮件.
 
     An intentionally disabled poll is healthy for scheduler timing: email polling is one
     capability, not the master switch for every other autonomous job.
@@ -95,9 +93,7 @@ def auto_poll_replies() -> bool:
 
 
 def auto_scan_social() -> None:
-    """Once a day, read the WhatsApp/Instagram thread lists — but only for channels
-    already logged in. Forcing a browser window open on a schedule would both surprise
-    Allen and, on a session that needs a re-scan of the QR code, do nothing useful."""
+    """Once a day, read logged-in WhatsApp/Instagram thread lists."""
     if os.environ.get("OUTREACH_AUTO_SCAN", "1") == "0":
         return
     from app import inbound
@@ -110,7 +106,7 @@ def auto_scan_social() -> None:
         live = [c for c in inbound.CHANNELS if ENGINE.status(c) == "connected"]
         if live:
             inbound.scan_all(conn, ENGINE.scan_threads, channels=live)
-    except Exception:  # noqa: BLE001 — a browser hiccup must not kill the poll loop
+    except Exception:  # noqa: BLE001 — a browser hiccup must not kill the operating loop
         pass
     finally:
         if conn is not None:
@@ -118,10 +114,7 @@ def auto_scan_social() -> None:
 
 
 def auto_recheck() -> None:
-    """Once a day, re-read the websites of leads whose check has come round.
-
-    Capped at RECHECK_PER_DAY because every one is a real page fetch, and silent by
-    design: a check that found nothing writes nothing anywhere Allen has to look."""
+    """Once a day, re-read due lead websites, capped because each is live I/O."""
     if os.environ.get("OUTREACH_AUTO_RECHECK", "1") == "0":
         return
     from app import recheck, settings
@@ -133,7 +126,7 @@ def auto_recheck() -> None:
             return
         settings.set_value(conn, "recheck_last_run", today)
         recheck.sweep(conn, limit=RECHECK_PER_DAY)
-    except Exception:  # noqa: BLE001 — a dead site must not kill the poll loop
+    except Exception:  # noqa: BLE001 — a dead site must not kill the operating loop
         pass
     finally:
         if conn is not None:
@@ -141,19 +134,37 @@ def auto_recheck() -> None:
 
 
 def auto_prune_sequences() -> None:
-    """Keep the follow-up queue matched to who can actually be reached, both ways.
-
-    Cheap and idempotent, so it runs every round rather than once a day: the moment a
-    bounce burns an address that lead drops out of tomorrow's queue instead of being
-    silently skipped there every morning, and the moment a re-verification repairs one
-    it rejoins. Parking without the reopen would cost more leads than it saves."""
+    """Keep the follow-up queue matched to who can actually be reached, both ways."""
     from app import sequences
     conn = None
     try:
         conn = connect(DB_PATH)
         sequences.block_unsendable(conn)
         sequences.reopen_sendable(conn)
-    except Exception:  # noqa: BLE001 — housekeeping must not kill the poll loop
+    except Exception:  # noqa: BLE001 — housekeeping must not kill the operating loop
+        pass
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def auto_send_sequences() -> None:
+    """Run the daily email-sequence sender inside the same leader lease as the Agent.
+
+    Historically this had a second daemon scheduler. With multiple web processes that
+    meant multiple schedulers. Centralising it here makes the lease authoritative for
+    *all* unattended sales execution while retaining the old environment switch name.
+    WhatsApp/Instagram/Facebook remain manual-only.
+    """
+    if os.environ.get("OUTREACH_AUTOSEND_SCHEDULER", "1") == "0":
+        return
+    from app import autosend
+    conn = None
+    try:
+        conn = connect(DB_PATH)
+        if autosend.should_run(conn):
+            autosend.run_once(conn, send_api.pick_sender(conn), send_api.DEFAULT_ATTACHMENT)
+    except Exception:  # noqa: BLE001 — autosend records its own run failures where possible
         pass
     finally:
         if conn is not None:
@@ -161,14 +172,7 @@ def auto_prune_sequences() -> None:
 
 
 def auto_agent_run() -> None:
-    """Run the autonomous sales operator against the current local business state.
-
-    Reply handling and planning are owned by `agent.run`/`catchup`. Account Brain keeps
-    silent contacted accounts alive, Opportunity Coach owns unhealthy real projects,
-    and Decision Maker Radar researches a tiny bounded set of high-value authority gaps.
-    Every customer-facing action still goes through proposals/autonomy and existing send
-    guards; the radar itself only reads public company pages and stages/records contacts.
-    """
+    """Run the autonomous sales operator against the current business state."""
     if os.environ.get("OUTREACH_AGENT", "1") == "0":
         return
     from app import decision_maker_radar
@@ -183,7 +187,7 @@ def auto_agent_run() -> None:
         opportunity_coach.safety_net(conn)
         if os.environ.get("OUTREACH_AUTO_RESEARCH", "1") != "0":
             decision_maker_radar.sweep(conn)
-    except Exception:  # noqa: BLE001 — the agent must not kill the scheduler loop
+    except Exception:  # noqa: BLE001 — the agent must not kill the operating loop
         pass
     finally:
         if conn is not None:
@@ -191,29 +195,40 @@ def auto_agent_run() -> None:
 
 
 def background_cycle() -> bool:
-    """Run one independent maintenance/Agent cycle and return email-poll health.
+    """One ordered sales-operator cycle. The runtime lease is outside this function.
 
-    Kept separate from the infinite loop so each capability can be tested without
-    starting a daemon thread. Most importantly, `OUTREACH_AUTO_POLL=0` now skips only
-    email polling instead of disabling the sales Agent, social scan and data hygiene.
+    Fresh replies are read first so a customer response can stop a sequence before the
+    daily sender is considered. The Agent plans last, after all new operational facts are
+    visible. `OUTREACH_AUTO_POLL=0` skips only email polling, not the rest of the cycle.
     """
     ok = auto_poll_replies()
     auto_scan_social()
     auto_recheck()
-    auto_prune_sequences()  # after poll: a fresh bounce parks its enrollment now
-    auto_agent_run()        # last: it reads whatever new state the other jobs produced
+    auto_prune_sequences()
+    auto_send_sequences()
+    auto_agent_run()
     return ok
 
 
 def reply_poll_loop() -> None:
-    """Keep the background operating cycle alive for as long as the app runs.
+    """Backward-compatible embedded worker, protected by the durable leader lease."""
+    from app import runtime
 
-    A failed email sync retries quickly, while an intentionally disabled email sync uses
-    the normal interval. Other autonomous capabilities are independent of that setting.
-    """
+    owner = runtime.owner_id("embedded")
     while True:
-        ok = background_cycle()
-        time.sleep(REPLY_POLL_SECONDS if ok else REPLY_RETRY_SECONDS)
+        try:
+            result = runtime.run_leased_cycle(
+                DB_PATH, background_cycle, owner=owner, mode="embedded", release_after=False)
+        except Exception:  # noqa: BLE001 — a transient DB failure should retry, not kill the thread
+            delay = REPLY_RETRY_SECONDS
+        else:
+            if not result["acquired"]:
+                delay = REPLY_RETRY_SECONDS
+            elif result["cycle_ok"] and result["email_poll_ok"]:
+                delay = REPLY_POLL_SECONDS
+            else:
+                delay = REPLY_RETRY_SECONDS
+        time.sleep(delay)
 
 
 @asynccontextmanager
@@ -227,6 +242,7 @@ async def lifespan(app: FastAPI):
     from app.sales_documents import ensure_schema as ensure_sales_document_schema
     from app.sales_intelligence import ensure_schema as ensure_sales_intelligence_schema
     from app.decision_maker_radar import ensure_schema as ensure_decision_maker_schema
+    from app.runtime import ensure_schema as ensure_runtime_schema
     backup_db()  # the lead base is the business asset — snapshot before touching it
     conn = connect(DB_PATH)
     try:
@@ -238,6 +254,7 @@ async def lifespan(app: FastAPI):
         ensure_activity_schema(conn)
         ensure_sales_intelligence_schema(conn)
         ensure_decision_maker_schema(conn)
+        ensure_runtime_schema(conn)
         migrate_existing(conn)
         normalize_all_websites(conn)  # idempotent data fix: consistent website form
         from app.replies import backfill_bounced_at
@@ -250,11 +267,11 @@ async def lifespan(app: FastAPI):
         fail_interrupted(conn)
     finally:
         conn.close()
-    # background so a slow IMAP never delays the app coming up
-    threading.Thread(target=reply_poll_loop, daemon=True).start()
-    if os.environ.get("OUTREACH_AUTOSEND_SCHEDULER", "1") != "0":
-        from app import autosend
-        autosend.start_scheduler(DB_PATH)
+    # Desktop/local remains zero-config. Hosted web services disable this and run
+    # `python -m app.worker` in a separate supervised worker process.
+    if os.environ.get("OUTREACH_EMBEDDED_WORKER", "1") != "0":
+        threading.Thread(target=reply_poll_loop, daemon=True,
+                         name="outreach-embedded-worker").start()
     yield
 
 
@@ -295,6 +312,7 @@ app.include_router(contacts_api.router)
 app.include_router(sales_documents_api.router)
 app.include_router(sales_intelligence_api.router)
 app.include_router(decision_makers_api.router)
+app.include_router(runtime_api.router)
 app.include_router(agent_api.router)
 from app.api import auth as auth_api  # noqa: E402
 from app.api import health as health_api  # noqa: E402
