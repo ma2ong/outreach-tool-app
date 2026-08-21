@@ -38,6 +38,11 @@ class OpportunityCreate(BaseModel):
     budget_range: str | None = None
     decision_process: str | None = None
     technical_notes: str | None = None
+    input_voltage_v: float | None = None
+    controller_capacity_px: int | None = None
+    controller_output_ports: int | None = None
+    max_pixels_per_port: int | None = None
+    spare_pct: float | None = None
 
 
 class OpportunityUpdate(BaseModel):
@@ -70,6 +75,11 @@ class OpportunityUpdate(BaseModel):
     budget_range: str | None = None
     decision_process: str | None = None
     technical_notes: str | None = None
+    input_voltage_v: float | None = None
+    controller_capacity_px: int | None = None
+    controller_output_ports: int | None = None
+    max_pixels_per_port: int | None = None
+    spare_pct: float | None = None
 
 
 def _bad(exc: opportunities.OpportunityValidation):
@@ -124,6 +134,17 @@ def product_matches(opportunity_id: int, limit: int = 3, conn=Depends(get_conn))
     if opportunity is None:
         raise HTTPException(status_code=404, detail="商机不存在")
     return product_advisor.advise(conn, opportunity, limit=limit)
+
+
+@router.get("/{opportunity_id}/solution")
+def solution_engineering(opportunity_id: int, product_id: int | None = None,
+                         conn=Depends(get_conn)):
+    """Return internal deterministic layout/power/control engineering for one project."""
+    from app.agent import solution_engineer
+    opportunity = opportunities.get(conn, opportunity_id)
+    if opportunity is None:
+        raise HTTPException(status_code=404, detail="商机不存在")
+    return solution_engineer.advise(conn, opportunity, product_id=product_id)
 
 
 @router.get("/{opportunity_id}/cases")
