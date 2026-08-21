@@ -124,13 +124,15 @@ def ordered_fields(opportunity: dict) -> list[str]:
     fields = list(COMMON)
     fields.extend(APPLICATION_FIELDS.get(use_case, APPLICATION_FIELDS["Fixed Installation"]))
     fields.extend(TAIL)
-    # Indoor/outdoor also changes priority even if the application name is generic.
+    # For outdoor work, preserve the four foundation facts first (application,
+    # environment, width, height), then bring environment-sensitive risks forward in a
+    # deliberate order. Removing them before one slice insertion avoids reversing the
+    # intended priority with repeated insert(index, value) calls.
     environment = (opportunity.get("indoor_outdoor") or "").strip().lower()
     if "out" in environment or "户外" in environment:
-        for key in ("brightness_nits", "maintenance_access", "installation_type"):
-            if key in fields:
-                fields.remove(key)
-            fields.insert(2, key)
+        priority = ["brightness_nits", "maintenance_access", "installation_type"]
+        fields = [field for field in fields if field not in priority]
+        fields[len(COMMON):len(COMMON)] = priority
     seen = set()
     return [f for f in fields if not (f in seen or seen.add(f))]
 
