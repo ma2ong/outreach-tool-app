@@ -28,10 +28,11 @@ def _auth_disabled(tmp_path, monkeypatch):
     monkeypatch.setattr(auth, "SESSION_KEY_FILE", str(tmp_path / ".session_key"))
     # Each external background capability is disabled explicitly. Email polling is no
     # longer the master scheduler switch, so relying on OUTREACH_AUTO_POLL alone would
-    # let website/browser work run during tests again.
+    # let website/browser/research work run during tests again.
     monkeypatch.setenv("OUTREACH_AUTO_POLL", "0")
     monkeypatch.setenv("OUTREACH_AUTO_SCAN", "0")
     monkeypatch.setenv("OUTREACH_AUTO_RECHECK", "0")
+    monkeypatch.setenv("OUTREACH_AUTO_RESEARCH", "0")
     monkeypatch.setenv("OUTREACH_AUTOSEND_SCHEDULER", "0")
     # never let a test reach a real model backend via the startup operating loop
     monkeypatch.setenv("OUTREACH_AGENT", "0")
