@@ -27,7 +27,7 @@ def test_runtime_status_exposes_active_worker_without_secrets(tmp_path, monkeypa
         runtime.acquire(conn, owner="worker:test-host:123:abc", mode="worker",
                         ttl_seconds=120, now=NOW)
         runtime.record_start(conn, owner="worker:test-host:123:abc", mode="worker", now=NOW)
-        runtime.record_finish(conn, ok=True, error=None,
+        runtime.record_finish(conn, ok=True, error=None, email_poll_ok=True,
                               owner="worker:test-host:123:abc", mode="worker", now=NOW)
     finally:
         conn.close()
@@ -43,6 +43,7 @@ def test_runtime_status_exposes_active_worker_without_secrets(tmp_path, monkeypa
         assert body["heartbeat_age_seconds"] == 20
         assert body["state"]["cycle_count"] == 1
         assert body["state"]["last_cycle_ok"] == 1
+        assert body["state"]["last_email_poll_ok"] == 1
         assert body["embedded_worker_enabled"] is False
         assert body["dedicated_worker_expected"] is True
         assert "password" not in str(body).lower()
