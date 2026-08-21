@@ -5,11 +5,14 @@ import {
 } from "../productKnowledgeApi";
 import type { KnowledgeProduct } from "../productKnowledgeApi";
 import { CaseLibraryPanel } from "./CaseLibraryPanel";
+import { SolutionEngineerPanel } from "./SolutionEngineerPanel";
 
 const BLANK = {
   model: "", pixel_pitch: "", brightness: "", use_case: "", ref_price_sqm: "",
   indoor_outdoor: "", refresh_rate_hz: "", maintenance_access: "", cabinet_size: "",
-  control_system: "", notes: "",
+  control_system: "", notes: "", cabinet_width_mm: "", cabinet_height_mm: "",
+  cabinet_resolution_w: "", cabinet_resolution_h: "", module_width_mm: "",
+  module_height_mm: "", max_power_w_cabinet: "", avg_power_w_cabinet: "",
 };
 
 export function ProductsPanel() {
@@ -29,6 +32,7 @@ export function ProductsPanel() {
 
   const toggle = (id: number) => setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const set = (k: keyof typeof BLANK, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const num = (value: string) => value ? Number(value) : null;
 
   async function add() {
     if (!form.model.trim()) { setMsg("型号必填"); return; }
@@ -41,11 +45,19 @@ export function ProductsPanel() {
         use_case: form.use_case || null,
         ref_price_sqm: form.ref_price_sqm || null,
         indoor_outdoor: form.indoor_outdoor || null,
-        refresh_rate_hz: form.refresh_rate_hz ? Number(form.refresh_rate_hz) : null,
+        refresh_rate_hz: num(form.refresh_rate_hz),
         maintenance_access: form.maintenance_access || null,
         cabinet_size: form.cabinet_size || null,
         control_system: form.control_system || null,
         notes: form.notes || null,
+        cabinet_width_mm: num(form.cabinet_width_mm),
+        cabinet_height_mm: num(form.cabinet_height_mm),
+        cabinet_resolution_w: num(form.cabinet_resolution_w),
+        cabinet_resolution_h: num(form.cabinet_resolution_h),
+        module_width_mm: num(form.module_width_mm),
+        module_height_mm: num(form.module_height_mm),
+        max_power_w_cabinet: num(form.max_power_w_cabinet),
+        avg_power_w_cabinet: num(form.avg_power_w_cabinet),
         agent_approved: false,
       });
       setForm({ ...BLANK }); reload();
@@ -90,7 +102,7 @@ export function ProductsPanel() {
           <div>
             <h3 style={{ margin: 0 }}>产品库 / Agent 产品知识</h3>
             <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-              Agent 只读取明确批准的绿色产品行。参考价只用于人工报价卡，永远不会进入自动回复或产品匹配上下文。
+              Agent 只读取明确批准的绿色产品行。参考价只用于人工报价卡；工程计算只使用下面明确录入的箱体/分辨率/功耗事实。
             </div>
           </div>
           {prods.length === 0 && (
@@ -100,7 +112,7 @@ export function ProductsPanel() {
         {prods.length > 0 && (
           <div style={{ overflowX: "auto", marginTop: 10 }}>
             <table className="lead-table">
-              <thead><tr><th style={{ width: 32 }}></th><th>型号</th><th>核心规格</th><th>应用</th><th>参考价 /m²</th><th>Agent 知识</th><th></th></tr></thead>
+              <thead><tr><th style={{ width: 32 }}></th><th>型号</th><th>核心规格</th><th>工程事实</th><th>应用</th><th>参考价 /m²</th><th>Agent 知识</th><th></th></tr></thead>
               <tbody>
                 {prods.map((p) => (
                   <tr key={p.id}>
@@ -114,6 +126,12 @@ export function ProductsPanel() {
                         p.refresh_rate_hz ? `${p.refresh_rate_hz}Hz` : null,
                         p.cabinet_size, p.maintenance_access, p.control_system]
                         .filter(Boolean).join(" · ") || "未记录技术规格"}
+                    </td>
+                    <td className="muted" style={{ fontSize: 11, minWidth: 210 }}>
+                      <div>箱体：{p.cabinet_width_mm && p.cabinet_height_mm ? `${p.cabinet_width_mm}×${p.cabinet_height_mm}mm` : "—"}</div>
+                      <div>分辨率：{p.cabinet_resolution_w && p.cabinet_resolution_h ? `${p.cabinet_resolution_w}×${p.cabinet_resolution_h}px` : "—"}</div>
+                      <div>模组：{p.module_width_mm && p.module_height_mm ? `${p.module_width_mm}×${p.module_height_mm}mm` : "—"}</div>
+                      <div>功耗：{p.max_power_w_cabinet ? `Max ${p.max_power_w_cabinet}W` : "—"}{p.avg_power_w_cabinet ? ` / Avg ${p.avg_power_w_cabinet}W` : ""}</div>
                     </td>
                     <td className="muted">{p.use_case || "—"}</td>
                     <td>{p.ref_price_sqm || "—"}</td>
@@ -145,10 +163,21 @@ export function ProductsPanel() {
             <input className="input" placeholder="点间距，如 P1.86" value={form.pixel_pitch} onChange={(e) => set("pixel_pitch", e.target.value)} style={{ width: 130 }} />
             <input className="input" placeholder="亮度，如 800-1000 nits" value={form.brightness} onChange={(e) => set("brightness", e.target.value)} style={{ width: 180 }} />
             <input className="input" placeholder="刷新率 Hz" value={form.refresh_rate_hz} onChange={(e) => set("refresh_rate_hz", e.target.value)} style={{ width: 110 }} />
-            <input className="input" placeholder="箱体，如 640×480mm" value={form.cabinet_size} onChange={(e) => set("cabinet_size", e.target.value)} style={{ width: 170 }} />
+            <input className="input" placeholder="箱体说明，如 640×480mm" value={form.cabinet_size} onChange={(e) => set("cabinet_size", e.target.value)} style={{ width: 180 }} />
             <input className="input" placeholder="维护方式" value={form.maintenance_access} onChange={(e) => set("maintenance_access", e.target.value)} style={{ width: 150 }} />
             <input className="input" placeholder="控制系统/适配" value={form.control_system} onChange={(e) => set("control_system", e.target.value)} style={{ width: 180 }} />
             <input className="input" placeholder="应用场景" value={form.use_case} onChange={(e) => set("use_case", e.target.value)} style={{ minWidth: 220, flex: 1 }} />
+          </div>
+          <div className="muted" style={{ fontSize: 11, marginTop: 10 }}>Solution Engineer 精确工程字段（不知道就留空，系统不会猜）</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+            <input className="input" placeholder="箱体宽 mm" value={form.cabinet_width_mm} onChange={(e) => set("cabinet_width_mm", e.target.value)} style={{ width: 115 }} />
+            <input className="input" placeholder="箱体高 mm" value={form.cabinet_height_mm} onChange={(e) => set("cabinet_height_mm", e.target.value)} style={{ width: 115 }} />
+            <input className="input" placeholder="箱体像素宽" value={form.cabinet_resolution_w} onChange={(e) => set("cabinet_resolution_w", e.target.value)} style={{ width: 120 }} />
+            <input className="input" placeholder="箱体像素高" value={form.cabinet_resolution_h} onChange={(e) => set("cabinet_resolution_h", e.target.value)} style={{ width: 120 }} />
+            <input className="input" placeholder="模组宽 mm" value={form.module_width_mm} onChange={(e) => set("module_width_mm", e.target.value)} style={{ width: 115 }} />
+            <input className="input" placeholder="模组高 mm" value={form.module_height_mm} onChange={(e) => set("module_height_mm", e.target.value)} style={{ width: 115 }} />
+            <input className="input" placeholder="单箱最大功耗 W" value={form.max_power_w_cabinet} onChange={(e) => set("max_power_w_cabinet", e.target.value)} style={{ width: 145 }} />
+            <input className="input" placeholder="单箱平均功耗 W" value={form.avg_power_w_cabinet} onChange={(e) => set("avg_power_w_cabinet", e.target.value)} style={{ width: 145 }} />
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
             <input className="input" placeholder="参考价（只给人工报价使用）" value={form.ref_price_sqm} onChange={(e) => set("ref_price_sqm", e.target.value)} style={{ width: 220 }} />
@@ -158,6 +187,8 @@ export function ProductsPanel() {
         </div>
         {msg && <div className="error-text" style={{ marginTop: 8 }}>{msg}</div>}
       </div>
+
+      <SolutionEngineerPanel />
 
       <div className="card">
         <h3>快速产品报价卡</h3>
