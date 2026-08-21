@@ -138,6 +138,9 @@ _LINK_WORDS = {
     # what they do
     "service": 1, "services": 1, "servicios": 1, "solution": 1, "solutions": 1,
     "business": 1, "portfolio": 1, "project": 1, "projects": 1, "사업": 1, "서비스": 1,
+    # pages likely to contain current buying evidence
+    "news": 3, "press": 3, "career": 3, "careers": 3, "jobs": 3, "tender": 3,
+    "procurement": 3, "event": 2, "events": 2, "expo": 2, "전시": 2, "채용": 3,
 }
 _LINK_SKIP = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".pdf", ".zip",
               "facebook.com", "instagram.com", "youtube.com", "linkedin.com",
@@ -166,6 +169,7 @@ def _content_links(text: str, domain: str, seen: set[str]) -> list[str]:
 
 def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict:
     from app.brief import _pitches
+    from app.signal_detector import detect_pages
 
     emails: list[str] = []
     email_sources: dict[str, str] = {}
@@ -173,13 +177,14 @@ def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict
     socials = {"instagram": None, "facebook": None, "linkedin": None}
     company = None
     home_company = None
-    all_text: list[str] = []
+    pages: list[dict] = []
     for path in _CONTACT_PATHS:
+        url = f"https://{domain}{path}"
         try:
-            text = fetch(f"https://{domain}{path}")
+            text = fetch(url)
         except Exception:  # noqa: BLE001
             continue
-        all_text.append(text)
+        pages.append({"url": url, "text": text})
         name = extract_company_name(text)
         if path == "":
             home_company = name
@@ -204,7 +209,7 @@ def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict
     # on your site" is worth far more in a cold message than "Saw the rental work on your
     # site", and the pitch is almost never on the contact page — so a site that has told
     # us what it does but not what it sells is exactly the one worth two more fetches.
-    joined = "\n".join(all_text)
+    joined = "\n".join(page["text"] for page in pages)
     if not _pitches(joined):
         seen = {f"https://{domain}{p}" for p in _CONTACT_PATHS}
         for url in _content_links(joined, domain, seen):
@@ -212,9 +217,9 @@ def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict
                 followed = fetch(url)
             except Exception:  # noqa: BLE001
                 continue
-            all_text.append(followed)
+            pages.append({"url": url, "text": followed})
 
-    text = "\n".join(all_text)
+    text = "\n".join(page["text"] for page in pages)
     icp = classify_text(text)
     best = None
     for e in emails:
@@ -229,9 +234,10 @@ def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict
     # returns the same empty result as a site with nothing on it. Callers that care about
     # the difference (the backfill writes one off permanently, the other it must retry)
     # have no way to tell them apart without this.
-    return {"domain": domain, "pages": len(all_text),
+    return {"domain": domain, "pages": len(pages),
             "emails": emails, "email": best, "company": company,
             "email_source": email_sources.get(best.lower()) if best else None,
             "phone": phones[0] if phones else None, "phones": phones,
             "icp_type": icp["icp_type"], "fit_score": icp["fit_score"],
-            "brief": written["brief"], "hook": written["hook"], **socials}
+            "brief": written["brief"], "hook": written["hook"],
+            "buying_signals": detect_pages(pages), **socials}
