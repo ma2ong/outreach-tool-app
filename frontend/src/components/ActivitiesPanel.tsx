@@ -21,6 +21,15 @@ function dueLabel(task: Activity): string {
   return task.due_at;
 }
 
+function sourceLabel(task: Activity): string {
+  const source = task.source as string;
+  if (source === "agent") return "Agent";
+  if (source === "reply") return "客户回复";
+  if (source === "opportunity") return "商机";
+  if (source === "legacy") return "旧跟进";
+  return "手工";
+}
+
 export function ActivitiesPanel({ onOpenLead, onChanged }: {
   onOpenLead: (leadNo: number) => void; onChanged: () => void;
 }) {
@@ -155,7 +164,7 @@ export function ActivitiesPanel({ onOpenLead, onChanged }: {
                   <div className="muted" style={{ fontSize: 11 }}>{task.country}</div></td>
                 <td>{TYPE_LABEL[task.type] ?? task.type}</td>
                 <td>{PRIORITY_LABEL[task.priority] ?? task.priority}</td>
-                <td className="muted">{task.source === "reply" ? "客户回复" : task.source === "opportunity" ? "商机" : task.source === "legacy" ? "旧跟进" : "手工"}</td>
+                <td className="muted">{sourceLabel(task)}</td>
               </tr>
             ))}</tbody>
           </table>
