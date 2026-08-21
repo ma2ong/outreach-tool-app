@@ -42,6 +42,31 @@ def _stalled_opportunities(conn) -> list[dict]:
             for o in rows[:MAX_ROWS]]
 
 
+def _opportunity_coaching(conn) -> list[dict]:
+    from app.agent import opportunity_coach
+    result = []
+    for row in opportunity_coach.portfolio(conn, limit=MAX_ROWS):
+        result.append({
+            "opportunity_id": row["opportunity_id"],
+            "lead_no": row["lead_no"],
+            "company_en": row["company_en"],
+            "title": row["title"],
+            "stage": row["stage"],
+            "amount": row["amount"],
+            "currency": row["currency"],
+            "health": row["health"],
+            "severity": row["severity"],
+            "qualification_pct": row["qualification"]["completeness"],
+            "missing_project_facts": [m["label"] for m in row["qualification"]["missing"][:5]],
+            "missing_authority": [m["label"] for m in row["contact_coverage"]["missing"]],
+            "risks": row["risks"][:5],
+            "next_best_action": row["next_best_action"],
+            "fresh_signal": (row["fresh_signal"] or {}).get("headline"),
+            "open_task": bool(row["open_task"]),
+        })
+    return result
+
+
 def _untouched(conn) -> dict:
     """The untouched pile: how big it really is, and the best dozen in it.
 
@@ -128,6 +153,9 @@ def build(conn) -> dict:
         "pending_replies": _pending_replies(conn),
         "tasks": {**activities.stats(conn), "overdue_list": _overdue_tasks(conn)},
         "stalled_opportunities": _stalled_opportunities(conn),
+        # Stage-aware LED sales coaching: whether a live deal is actually qualified and
+        # whether authority/next-step gaps make it unsafe to treat the stage as progress.
+        "opportunity_coaching": _opportunity_coaching(conn),
         # Contacted accounts that have no other mechanism owning their next step.
         # This is the deterministic portfolio an experienced salesperson keeps in mind.
         "due_followups": account_brain.due_accounts(conn, limit=MAX_ROWS),
