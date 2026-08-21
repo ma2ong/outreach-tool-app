@@ -24,16 +24,27 @@ FACTS YOU MAY USE — nothing else exists:
 - the customer's own words, quoted in the context below
 - the notes taken from their website
 - the opportunity fields and any quote we already sent them
-- our product range: P0.7-P10 indoor and outdoor LED panels
+- exact product facts inside APPROVED PRODUCT FACTS, when that section exists
+- exact project facts inside APPROVED SHAREABLE CASES, when that section exists
+
+Do NOT infer a product specification from a model name, price range, application label,
+or a missing field. If APPROVED PRODUCT FACTS says a field is missing or has a gap,
+treat it as unknown. If product guidance says more project facts are needed, do not turn
+that into a recommendation.
+
+APPROVED SHAREABLE CASES are the only past-project references you may mention. Never use
+customer names, quote/order history, CRM notes, or an internal project name as a case.
+Use only the public label/summary and exact fields shown in that section.
 
 Allen prices every deal himself. You never quote, never name an amount, never offer a
 discount or a payment term, even one that appears in the context. If they are asking to
 be quoted, say he will come back with it.
 
 NEVER state a price, lead time, MOQ, production capacity, certification, warranty
-period, or past project reference unless that exact value appears in the context.
-When you do not have a number the customer asked for, say you will confirm and come
-back with it. A sentence you cannot source is a defect, not a style choice.
+period, or past project reference unless that exact value appears in the permitted
+customer-facing facts above. When you do not have a number the customer asked for, say
+you will confirm and come back with it. A sentence you cannot source is a defect, not a
+style choice.
 
 When the context contains an LED SALES COACH section, it is a deterministic sales
 qualification guide, not a source of new facts. After answering the customer's current
@@ -94,8 +105,8 @@ def build_context(conn, message: dict) -> dict:
     """Everything we actually know about this customer, and nothing we do not."""
     # Own the dependency rather than trusting FastAPI startup order: the agent also runs
     # from the poll loop and from scripts that only initialised the base schema.
-    from app import opportunities, sales_documents
-    from app.agent import led_playbook
+    from app import case_library, opportunities, sales_documents
+    from app.agent import led_playbook, product_advisor
     opportunities.ensure_schema(conn)
     sales_documents.ensure_schema(conn)
     lead_no = message["lead_no"]
@@ -114,16 +125,23 @@ def build_context(conn, message: dict) -> dict:
         " WHERE lead_no=? ORDER BY sent_at DESC LIMIT ?", (lead_no, MAX_HISTORY))
     opps = _fetch(
         conn,
-        "SELECT title, stage, amount, currency, quantity, pixel_pitch, use_case,"
+        "SELECT id, lead_no, title, stage, amount, currency, quantity, pixel_pitch, use_case,"
         " indoor_outdoor, width_m, height_m, viewing_distance_m, brightness_nits,"
         " refresh_rate_hz, maintenance_access, cabinet_size, control_system,"
         " installation_type, project_timing, budget_range, decision_process,"
         " technical_notes, destination, incoterm, next_action, next_action_date"
         " FROM opportunities WHERE lead_no=? ORDER BY updated_at DESC LIMIT 3", (lead_no,))
     qualification = None
+    product_guidance = None
+    case_guidance = []
+    active_opportunity = None
     for opportunity in opps:
         if opportunity.get("stage") not in ("won", "lost"):
+            active_opportunity = opportunity
             qualification = led_playbook.qualification(opportunity)
+            advice = product_advisor.advise(conn, opportunity, limit=3)
+            product_guidance = product_advisor.customer_safe_context(advice)
+            case_guidance = case_library.customer_safe_matches(conn, opportunity, limit=2)
             break
     quotes = _fetch(
         conn,
@@ -138,7 +156,10 @@ def build_context(conn, message: dict) -> dict:
         "history": history,
         "sends": sends,
         "opportunities": opps,
+        "active_opportunity": active_opportunity,
         "qualification_guidance": qualification,
+        "product_guidance": product_guidance,
+        "case_guidance": case_guidance,
         "quotes": quotes,
         "thread": social.stored_thread(message),
     }
@@ -165,6 +186,27 @@ def _render(ctx: dict) -> str:
             "LED SALES COACH (guidance only; these are NOT customer facts): "
             f"application={guide['application']}; qualification={guide['completeness']}%; "
             f"missing={missing}; NEXT QUESTION={guide.get('next_question') or 'none'}")
+    products = ctx.get("product_guidance")
+    if products:
+        lines = [
+            f"status={products.get('status')}; qualification={products.get('qualification_pct')}%; "
+            f"ready_to_recommend={products.get('ready_to_recommend')}; reason={products.get('reason') or 'none'}"
+        ]
+        for product in products.get("products", []):
+            facts = ", ".join(f"{k}={v}" for k, v in product.get("facts", {}).items()) or "no approved technical facts"
+            gaps = "; ".join(product.get("gaps", [])) or "none"
+            lines.append(f"PRODUCT {product.get('model')}: facts[{facts}]; gaps[{gaps}]")
+        out.append("APPROVED PRODUCT FACTS (customer-safe; no prices or private history):\n" + "\n".join(lines))
+    else:
+        out.append("APPROVED PRODUCT FACTS: none")
+    cases = ctx.get("case_guidance") or []
+    if cases:
+        lines = []
+        for case in cases:
+            lines.append(", ".join(f"{k}={v}" for k, v in case.items() if v not in (None, "", 0)))
+        out.append("APPROVED SHAREABLE CASES (human-approved external references only):\n" + "\n".join(lines))
+    else:
+        out.append("APPROVED SHAREABLE CASES: none")
     if ctx["quotes"]:
         out.append("QUOTES ALREADY SENT: " + "; ".join(
             ", ".join(f"{k}={v}" for k, v in q.items() if v not in (None, "", 0))
@@ -196,6 +238,10 @@ def check_claims(body: str, ctx: dict) -> list[str]:
     known = " ".join(str(v) for q in ctx["quotes"] for v in q.values() if v is not None)
     known += " " + " ".join(str(v) for o in ctx["opportunities"] for v in o.values()
                             if v is not None)
+    for product in (ctx.get("product_guidance") or {}).get("products", []):
+        known += " " + " ".join(str(v) for v in product.get("facts", {}).values() if v is not None)
+    for case in ctx.get("case_guidance") or []:
+        known += " " + " ".join(str(v) for v in case.values() if v is not None)
     warnings = []
     for pattern, label in _RISK_PATTERNS:
         for hit in pattern.findall(body or ""):
