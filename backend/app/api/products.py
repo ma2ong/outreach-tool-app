@@ -29,6 +29,14 @@ class ProductCreate(BaseModel):
     cabinet_size: str | None = None
     control_system: str | None = None
     notes: str | None = None
+    cabinet_width_mm: float | None = None
+    cabinet_height_mm: float | None = None
+    cabinet_resolution_w: int | None = None
+    cabinet_resolution_h: int | None = None
+    module_width_mm: float | None = None
+    module_height_mm: float | None = None
+    max_power_w_cabinet: float | None = None
+    avg_power_w_cabinet: float | None = None
     agent_approved: bool = False
 
 
@@ -44,6 +52,14 @@ class ProductUpdate(BaseModel):
     cabinet_size: str | None = None
     control_system: str | None = None
     notes: str | None = None
+    cabinet_width_mm: float | None = None
+    cabinet_height_mm: float | None = None
+    cabinet_resolution_w: int | None = None
+    cabinet_resolution_h: int | None = None
+    module_width_mm: float | None = None
+    module_height_mm: float | None = None
+    max_power_w_cabinet: float | None = None
+    avg_power_w_cabinet: float | None = None
     agent_approved: bool | None = None
 
 
@@ -85,8 +101,17 @@ class QuoteRequest(BaseModel):
 _PRODUCT_FIELDS = (
     "model", "pixel_pitch", "brightness", "use_case", "ref_price_sqm",
     "indoor_outdoor", "refresh_rate_hz", "maintenance_access", "cabinet_size",
-    "control_system", "notes", "agent_approved",
+    "control_system", "notes", "cabinet_width_mm", "cabinet_height_mm",
+    "cabinet_resolution_w", "cabinet_resolution_h", "module_width_mm",
+    "module_height_mm", "max_power_w_cabinet", "avg_power_w_cabinet",
+    "agent_approved",
 )
+
+_FLOAT_ENGINEERING_FIELDS = (
+    "cabinet_width_mm", "cabinet_height_mm", "module_width_mm", "module_height_mm",
+    "max_power_w_cabinet", "avg_power_w_cabinet",
+)
+_INT_ENGINEERING_FIELDS = ("cabinet_resolution_w", "cabinet_resolution_h")
 
 
 def _clean_product(data: dict, *, partial: bool = False) -> dict:
@@ -115,6 +140,30 @@ def _clean_product(data: dict, *, partial: bool = False) -> dict:
         if not 240 <= refresh <= 20000:
             raise HTTPException(status_code=400, detail="refresh_rate_hz out of range")
         clean["refresh_rate_hz"] = refresh
+    for field in _FLOAT_ENGINEERING_FIELDS:
+        if field in clean and clean[field] is not None:
+            try:
+                value = float(clean[field])
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail=f"{field} must be numeric") from exc
+            if value <= 0:
+                raise HTTPException(status_code=400, detail=f"{field} must be > 0")
+            clean[field] = value
+    for field in _INT_ENGINEERING_FIELDS:
+        if field in clean and clean[field] is not None:
+            try:
+                value = int(clean[field])
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail=f"{field} must be integer") from exc
+            if value <= 0:
+                raise HTTPException(status_code=400, detail=f"{field} must be > 0")
+            clean[field] = value
+    if (
+        clean.get("avg_power_w_cabinet") is not None
+        and clean.get("max_power_w_cabinet") is not None
+        and clean["avg_power_w_cabinet"] > clean["max_power_w_cabinet"]
+    ):
+        raise HTTPException(status_code=400, detail="avg_power_w_cabinet cannot exceed max_power_w_cabinet")
     if "agent_approved" in clean:
         clean["agent_approved"] = int(bool(clean["agent_approved"]))
     return clean
@@ -147,6 +196,14 @@ def update_product(pid: int, req: ProductUpdate, conn=Depends(get_conn)):
         raise HTTPException(status_code=404, detail="product not found")
     clean = _clean_product(req.model_dump(exclude_unset=True), partial=True)
     if clean:
+        current = dict(conn.execute("SELECT * FROM products WHERE id=?", (pid,)).fetchone())
+        merged = {**current, **clean}
+        if (
+            merged.get("avg_power_w_cabinet") is not None
+            and merged.get("max_power_w_cabinet") is not None
+            and float(merged["avg_power_w_cabinet"]) > float(merged["max_power_w_cabinet"])
+        ):
+            raise HTTPException(status_code=400, detail="avg_power_w_cabinet cannot exceed max_power_w_cabinet")
         conn.execute(
             f"UPDATE products SET {', '.join(f'{field}=?' for field in clean)} WHERE id=?",
             [*clean.values(), pid],
