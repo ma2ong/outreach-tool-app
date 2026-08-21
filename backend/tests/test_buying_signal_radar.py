@@ -72,9 +72,30 @@ def test_enrichment_returns_source_backed_signal_candidates():
     assert signal["use_case"] == "Retail"
 
 
+def test_radar_follows_news_even_when_product_pitch_is_already_known():
+    pages = {
+        "https://acme.com/contact": "sales@acme.com LED panel P2.5",
+        "https://acme.com/contact-us": "",
+        "https://acme.com": (
+            "# Acme Displays\nLED panel P2.5\n"
+            "[News](https://acme.com/news)\n[Products](https://acme.com/products)"),
+        "https://acme.com/news": "Request for quotation (RFQ) for a new auditorium AV system.",
+        "https://acme.com/products": "LED panel P1.8 P2.5",
+    }
+    fetched = []
+
+    def fetch(url):
+        fetched.append(url)
+        return pages.get(url, "")
+
+    out = enrich.enrich_domain("acme.com", fetch=fetch)
+    assert "https://acme.com/news" in fetched
+    # Product evidence was already present, so the extra product crawl remains skipped.
+    assert "https://acme.com/products" not in fetched
+    assert any(row["signal_type"] == "tender" for row in out["buying_signals"])
+
+
 def test_discovery_import_persists_signal_only_after_lead_creation(conn):
-    before = conn.execute("SELECT COUNT(*) FROM buying_signals").fetchone()[0] if \
-        conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='buying_signals'").fetchone() else 0
     result = discovery.import_candidates(conn, [{
         "company_en": "Signal Prospect",
         "website": "signalprospect.com",
@@ -91,7 +112,6 @@ def test_discovery_import_persists_signal_only_after_lead_creation(conn):
     rows = sales_intelligence.list_signals(conn, lead_no=lead_no)
     assert len(rows) == 1 and rows[0]["signal_type"] == "tender"
     assert result["signals_imported"] == 1
-    assert len(rows) == before + 1 if before else len(rows) == 1
 
 
 def test_recheck_wakes_account_on_new_signal_even_without_contact_change(conn):
