@@ -1,6 +1,6 @@
 # Spec 38 — Durable Sales Worker Runtime
 
-**Status:** implementation wave / stacked PR #2
+**Status:** implemented in stacked PR #2
 **Date:** 2026-08-21
 **Depends on:** Specs 22, 24–27, 33–37
 
@@ -66,19 +66,12 @@ One-shot mode releases its lease immediately after the cycle.
 `BEGIN IMMEDIATE`, so two processes sharing the same DB file cannot both win the same
 lease race.
 
-The lease stores:
-
-- owner/process identity;
-- runtime mode (`embedded` or `worker`);
-- acquisition time;
-- latest heartbeat;
-- expiry time.
+The lease stores owner/process identity, runtime mode (`embedded` or `worker`),
+acquisition time, latest heartbeat and expiry time.
 
 The current leader renews before/after cycles and a heartbeat thread renews while a slow
 cycle is in progress. If the process dies, heartbeat stops and another process can take
-over after lease expiry.
-
-A graceful dedicated-worker shutdown releases immediately.
+over after lease expiry. A graceful dedicated-worker shutdown releases immediately.
 
 ## One unattended execution spine
 
@@ -110,23 +103,27 @@ execution no longer comes from an independent scheduler thread.
 - latest cycle start/finish;
 - active owner and mode;
 - last cycle success/failure;
+- latest email-poll success/failure separately from process health;
 - last runtime error;
 - total cycle count.
 
 `GET /api/runtime/status` exposes the lease, heartbeat age, state and whether the web
 process expects an embedded or dedicated worker. It exposes no credentials.
 
-This is the minimum needed to distinguish:
+The UI polls that endpoint every 15 seconds and shows a persistent Sales Worker badge:
 
-- Agent is healthy and active;
-- Agent is healthy but this process is standby;
-- lease expired / no worker is active;
-- last cycle crashed.
+- **green** — worker active and latest mailbox sync healthy;
+- **amber** — worker active, but latest mailbox sync incomplete; retry cadence is shortened;
+- **red** — no active leader or the last full cycle crashed.
+
+This prevents a live process with broken mailbox sync from appearing falsely healthy.
+If hosted web has `OUTREACH_EMBEDDED_WORKER=0` but no dedicated lease is active, the UI
+explicitly tells the operator to check `python -m app.worker`.
 
 ## Failure semantics
 
 - A transient email sync failure shortens the next retry cadence but does not stop other
-  sales maintenance work.
+  sales maintenance work, and is persisted as degraded runtime health.
 - A cycle-level exception is recorded in runtime state rather than disappearing with a
   dead thread.
 - A hard process crash relies on lease TTL failover; it does **not** immediately replay
@@ -158,19 +155,14 @@ Social-channel automation is a separate deployment concern. WhatsApp/Instagram b
 sessions may depend on a persistent logged-in Playwright profile; this spec does not
 claim those sessions are automatically portable to an ephemeral cloud worker.
 
-True off-PC 24×7 therefore additionally requires:
-
-- a persistent host/process supervisor;
-- durable DB/backups;
-- server-side secrets/mailbox configuration;
-- durable browser/session storage for any supported social reply channel;
-- monitoring/alerting around `/api/runtime/status` or equivalent metrics.
+True off-PC 24×7 therefore additionally requires a persistent host/process supervisor,
+durable DB/backups, server-side secrets/mailbox configuration, durable browser/session
+storage for supported social replies, and monitoring/alerting around runtime health.
 
 ## Safety boundaries
 
-The runtime controls **who may execute**, not **what may be executed**.
-
-All existing safety rules remain authoritative:
+The runtime controls **who may execute**, not **what may be executed**. Existing safety
+rules remain authoritative:
 
 - pricing/discount/payment/delivery commitments stay human-controlled;
 - DNC, bounce suppression, verification and quotas stay in the existing send paths;
@@ -184,11 +176,12 @@ All existing safety rules remain authoritative:
 - an expired lease can be taken over;
 - the same owner can renew without resetting acquisition history;
 - a slow cycle is protected by an active heartbeat;
-- cycle success/failure is recorded in runtime state;
+- cycle and mailbox-sync health are recorded separately;
 - standby processes do not execute the cycle;
 - one-shot worker releases immediately;
 - sequence autosend executes inside the leased cycle rather than an independent thread;
 - local embedded-worker behavior remains the default;
 - hosted web can disable the embedded worker and use `python -m app.worker`;
+- runtime health is available through API and the persistent UI badge;
 - CI never starts a real embedded worker or external research task;
 - full backend tests and frontend production build remain green.
