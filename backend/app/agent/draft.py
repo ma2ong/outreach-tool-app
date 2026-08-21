@@ -35,6 +35,12 @@ period, or past project reference unless that exact value appears in the context
 When you do not have a number the customer asked for, say you will confirm and come
 back with it. A sentence you cannot source is a defect, not a style choice.
 
+When the context contains an LED SALES COACH section, it is a deterministic sales
+qualification guide, not a source of new facts. After answering the customer's current
+question, prefer its NEXT QUESTION as the single follow-up question if that question is
+still unanswered by the customer's latest message. Do not dump the whole missing-field
+list on the customer. Do not turn a missing value into a recommendation by guessing it.
+
 VOICE: direct, short sentences, no marketing adjectives, no "we are pleased to".
 Write the way a factory owner writes: answer the question, then ask the one question
 that moves this forward. 120 words or fewer.
@@ -89,6 +95,7 @@ def build_context(conn, message: dict) -> dict:
     # Own the dependency rather than trusting FastAPI startup order: the agent also runs
     # from the poll loop and from scripts that only initialised the base schema.
     from app import opportunities, sales_documents
+    from app.agent import led_playbook
     opportunities.ensure_schema(conn)
     sales_documents.ensure_schema(conn)
     lead_no = message["lead_no"]
@@ -108,8 +115,16 @@ def build_context(conn, message: dict) -> dict:
     opps = _fetch(
         conn,
         "SELECT title, stage, amount, currency, quantity, pixel_pitch, use_case,"
-        " indoor_outdoor, width_m, height_m, destination, incoterm, next_action"
+        " indoor_outdoor, width_m, height_m, viewing_distance_m, brightness_nits,"
+        " refresh_rate_hz, maintenance_access, cabinet_size, control_system,"
+        " installation_type, project_timing, budget_range, decision_process,"
+        " technical_notes, destination, incoterm, next_action, next_action_date"
         " FROM opportunities WHERE lead_no=? ORDER BY updated_at DESC LIMIT 3", (lead_no,))
+    qualification = None
+    for opportunity in opps:
+        if opportunity.get("stage") not in ("won", "lost"):
+            qualification = led_playbook.qualification(opportunity)
+            break
     quotes = _fetch(
         conn,
         "SELECT quote_no, status, currency, total, incoterm, lead_time, payment_terms,"
@@ -123,6 +138,7 @@ def build_context(conn, message: dict) -> dict:
         "history": history,
         "sends": sends,
         "opportunities": opps,
+        "qualification_guidance": qualification,
         "quotes": quotes,
         "thread": social.stored_thread(message),
     }
@@ -142,6 +158,13 @@ def _render(ctx: dict) -> str:
             for o in ctx["opportunities"]))
     else:
         out.append("OPPORTUNITY FIELDS: none recorded")
+    guide = ctx.get("qualification_guidance")
+    if guide:
+        missing = ", ".join(item["label"] for item in guide["missing"][:8]) or "none"
+        out.append(
+            "LED SALES COACH (guidance only; these are NOT customer facts): "
+            f"application={guide['application']}; qualification={guide['completeness']}%; "
+            f"missing={missing}; NEXT QUESTION={guide.get('next_question') or 'none'}")
     if ctx["quotes"]:
         out.append("QUOTES ALREADY SENT: " + "; ".join(
             ", ".join(f"{k}={v}" for k, v in q.items() if v not in (None, "", 0))
