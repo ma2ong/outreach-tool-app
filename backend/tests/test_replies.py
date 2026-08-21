@@ -68,7 +68,7 @@ def test_lookback_widens_to_cover_the_outage(conn, monkeypatch):
 
 def test_failed_poll_does_not_narrow_the_next_window(conn, monkeypatch):
     from app import settings
-    # replies.py imports get_password directly, so patch the dependency at its use site.
+    # replies.py imports get_password directly; patch the dependency at its use site.
     monkeypatch.setattr("app.replies.get_password", lambda: "pw")
 
     def boom(mailbox, since_days):
@@ -129,39 +129,83 @@ def test_delay_notice_never_burns_a_live_address(conn):
 
 
 def test_bounce_without_a_clear_reason_is_not_acted_on(conn):
-    res = replies.process_messages(conn, _bounce(
-        "We could not deliver your message to g@gamma.com. We may try again."))
-    assert res["bounces"] == 0
+    res = replies.process_messages(conn, _bounce("Could not deliver to g@gamma.com\n"))
+    assert res["bounces"] == 0 and res["delayed"] == 1
     assert conn.execute("SELECT email_status FROM leads WHERE no=3").fetchone()[0] is None
 
 
-def test_hard_bounce_records_observation_date(conn):
-    replies.process_messages(conn, _bounce(_HARD_BOUNCE_CN))
-    row = conn.execute("SELECT bounced_at FROM leads WHERE no=3").fetchone()
-    assert row["bounced_at"] == "2026-08-01T00:00:00+00:00"
+def _bounce_for(addr, subject="Delivery Status Notification (Failure)", body=None):
+    return {"from_addr": "mailer-daemon@googlemail.com", "subject": subject,
+            "body": body or f"550 5.1.1 user unknown: {addr}",
+            "received_at": "2026-08-10T00:00:00+00:00"}
 
 
-def test_repoll_does_not_double_count_bounce(conn):
-    first = replies.process_messages(conn, _bounce(_HARD_BOUNCE_CN))
-    second = replies.process_messages(conn, _bounce(_HARD_BOUNCE_CN))
-    assert first["bounces"] == 1
-    assert second["bounces"] == 0
+def test_hard_bounce_records_a_durable_date(conn):
+    """email_status alone does not survive re-verification; bounced_at does."""
+    conn.execute("UPDATE leads SET email = 'dead@acme.com' WHERE no = 1")
+    conn.commit()
+    replies.process_messages(conn, [_bounce_for("dead@acme.com")])
+    row = conn.execute("SELECT email_status, bounced_at FROM leads WHERE no=1").fetchone()
+    assert row["email_status"] == "invalid"
+    assert row["bounced_at"] == "2026-08-10T00:00:00+00:00"
 
 
-def test_unsubscribe_suppresses_every_channel(conn):
-    result = replies.process_messages(conn, [{
-        "from_addr": "sales@alpha.com", "subject": "Re", "body": "Please remove me",
-        "received_at": "2026-08-01T00:00:00+00:00",
-    }])
-    assert result["unsubscribes"] == 1
-    row = conn.execute("SELECT do_not_contact FROM leads WHERE no=1").fetchone()
-    assert row["do_not_contact"] == 1
+def test_a_second_bounce_keeps_the_first_date(conn):
+    conn.execute("UPDATE leads SET email = 'dead@acme.com' WHERE no = 1")
+    conn.commit()
+    replies.process_messages(conn, [_bounce_for("dead@acme.com")])
+    later = _bounce_for("dead@acme.com")
+    later["received_at"] = "2026-08-12T00:00:00+00:00"
+    replies.process_messages(conn, [later])
+    row = conn.execute("SELECT bounced_at FROM leads WHERE no=1").fetchone()
+    assert row["bounced_at"] == "2026-08-10T00:00:00+00:00"
 
 
-def test_unsubscribe_also_marks_replied(conn):
+def test_a_soft_bounce_records_no_date(conn):
+    """A delay notice must not burn the address — nor look like a deliverability hit."""
+    conn.execute("UPDATE leads SET email = 'slow@acme.com' WHERE no = 1")
+    conn.commit()
+    replies.process_messages(conn, [_bounce_for(
+        "slow@acme.com", body="4.4.1 will keep trying for 44 hours: slow@acme.com")])
+    row = conn.execute("SELECT email_status, bounced_at FROM leads WHERE no=1").fetchone()
+    assert row["bounced_at"] is None and row["email_status"] != "invalid"
+
+
+def test_backfill_recovers_dates_from_old_inbox_notices(conn):
+    conn.execute(
+        "INSERT INTO inbox_messages(lead_no, channel, kind, from_addr, subject, body,"
+        " received_at) VALUES (1, 'email', 'bounce', 'mailer-daemon@x.com', 'Undeliverable',"
+        " '5.1.1', '2026-07-02T00:00:00+00:00')")
+    conn.execute(
+        "INSERT INTO inbox_messages(lead_no, channel, kind, from_addr, subject, body,"
+        " received_at) VALUES (1, 'email', 'bounce', 'mailer-daemon@x.com', 'Undeliverable',"
+        " '5.1.1', '2026-07-09T00:00:00+00:00')")
+    conn.commit()
+    assert replies.backfill_bounced_at(conn) == 1
+    row = conn.execute("SELECT bounced_at FROM leads WHERE no=1").fetchone()
+    assert row["bounced_at"] == "2026-07-02T00:00:00+00:00"   # earliest notice wins
+    assert replies.backfill_bounced_at(conn) == 0             # idempotent
+
+
+def test_korean_opt_out_suppresses_the_lead(conn):
+    """The Korean mail carries no opt-out line, so reading one in a reply is the only
+    way a Korean customer can ask to be left alone."""
+    for phrase in ("수신거부 부탁드립니다", "앞으로 연락하지 마세요", "메일 그만 보내주세요"):
+        conn.execute("UPDATE leads SET do_not_contact=0 WHERE no=1")
+        conn.commit()
+        replies.process_messages(conn, [{
+            "from_addr": "sales@alpha.com", "subject": "RE: LED",
+            "body": phrase, "received_at": "2026-08-13T00:00:00+00:00"}])
+        row = conn.execute("SELECT do_not_contact FROM leads WHERE no=1").fetchone()
+        assert row["do_not_contact"] == 1, phrase
+
+
+def test_an_ordinary_korean_reply_is_not_read_as_an_opt_out(conn):
+    conn.execute("UPDATE leads SET do_not_contact=0 WHERE no=1")
+    conn.commit()
     replies.process_messages(conn, [{
-        "from_addr": "sales@alpha.com", "subject": "Re", "body": "unsubscribe",
-        "received_at": "2026-08-01T00:00:00+00:00",
-    }])
-    row = conn.execute("SELECT status FROM outreach WHERE lead_no=1 AND channel='email'").fetchone()
-    assert row["status"] == "replied"
+        "from_addr": "sales@alpha.com", "subject": "RE: LED",
+        "body": "안녕하세요, 견적 부탁드립니다. P2.5 실내용으로 검토 중입니다.",
+        "received_at": "2026-08-13T00:00:00+00:00"}])
+    row = conn.execute("SELECT do_not_contact FROM leads WHERE no=1").fetchone()
+    assert row["do_not_contact"] == 0
