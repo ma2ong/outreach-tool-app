@@ -112,6 +112,29 @@ def coach_one(opportunity_id: int, conn=Depends(get_conn)):
     return opportunity_coach.coach_opportunity(conn, opportunity)
 
 
+@router.get("/{opportunity_id}/products")
+def product_matches(opportunity_id: int, limit: int = 3, conn=Depends(get_conn)):
+    """Return internal evidence-backed product advice for one opportunity.
+
+    Reference prices are not part of the advisor result. Historical quote/order counts
+    are internal tie-break evidence only and never enter automatic customer context.
+    """
+    from app.agent import product_advisor
+    opportunity = opportunities.get(conn, opportunity_id)
+    if opportunity is None:
+        raise HTTPException(status_code=404, detail="商机不存在")
+    return product_advisor.advise(conn, opportunity, limit=limit)
+
+
+@router.get("/{opportunity_id}/cases")
+def case_matches(opportunity_id: int, limit: int = 5, conn=Depends(get_conn)):
+    from app import case_library
+    opportunity = opportunities.get(conn, opportunity_id)
+    if opportunity is None:
+        raise HTTPException(status_code=404, detail="商机不存在")
+    return case_library.match(conn, opportunity, limit=limit, shareable_only=True)
+
+
 @router.post("")
 def create_opportunity(req: OpportunityCreate, conn=Depends(get_conn)):
     try:
