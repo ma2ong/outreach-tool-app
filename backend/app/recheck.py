@@ -143,6 +143,30 @@ def _diff(lead: dict, info: dict) -> tuple[dict, list[str]]:
     return fills, notes
 
 
+def _store_new_signals(conn: sqlite3.Connection, lead_no: int,
+                       candidates: list[dict]) -> list[dict]:
+    """Persist only genuinely new public evidence; repeated rechecks stay quiet."""
+    if not candidates:
+        return []
+    from app import sales_intelligence
+
+    sales_intelligence.ensure_schema(conn)
+    known = {row["id"] for row in conn.execute(
+        "SELECT id FROM buying_signals WHERE lead_no=?", (lead_no,)).fetchall()}
+    added = []
+    for candidate in candidates:
+        try:
+            signal = sales_intelligence.create_signal(conn, lead_no, candidate)
+        except (sales_intelligence.SalesIntelligenceValidation, TypeError, ValueError):
+            # One malformed detector candidate must not turn an otherwise successful
+            # website reread into a failed recheck.
+            continue
+        if signal["id"] not in known:
+            known.add(signal["id"])
+            added.append(signal)
+    return added
+
+
 def run(conn: sqlite3.Connection, lead_no: int, enrich_fn=None,
         first_read: bool = False) -> dict:
     """Re-read one lead's site now. Returns what changed; {"changed": False} is a normal,
@@ -150,9 +174,9 @@ def run(conn: sqlite3.Connection, lead_no: int, enrich_fn=None,
 
     `first_read` is for the backfill over leads collected before any of this existed.
     Everything it finds is new by definition, so raising "the website changed, worth
-    another touch" on all 715 of them would file hundreds of tasks about a non-event and
-    bury the handful that are real. The findings still go on the lead's own timeline,
-    where they are provenance rather than a demand for attention."""
+    another touch" on all of them would bury genuine current buying windows. Public
+    buying signals are therefore only activated on later rechecks, not the historical
+    first-read backfill."""
     from app import activities, repository as repo
 
     row = conn.execute(
@@ -187,6 +211,8 @@ def run(conn: sqlite3.Connection, lead_no: int, enrich_fn=None,
         return {"ok": False, "error": "官网一个页面都没抓到"}
 
     fills, notes = _diff(lead, info)
+    new_signals = [] if first_read else _store_new_signals(
+        conn, lead_no, info.get("buying_signals") or [])
 
     if fills:
         if "email" in fills and info.get("email_source"):
@@ -195,30 +221,45 @@ def run(conn: sqlite3.Connection, lead_no: int, enrich_fn=None,
         conn.execute(f"UPDATE leads SET {sets}, updated_at=? WHERE no=?",
                      [*fills.values(), dt.datetime.now(dt.UTC).isoformat(), lead_no])
 
-    count = 0 if notes else (lead["recheck_count"] or 0) + 1
+    has_finding = bool(notes or new_signals)
+    count = 0 if has_finding else (lead["recheck_count"] or 0) + 1
     conn.execute("UPDATE leads SET recheck_count=? WHERE no=?", (count, lead_no))
     due = _set_due(conn, lead_no, interval_days(lead["target_fit"], count))
     conn.commit()
 
-    if not notes:
+    if not has_finding:
         return {"ok": True, "changed": False, "next_due": due}
 
+    timeline = list(notes)
+    if new_signals:
+        timeline.append("发现采购信号：" + "；".join(s["headline"] for s in new_signals[:5]))
     repo.add_note(conn, lead_no, ("首次读取官网：" if first_read else "官网复检：")
-                  + "；".join(notes))
+                  + "；".join(timeline))
+
     if not first_read:
         from app import sales_intelligence
-        sales_intelligence.record_site_change(
-            conn, lead_no, website, notes, hook=info.get("hook"))
+        if notes:
+            sales_intelligence.record_site_change(
+                conn, lead_no, website, notes, hook=info.get("hook"))
         activities.ensure_schema(conn)
+        if new_signals:
+            confidence = max(int(s.get("confidence") or 0) for s in new_signals)
+            title = f"发现采购信号，可以跟进：{lead['company_en']}"
+            priority = "high" if confidence >= 80 else "normal"
+        else:
+            title = f"官网有更新，可以再触达：{lead['company_en']}"
+            priority = "normal"
         activities._upsert_source(
             conn, lead_no=lead_no, opportunity_id=None, source="recheck",
             source_ref=f"lead:{lead_no}:recheck", type="task",
-            title=f"官网有更新，可以再触达：{lead['company_en']}",
-            due_at=_today().isoformat(), priority="normal", note="；".join(notes)[:500],
+            title=title, due_at=_today().isoformat(), priority=priority,
+            note="；".join(timeline)[:500],
         )
         activities.sync_lead(conn, lead_no)
     return {"ok": True, "changed": True, "next_due": due,
-            "filled": sorted(fills), "notes": notes}
+            "filled": sorted(fills), "notes": notes,
+            "signals": [{"id": s["id"], "headline": s["headline"],
+                         "confidence": s["confidence"]} for s in new_signals]}
 
 
 def sweep(conn: sqlite3.Connection, limit: int = 20, enrich_fn=None) -> dict:
