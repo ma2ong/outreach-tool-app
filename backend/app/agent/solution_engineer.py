@@ -14,8 +14,9 @@ from app.db import init_schema
 
 
 ENGINEERING_PRODUCT_FIELDS = (
-    "id", "model", "agent_approved", "pixel_pitch", "cabinet_size",
-    "cabinet_width_mm", "cabinet_height_mm", "cabinet_resolution_w",
+    "id", "model", "agent_approved", "pixel_pitch", "brightness", "use_case",
+    "indoor_outdoor", "refresh_rate_hz", "maintenance_access", "cabinet_size",
+    "control_system", "cabinet_width_mm", "cabinet_height_mm", "cabinet_resolution_w",
     "cabinet_resolution_h", "module_width_mm", "module_height_mm",
     "max_power_w_cabinet", "avg_power_w_cabinet",
 )
