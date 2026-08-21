@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 
+from app import settings
 from app.agent import run
 
 
@@ -18,14 +19,17 @@ def due(conn, now: dt.datetime | None = None) -> bool:
     # useful planning horizon, so recovery is bounded to the working afternoon.
     if not (run.PLAN_WINDOW[1] <= now.hour < run.REPORT_HOUR):
         return False
-    status = run.status(conn)["plan"]
-    if not status["enabled"] or status["last_date"] == now.date().isoformat():
+    today = now.date().isoformat()
+    if settings.get(conn, run._K_PLAN_ENABLED, "1") != "1":
         return False
-    if int(status.get("attempts") or 0) >= int(status.get("max_attempts") or run.PLAN_MAX_ATTEMPTS):
+    if settings.get(conn, run._K_PLAN_DATE) == today:
+        return False
+    if run._plan_attempts(conn, today) >= run.PLAN_MAX_ATTEMPTS:
         return False
     last_attempt = run._last_plan_attempt(conn)
-    if last_attempt and now - last_attempt < dt.timedelta(minutes=run.PLAN_RETRY_MINUTES):
-        return False
+    if last_attempt and settings.get(conn, run._K_PLAN_ATTEMPT_DATE) == today:
+        if now - last_attempt < dt.timedelta(minutes=run.PLAN_RETRY_MINUTES):
+            return False
     return True
 
 
