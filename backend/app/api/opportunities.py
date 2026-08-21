@@ -27,6 +27,17 @@ class OpportunityCreate(BaseModel):
     incoterm: str | None = None
     competitor: str | None = None
     loss_reason: str | None = None
+    viewing_distance_m: float | None = None
+    brightness_nits: int | None = None
+    refresh_rate_hz: int | None = None
+    maintenance_access: str | None = None
+    cabinet_size: str | None = None
+    control_system: str | None = None
+    installation_type: str | None = None
+    project_timing: str | None = None
+    budget_range: str | None = None
+    decision_process: str | None = None
+    technical_notes: str | None = None
 
 
 class OpportunityUpdate(BaseModel):
@@ -48,6 +59,17 @@ class OpportunityUpdate(BaseModel):
     incoterm: str | None = None
     competitor: str | None = None
     loss_reason: str | None = None
+    viewing_distance_m: float | None = None
+    brightness_nits: int | None = None
+    refresh_rate_hz: int | None = None
+    maintenance_access: str | None = None
+    cabinet_size: str | None = None
+    control_system: str | None = None
+    installation_type: str | None = None
+    project_timing: str | None = None
+    budget_range: str | None = None
+    decision_process: str | None = None
+    technical_notes: str | None = None
 
 
 def _bad(exc: opportunities.OpportunityValidation):
@@ -85,4 +107,3 @@ def update_opportunity(opportunity_id: int, req: OpportunityUpdate, conn=Depends
     if result is None:
         raise HTTPException(status_code=404, detail="商机不存在")
     return result
-
