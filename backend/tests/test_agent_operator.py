@@ -206,7 +206,9 @@ def test_failed_morning_plan_retries_after_cooldown_but_stops_after_three(conn,
     mission.set_mission(conn, {"daily_qualified_leads": 0})
     monkeypatch.setattr(llm, "complete_json",
                         lambda *a, **k: (_ for _ in ()).throw(llm.LLMError("暂时不可达")))
-    first = dt.datetime(2026, 8, 20, 9, 0)
+    # Today's 9am, not a fixed date: `status()` counts attempts against dt.date.today(),
+    # so a hard-coded day made this test pass only on that one day.
+    first = dt.datetime.combine(dt.date.today(), dt.time(9, 0))
     assert run.plan_due(conn, first)
     run.make_plan(conn, first)
     assert run.plan_due(conn, first + dt.timedelta(minutes=15)) is False
