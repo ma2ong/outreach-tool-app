@@ -133,7 +133,13 @@ Case matching is deterministic and conservative:
 - same application increases relevance;
 - environment conflict excludes the case;
 - specified pixel-pitch conflict excludes the case;
-- only `shareable = 1` cases can enter reply context.
+- only `shareable = 1` cases are eligible for external use;
+- `shareable` means **permission, not relevance**: automatic reply context also requires
+  the case to cross a deterministic similarity threshold for the current opportunity.
+
+A generic or unrelated project may still appear in the internal case library, but it is
+withheld from `customer_safe_matches()` until enough application/environment/pitch
+evidence makes it relevant to the current project.
 
 `GET /api/opportunities/{id}/cases` returns shareable case matches for internal review.
 
@@ -180,6 +186,7 @@ Products and cases increase factual recall, not commercial authority.
 - product match API returns deterministic advice;
 - new cases are private by default;
 - shareable cases require public label + public summary;
+- shareable but irrelevant cases remain outside automatic reply context;
 - internal case names never enter customer-safe context;
 - private cases never enter automatic replies;
 - approved product/case facts appear in reply context only after their gates pass;
