@@ -1,7 +1,7 @@
 import datetime as dt
 
 from app import contacts, opportunities, sales_intelligence
-from app.agent import customer360, led_playbook, opportunity_coach, proposals, world
+from app.agent import customer360, draft, led_playbook, opportunity_coach, proposals, world
 from app.db import connect, init_schema
 
 
@@ -195,3 +195,29 @@ def test_world_exposes_compact_opportunity_coaching(conn):
     assert row["title"] == "Live LED project"
     assert "qualification_pct" in row
     assert row["next_best_action"]
+
+
+def test_reply_context_contains_one_led_sales_coach_question(conn):
+    opportunities.create(conn, 1, {
+        "title": "Rental project",
+        "stage": "requirements",
+        "use_case": "Rental",
+        "indoor_outdoor": "Indoor",
+        "width_m": 8,
+        "height_m": 4,
+    })
+    message = {
+        "id": 999,
+        "lead_no": 1,
+        "channel": "email",
+        "subject": "Re: LED wall",
+        "body": "We need this for events.",
+        "thread_json": None,
+    }
+    ctx = draft.build_context(conn, message)
+    guide = ctx["qualification_guidance"]
+    assert guide["missing"][0]["key"] == "viewing_distance_m"
+    rendered = draft._render(ctx)
+    assert "LED SALES COACH" in rendered
+    assert "NEXT QUESTION=" in rendered
+    assert "多远" in rendered
