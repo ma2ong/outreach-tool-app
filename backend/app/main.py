@@ -74,9 +74,13 @@ def auto_poll_replies() -> bool:
     """Pull replies so the inbox is current without Allen remembering to click 拉取邮件
     — a missed pull means the sequences keep chasing people who already answered.
     Fully fault-tolerant: no Gmail password or a network hiccup just skips this round;
-    the manual button still exists. Returns True when every mailbox was read."""
+    the manual button still exists. Returns True when every mailbox was read.
+
+    An intentionally disabled poll is healthy for scheduler timing: email polling is one
+    capability, not the master switch for every other autonomous job.
+    """
     if os.environ.get("OUTREACH_AUTO_POLL", "1") == "0":
-        return False
+        return True
     from app import replies
     conn = None
     try:
@@ -156,40 +160,52 @@ def auto_prune_sequences() -> None:
 
 
 def auto_agent_run() -> None:
-    """Classify new replies and draft what should be answered.
+    """Run the autonomous sales operator against the current local business state.
 
-    Runs right after the poll so a reply that lands at 09:00 has a draft waiting rather
-    than sitting until Allen opens the page. Nothing here sends: the output is proposals
-    (Spec 22). Off by default in tests, and silent when no model backend is configured."""
+    Reply handling and planning are still owned by `agent.run`. Account Brain is a
+    deterministic safety net after that pass: it makes sure a contacted account with no
+    reply, task or active sequence does not disappear simply because no new event fired.
+    Both paths create auditable proposals and retain the existing autonomy controls.
+    """
     if os.environ.get("OUTREACH_AGENT", "1") == "0":
         return
+    from app.agent import account_brain
     from app.agent import run as agent_run
     conn = None
     try:
         conn = connect(DB_PATH)
         agent_run.run_once(conn)
-    except Exception:  # noqa: BLE001 — the agent must not kill the poll loop
+        account_brain.safety_net(conn)
+    except Exception:  # noqa: BLE001 — the agent must not kill the scheduler loop
         pass
     finally:
         if conn is not None:
             conn.close()
 
 
-def reply_poll_loop() -> None:
-    """Keep pulling for as long as the app runs.
+def background_cycle() -> bool:
+    """Run one independent maintenance/Agent cycle and return email-poll health.
 
-    Polling used to happen exactly once, at startup. The app now auto-starts at logon,
-    where the network is routinely not up yet — the pull timed out, the failure was
-    swallowed, and nothing ever retried, so replies stayed invisible until someone
-    clicked the button. Retry fast until the first clean sweep, then settle down."""
-    if os.environ.get("OUTREACH_AUTO_POLL", "1") == "0":
-        return
+    Kept separate from the infinite loop so each capability can be tested without
+    starting a daemon thread. Most importantly, `OUTREACH_AUTO_POLL=0` now skips only
+    email polling instead of disabling the sales Agent, social scan and data hygiene.
+    """
+    ok = auto_poll_replies()
+    auto_scan_social()
+    auto_recheck()
+    auto_prune_sequences()  # after poll: a fresh bounce parks its enrollment now
+    auto_agent_run()        # last: it reads whatever new state the other jobs produced
+    return ok
+
+
+def reply_poll_loop() -> None:
+    """Keep the background operating cycle alive for as long as the app runs.
+
+    A failed email sync retries quickly, while an intentionally disabled email sync uses
+    the normal interval. Other autonomous capabilities are independent of that setting.
+    """
     while True:
-        ok = auto_poll_replies()
-        auto_scan_social()
-        auto_recheck()
-        auto_prune_sequences()  # after the poll: a fresh bounce parks its enrollment now
-        auto_agent_run()        # last: it reads the replies the poll just stored
+        ok = background_cycle()
         time.sleep(REPLY_POLL_SECONDS if ok else REPLY_RETRY_SECONDS)
 
 
