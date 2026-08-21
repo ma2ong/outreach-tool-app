@@ -14,6 +14,8 @@ import sqlite3
 from app.agent import led_playbook
 
 
+MIN_CUSTOMER_MATCH_SCORE = 45
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS approved_cases (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -235,15 +237,20 @@ def match(conn: sqlite3.Connection, opportunity: dict, *, limit: int = 3,
 
 def customer_safe_matches(conn: sqlite3.Connection, opportunity: dict,
                           *, limit: int = 2) -> list[dict]:
-    """Return only fields explicitly approved for external reference.
+    """Return only externally approved *and relevant* reference facts.
 
-    Internal names are deliberately omitted even from the returned dict so a downstream
-    model cannot accidentally surface a private customer/project label.
+    Shareable means permission, not relevance. A case must also cross a deterministic
+    similarity threshold before it can enter an automatic reply. Internal names are
+    deliberately omitted even from the returned dict.
     """
     safe = []
-    for row in match(conn, opportunity, limit=limit, shareable_only=True):
-        if not row.get("shareable"):
+    # Fetch a wider internal candidate set before applying the customer-facing relevance
+    # gate so a low-scoring recent case cannot crowd out a better older one.
+    for row in match(conn, opportunity, limit=max(10, limit * 5), shareable_only=True):
+        if not row.get("shareable") or int(row.get("match_score") or 0) < MIN_CUSTOMER_MATCH_SCORE:
             continue
         safe.append({field: row.get(field) for field in SAFE_FIELDS
                      if field != "id" and row.get(field) not in (None, "", 0)})
+        if len(safe) >= max(1, min(int(limit), 20)):
+            break
     return safe
