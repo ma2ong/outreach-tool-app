@@ -93,13 +93,27 @@ export function MailboxPanel() {
         <input className="input" placeholder="密码 / 应用专用码" type="password" value={form.password} onChange={(e) => set("password", e.target.value)} style={{ width: 160 }} />
         <input className="input" placeholder="日上限" type="number" value={form.daily_cap} onChange={(e) => set("daily_cap", Number(e.target.value))} style={{ width: 90 }} />
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}
-          title="勾上代表这个邮箱只负责发信，不去拉它的收件箱。适用于 SMTP 能用但 IMAP 未开通的邮箱（如 Zoho 免费版）——回复和退信要另配转发到一个能收信的邮箱。">
+          title="勾上代表这个邮箱只负责发信，不去拉它的收件箱。适用于 SMTP 能用但 IMAP 未开通的邮箱。">
           <input type="checkbox" checked={!form.imap_enabled}
             onChange={(e) => setForm((f) => ({ ...f, imap_enabled: !e.target.checked }))} />
           只发信（不收信）
         </label>
         <button className="btn btn-primary" onClick={add}>添加</button>
       </div>
+      {!form.imap_enabled && (
+        <div style={{
+          marginTop: 10, padding: "10px 12px", borderRadius: 6,
+          background: "#fff4f4", border: "1px solid #f0c4c4", fontSize: 12,
+        }}>
+          <b>这个邮箱收不到退信。</b>
+          退信跟随信封发件人，从不跟随 Reply-To——所以客户的回复照常进你配的回复邮箱、
+          一切看起来正常，而退信落在没人能读的地方：名单在腐烂，你却看不见。
+          发满 25 封后，送达率安全闸会因「监测不到退信」暂停全部邮件自动跟进。
+          <div style={{ marginTop: 6 }}>
+            要么给这个邮箱开通 IMAP（多数免费域名邮箱需付费），要么换一个能收信的邮箱来发。
+          </div>
+        </div>
+      )}
       {msg && <div className="muted" style={{ marginTop: 8 }}>{msg}</div>}
     </div>
   );
