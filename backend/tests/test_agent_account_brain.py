@@ -1,7 +1,7 @@
 import datetime as dt
 
 from app import main
-from app.agent import account_brain, plan, proposals, world
+from app.agent import account_brain, catchup, plan, proposals, world
 
 
 TODAY = dt.date(2026, 8, 21)
@@ -65,7 +65,7 @@ def test_world_exposes_due_followups(conn):
     assert any(row["lead_no"] == 1 for row in state["due_followups"])
 
 
-def test_world_treats_approved_execution_as_already_open_work(conn):
+def test_world_and_summary_treat_approved_execution_as_open_work(conn):
     p = proposals.create(conn, "create_task", lead_no=1, title="正在执行的工作",
                          payload={"title": "正在执行的工作"})
     proposals.mark_approved(conn, p["id"])
@@ -73,6 +73,7 @@ def test_world_treats_approved_execution_as_already_open_work(conn):
     rows = world.build(conn)["already_pending"]
     assert any(row["title"] == "正在执行的工作" and row["status"] == "approved"
                for row in rows)
+    assert proposals.summary(conn)["pending"] == 1
 
 
 def test_plan_dedupe_keeps_distinct_batches_but_collapses_exact_repeats():
@@ -91,6 +92,29 @@ def test_discovery_dedupe_still_allows_one_run_per_market_per_day():
     korea = {"kind": "discover_run", "lead_no": None,
              "payload": {"queries": ["LED integrator"], "country": "South Korea"}}
     assert plan._dedupe_key("2026-08-21", usa) != plan._dedupe_key("2026-08-21", korea)
+
+
+def test_late_start_can_catch_up_plan_before_report_hour(conn, monkeypatch):
+    afternoon = dt.datetime(2026, 8, 21, 15, 0)
+    assert catchup.due(conn, afternoon) is True
+
+    called = []
+    monkeypatch.setattr(catchup.run, "make_plan",
+                        lambda c, now: called.append(now) or {"proposed": 2})
+    result = catchup.run_if_due(conn, afternoon)
+    assert result["ran"] is True and result["proposed"] == 2
+    assert called == [afternoon]
+    assert catchup.due(conn, dt.datetime(2026, 8, 21, 18, 0)) is False
+
+
+def test_late_start_respects_existing_retry_cooldown(conn):
+    from app import settings
+
+    settings.set_value(conn, "agent_plan_attempt_date", "2026-08-21")
+    settings.set_value(conn, "agent_plan_attempts", "1")
+    settings.set_value(conn, "agent_plan_last_attempt_at", "2026-08-21T14:45:00")
+    assert catchup.due(conn, dt.datetime(2026, 8, 21, 15, 0)) is False
+    assert catchup.due(conn, dt.datetime(2026, 8, 21, 15, 15)) is True
 
 
 def test_disabling_email_poll_does_not_disable_the_background_cycle(monkeypatch):
