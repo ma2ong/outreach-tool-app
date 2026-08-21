@@ -15,6 +15,7 @@ SAFE_FIELDS = (
     "id", "model", "pixel_pitch", "brightness", "use_case", "indoor_outdoor",
     "refresh_rate_hz", "maintenance_access", "cabinet_size", "control_system",
 )
+MIN_RECOMMEND_SCORE = 50
 
 _USE_CASE_WORDS = {
     "Rental": ("rental", "event", "concert", "stage", "festival", "租赁", "活动", "舞台"),
@@ -243,18 +244,39 @@ def advise(conn, opportunity: dict, *, limit: int = 3) -> dict:
         row["internal_rank"] = row["score"] + min(8, row["history"]["orders"] * 3 + row["history"]["accepted_quotes"])
         ranked.append(row)
     ranked.sort(key=lambda r: (-r["internal_rank"], len(r["gaps"]), r["product_id"]))
-    ready = qualification["completeness"] >= 45 and bool(ranked)
+
+    qualification_ready = qualification["completeness"] >= 45
+    evidence_ready = bool(ranked and ranked[0]["score"] >= MIN_RECOMMEND_SCORE)
+    ready = qualification_ready and evidence_ready
+    if ready:
+        status = "ready"
+        reason = None
+    elif not qualification_ready:
+        status = "needs_more_project_facts"
+        reason = qualification["next_question"] or "需要更多项目事实才能安全推荐产品"
+    elif not ranked:
+        status = "no_compatible_products"
+        reason = "现有已批准产品与项目的明确条件不兼容，需要人工确认产品方向"
+    else:
+        status = "insufficient_product_evidence"
+        reason = "产品已经批准，但已记录的匹配事实不足，不能安全推荐给客户"
     return {
-        "status": "ready" if ready else "needs_more_project_facts",
+        "status": status,
         "qualification_pct": qualification["completeness"],
         "ready_to_recommend": ready,
         "recommendations": ranked[:max(1, min(int(limit), 10))],
-        "reason": None if ready else (qualification["next_question"] or "需要更多项目事实才能安全推荐产品"),
+        "reason": reason,
     }
 
 
 def customer_safe_context(advice: dict) -> dict:
-    """Strip prices, customer history and internal scoring before LLM reply context."""
+    """Strip prices, customer history and internal scoring before LLM reply context.
+
+    Product rows are withheld entirely until both project qualification and product
+    evidence pass the recommendation gates. This keeps an approved-but-vague model name
+    from becoming an accidental recommendation.
+    """
+    rows = advice.get("recommendations", []) if advice.get("ready_to_recommend") else []
     return {
         "status": advice.get("status"),
         "qualification_pct": advice.get("qualification_pct"),
@@ -266,6 +288,6 @@ def customer_safe_context(advice: dict) -> dict:
                 "facts": row["facts"],
                 "gaps": row["gaps"],
             }
-            for row in advice.get("recommendations", [])
+            for row in rows
         ],
     }
