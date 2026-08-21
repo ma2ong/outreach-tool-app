@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app import quote
+from app import case_library, quote
 from app.main_deps import DB_PATH as _DB_PATH, get_conn
 
 router = APIRouter(prefix="/api")
@@ -45,6 +45,36 @@ class ProductUpdate(BaseModel):
     control_system: str | None = None
     notes: str | None = None
     agent_approved: bool | None = None
+
+
+class CaseCreate(BaseModel):
+    internal_name: str
+    public_label: str | None = None
+    country: str | None = None
+    application: str | None = None
+    indoor_outdoor: str | None = None
+    pixel_pitch: str | None = None
+    width_m: float | None = None
+    height_m: float | None = None
+    product_model: str | None = None
+    public_summary: str | None = None
+    source_url: str | None = None
+    shareable: bool = False
+
+
+class CaseUpdate(BaseModel):
+    internal_name: str | None = None
+    public_label: str | None = None
+    country: str | None = None
+    application: str | None = None
+    indoor_outdoor: str | None = None
+    pixel_pitch: str | None = None
+    width_m: float | None = None
+    height_m: float | None = None
+    product_model: str | None = None
+    public_summary: str | None = None
+    source_url: str | None = None
+    shareable: bool | None = None
 
 
 class QuoteRequest(BaseModel):
@@ -88,6 +118,10 @@ def _clean_product(data: dict, *, partial: bool = False) -> dict:
     if "agent_approved" in clean:
         clean["agent_approved"] = int(bool(clean["agent_approved"]))
     return clean
+
+
+def _case_bad(exc: case_library.CaseValidation):
+    raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/products")
@@ -141,6 +175,37 @@ def delete_product(pid: int, conn=Depends(get_conn)):
     conn.commit()
     if cur.rowcount == 0:
         raise HTTPException(status_code=404, detail="product not found")
+    return {"ok": True}
+
+
+@router.get("/cases")
+def list_cases(shareable: bool | None = None, limit: int = 100, conn=Depends(get_conn)):
+    return case_library.list_all(conn, shareable=shareable, limit=limit)
+
+
+@router.post("/cases")
+def create_case(req: CaseCreate, conn=Depends(get_conn)):
+    try:
+        return case_library.create(conn, req.model_dump())
+    except case_library.CaseValidation as exc:
+        _case_bad(exc)
+
+
+@router.patch("/cases/{case_id}")
+def update_case(case_id: int, req: CaseUpdate, conn=Depends(get_conn)):
+    try:
+        result = case_library.update(conn, case_id, req.model_dump(exclude_unset=True))
+    except case_library.CaseValidation as exc:
+        _case_bad(exc)
+    if result is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    return result
+
+
+@router.delete("/cases/{case_id}")
+def delete_case(case_id: int, conn=Depends(get_conn)):
+    if not case_library.delete(conn, case_id):
+        raise HTTPException(status_code=404, detail="case not found")
     return {"ok": True}
 
 
