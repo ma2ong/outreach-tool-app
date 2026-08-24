@@ -93,10 +93,38 @@ def test_runtime_creates_backup_before_running_cycle(tmp_path):
     assert result["backup"]["verified"] is True
 
 
+def test_db_health_quick_check_is_throttled_for_file_db(tmp_path, monkeypatch):
+    db = tmp_path / "outreach.db"
+    _db(db)
+    conn = connect(str(db))
+    production_health._DB_CHECK_CACHE.clear()
+    calls = []
+    original = production_health._run_db_quick_check
+
+    def counted(current):
+        calls.append(True)
+        return original(current)
+
+    monkeypatch.setattr(production_health, "_run_db_quick_check", counted)
+    monkeypatch.setattr(production_health.time, "monotonic", lambda: 100.0)
+    try:
+        first = production_health._db_status(conn)
+        second = production_health._db_status(conn)
+        monkeypatch.setattr(production_health.time, "monotonic", lambda: 161.0)
+        third = production_health._db_status(conn)
+    finally:
+        conn.close()
+        production_health._DB_CHECK_CACHE.clear()
+
+    assert first["status"] == second["status"] == third["status"] == "ok"
+    assert len(calls) == 2  # first request + one refresh after the 60-second TTL
+
+
 def test_production_health_marks_missing_backup_critical(tmp_path, monkeypatch):
     db = tmp_path / "outreach.db"
     _db(db)
     conn = connect(str(db))
+    production_health._DB_CHECK_CACHE.clear()
     monkeypatch.setattr(
         production_health, "_frontend_status",
         lambda: {"status": "ok", "built": True, "size_bytes": 1},
@@ -115,6 +143,7 @@ def test_production_health_marks_missing_backup_critical(tmp_path, monkeypatch):
         health = production_health.status(conn, str(db))
     finally:
         conn.close()
+        production_health._DB_CHECK_CACHE.clear()
 
     assert health["database"]["status"] == "ok"
     assert health["backup"]["status"] == "missing"
@@ -127,6 +156,7 @@ def test_production_health_is_ok_with_verified_today_backup(tmp_path, monkeypatc
     _db(db)
     backup.ensure_daily_backup(str(db))
     conn = connect(str(db))
+    production_health._DB_CHECK_CACHE.clear()
     monkeypatch.setattr(
         production_health, "_frontend_status",
         lambda: {"status": "ok", "built": True, "size_bytes": 1},
@@ -145,6 +175,7 @@ def test_production_health_is_ok_with_verified_today_backup(tmp_path, monkeypatc
         health = production_health.status(conn, str(db))
     finally:
         conn.close()
+        production_health._DB_CHECK_CACHE.clear()
 
     assert health["status"] == "ok"
     assert health["backup"]["verified"] is True
