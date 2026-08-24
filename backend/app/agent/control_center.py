@@ -9,7 +9,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Callable, TypeVar
 
-from app import autosend
+from app import activities, autosend
 from app.agent import account_brain, classify, conversation, opportunity_coach, proposals
 
 LEDGER_LIMIT = 20
@@ -116,11 +116,16 @@ def _blocker(code: str, severity: str, title: str, detail: str, action: str,
 
 def snapshot(conn, *, now: dt.datetime | None = None) -> dict:
     """Return one non-mutating autonomy/attention snapshot for the Agent page."""
+    # Schema ownership is additive/idempotent. Ensuring activities here prevents a
+    # newly-created DB from looking "partially broken" before the first task is ever made.
+    activities.ensure_schema(conn)
+    proposals.ensure_schema(conn)
+
     now = now or _now()
     if now.tzinfo is None:
         now = now.replace(tzinfo=dt.UTC)
     now = now.astimezone(dt.UTC)
-    today = now.date()
+    local_today = now.astimezone().date()
     errors: list[dict] = []
 
     rows = _safe("proposal_ledger", errors, lambda: _proposal_rows(conn), [])
@@ -138,7 +143,7 @@ def snapshot(conn, *, now: dt.datetime | None = None) -> dict:
         r for r in rows
         if r.get("status") == "executed"
         and (stamp := _parse_time(r.get("executed_at"))) is not None
-        and stamp.date() == today
+        and stamp.astimezone().date() == local_today
     ]
     auto_today = [r for r in executed_today if execution_mode(r) == "auto"]
     approved_today = [r for r in executed_today if execution_mode(r) == "approved"]
@@ -149,11 +154,11 @@ def snapshot(conn, *, now: dt.datetime | None = None) -> dict:
     safety_pause = _safe("autosend_safety", errors, lambda: autosend.safety_pause(conn), None)
     due_accounts = _safe(
         "account_brain", errors,
-        lambda: account_brain.due_accounts(conn, today=today, limit=ACCOUNT_LIMIT), [],
+        lambda: account_brain.due_accounts(conn, today=local_today, limit=ACCOUNT_LIMIT), [],
     )
     opportunity_rows = _safe(
         "opportunity_coach", errors,
-        lambda: opportunity_coach.portfolio(conn, today=today, limit=30), [],
+        lambda: opportunity_coach.portfolio(conn, today=local_today, limit=30), [],
     )
     unhealthy = [r for r in opportunity_rows if r.get("severity") in ("critical", "high")]
 
@@ -224,7 +229,7 @@ def snapshot(conn, *, now: dt.datetime | None = None) -> dict:
 
     blockers.sort(key=lambda item: (_SEVERITY_ORDER.get(item["severity"], 9), -item["count"]))
 
-    # A compact next-best-action list.  These are recommendations only; the module does
+    # A compact next-best-action list. These are recommendations only; the module does
     # not call proposals.create(), change a stage, send a message, or alter autonomy.
     next_actions: list[dict] = []
     for row in unhealthy[:OPPORTUNITY_LIMIT]:
