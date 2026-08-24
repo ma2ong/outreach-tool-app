@@ -1,12 +1,13 @@
 """Read-only operating picture for the autonomous sales agent.
 
 The Agent already has several durable sources of truth (proposal ledger, conversation
-ownership, Account Brain and Opportunity Coach).  This module deliberately aggregates
+ownership, Account Brain and Opportunity Coach). This module deliberately aggregates
 those sources instead of inventing a second planner or execution path.
 """
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import Callable, TypeVar
 
 from app import activities, autosend
@@ -20,6 +21,7 @@ FAILURE_LOOKBACK_DAYS = 7
 
 _T = TypeVar("_T")
 _SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "info": 3}
+_EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
 
 
 def _now() -> dt.datetime:
@@ -50,7 +52,7 @@ def execution_mode(row: dict) -> str:
     """Attribute a proposal without adding a migration just for presentation.
 
     Historic auto executions never received a decision timestamp; approved executions
-    always did.  That lets the existing ledger explain who authorized an action.
+    always did. That lets the existing ledger explain who authorized an action.
     """
     status = row.get("status")
     if status == "pending":
@@ -83,6 +85,18 @@ def _proposal_rows(conn, limit: int = 200) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def _receipt_result(row: dict) -> str:
+    """Expose an audit receipt, not customer identifiers or conversation content."""
+    raw = str(row.get("execution_result") or "").strip()
+    if not raw:
+        return ""
+    # Reply executors may include the mailbox, customer email or social handle in their
+    # human-facing result. The aggregate control center needs only the outcome.
+    if row.get("kind") == "reply_draft":
+        return "客户回复已执行" if row.get("status") == "executed" else "客户回复执行未完成"
+    return _EMAIL.sub("[email]", raw)[:300]
+
+
 def _receipt(row: dict, now: dt.datetime) -> dict:
     return {
         "id": row["id"],
@@ -98,7 +112,7 @@ def _receipt(row: dict, now: dt.datetime) -> dict:
         "decided_at": row.get("decided_at"),
         "executed_at": row.get("executed_at"),
         "age_hours": _age_hours(row.get("created_at"), now),
-        "result": (row.get("execution_result") or "")[:300],
+        "result": _receipt_result(row),
     }
 
 
