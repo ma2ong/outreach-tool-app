@@ -34,6 +34,17 @@ QUALIFICATION_COLUMNS = {
     "technical_notes": "TEXT",
 }
 
+# Project-specific engineering facts. These are explicit inputs to deterministic
+# Solution Engineer math; null means unknown and never triggers an invented default.
+ENGINEERING_COLUMNS = {
+    "input_voltage_v": "REAL",
+    "controller_capacity_px": "INTEGER",
+    "controller_output_ports": "INTEGER",
+    "max_pixels_per_port": "INTEGER",
+    "spare_pct": "REAL",
+}
+ADDITIVE_COLUMNS = {**QUALIFICATION_COLUMNS, **ENGINEERING_COLUMNS}
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS opportunities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,6 +78,11 @@ CREATE TABLE IF NOT EXISTS opportunities (
     budget_range TEXT,
     decision_process TEXT,
     technical_notes TEXT,
+    input_voltage_v REAL,
+    controller_capacity_px INTEGER,
+    controller_output_ports INTEGER,
+    max_pixels_per_port INTEGER,
+    spare_pct REAL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     last_activity_at TEXT NOT NULL,
@@ -82,7 +98,7 @@ FIELDS = {
     "title", "stage", "amount", "currency", "probability", "expected_close_date",
     "next_action", "next_action_date", "use_case", "indoor_outdoor", "width_m",
     "height_m", "quantity", "pixel_pitch", "destination", "incoterm",
-    "competitor", "loss_reason", *QUALIFICATION_COLUMNS.keys(),
+    "competitor", "loss_reason", *ADDITIVE_COLUMNS.keys(),
 }
 
 TEXT_FIELDS = {
@@ -103,10 +119,10 @@ def _now() -> str:
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
-    # Existing local databases predate Spec 35. SQLite's CREATE TABLE IF NOT EXISTS does
-    # not add columns, so migrate additively and never rebuild/copy the user's pipeline.
+    # Existing local databases predate later specs. SQLite's CREATE TABLE IF NOT EXISTS
+    # does not add columns, so migrate additively and never rebuild/copy the pipeline.
     present = {row["name"] for row in conn.execute("PRAGMA table_info(opportunities)")}
-    for name, sql_type in QUALIFICATION_COLUMNS.items():
+    for name, sql_type in ADDITIVE_COLUMNS.items():
         if name not in present:
             conn.execute(f"ALTER TABLE opportunities ADD COLUMN {name} {sql_type}")
     conn.commit()
@@ -144,16 +160,23 @@ def _validate(data: dict, *, partial: bool = False) -> dict:
         out["quantity"] = int(out["quantity"])
         if out["quantity"] < 1:
             raise OpportunityValidation("数量至少为 1")
-    for field in ("width_m", "height_m", "viewing_distance_m"):
+    for field in ("width_m", "height_m", "viewing_distance_m", "input_voltage_v"):
         if field in out and out[field] not in (None, ""):
             out[field] = float(out[field])
             if out[field] <= 0:
                 raise OpportunityValidation(f"{field} 必须大于 0")
-    for field in ("brightness_nits", "refresh_rate_hz"):
+    for field in (
+        "brightness_nits", "refresh_rate_hz", "controller_capacity_px",
+        "controller_output_ports", "max_pixels_per_port",
+    ):
         if field in out and out[field] not in (None, ""):
             out[field] = int(out[field])
             if out[field] <= 0:
                 raise OpportunityValidation(f"{field} 必须大于 0")
+    if "spare_pct" in out and out["spare_pct"] not in (None, ""):
+        out["spare_pct"] = float(out["spare_pct"])
+        if not 0 <= out["spare_pct"] <= 100:
+            raise OpportunityValidation("spare_pct 必须在 0-100 之间")
     for field in TEXT_FIELDS:
         if field in out and out[field] is not None:
             out[field] = str(out[field]).strip() or None

@@ -198,6 +198,17 @@ _TABLE_COLUMNS = {
         "control_system": "TEXT",
         "notes": "TEXT",
         "agent_approved": "INTEGER NOT NULL DEFAULT 0",
+        # Exact engineering facts used by Solution Engineer. They deliberately stay
+        # separate from cabinet_size/pitch text: deterministic layout/resolution/power
+        # math must never reverse-engineer an exact value from a marketing label.
+        "cabinet_width_mm": "REAL",
+        "cabinet_height_mm": "REAL",
+        "cabinet_resolution_w": "INTEGER",
+        "cabinet_resolution_h": "INTEGER",
+        "module_width_mm": "REAL",
+        "module_height_mm": "REAL",
+        "max_power_w_cabinet": "REAL",
+        "avg_power_w_cabinet": "REAL",
     },
     # agent_proposals is created by app.agent.proposals.ensure_schema, but a DB that
     # already has the table predates this column.

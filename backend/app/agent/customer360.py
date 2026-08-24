@@ -41,6 +41,14 @@ def build(conn, lead_no: int) -> dict | None:
         }
         for row in coached
     ]
+    solution_engineering = [
+        {
+            "opportunity_id": row["opportunity_id"],
+            "title": row["title"],
+            **row.get("solution_engineering", {}),
+        }
+        for row in coached
+    ]
     approved_case_matches = []
     for opp in opps:
         if opp["stage"] not in opportunities.OPEN_STAGES:
@@ -125,6 +133,7 @@ def build(conn, lead_no: int) -> dict | None:
         "opportunities": opps,
         "opportunity_coaching": coached,
         "product_advice": product_advice,
+        "solution_engineering": solution_engineering,
         "approved_case_matches": approved_case_matches,
         "buying_signals": signals,
         "open_tasks": open_tasks,
