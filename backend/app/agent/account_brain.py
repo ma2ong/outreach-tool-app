@@ -10,6 +10,7 @@ behind the existing sequence/reply/send paths and their safety/autonomy controls
 from __future__ import annotations
 
 import datetime as dt
+import re
 
 from app.agent import proposals
 
@@ -102,6 +103,41 @@ def due_accounts(conn, *, today: dt.date | None = None,
     return due[:max(1, min(int(limit), 100))]
 
 
+def _completion_rule(account: dict) -> dict:
+    """Describe how a *new* Account Brain task can be closed without title guessing later."""
+    action = str(account.get("next_action") or "")
+    key = "generic_followup"
+    context: dict = {}
+    if action.startswith("先重新读取官网并完成 ICP 分级"):
+        key = "refresh_icp"
+    elif action.startswith("先找到 Owner / Purchasing / Project"):
+        key = "find_decision_maker"
+    elif action.startswith("邮箱无效："):
+        key = "replace_invalid_channel"
+    elif action.startswith("先从官网或域名核实正确公司名"):
+        key = "verify_company"
+    elif action.startswith("用官网证据写首条消息"):
+        key = "first_touch"
+    elif action.startswith("确认最近一次触达结果"):
+        key = "schedule_followup"
+    else:
+        match = re.match(r"报价\s+(\S+)\s+已接受", action)
+        if match:
+            key = "quote_to_order"
+            context["quote_no"] = match.group(1)
+        else:
+            match = re.match(r"跟进报价\s+(\S+)", action)
+            if match:
+                key = "quote_followup"
+                context["quote_no"] = match.group(1).rstrip("：:")
+    return {
+        "type": "account_brain",
+        "next_action_key": key,
+        "context": context,
+        "baseline_last_touch": account.get("last_touch"),
+    }
+
+
 def safety_net(conn, *, today: dt.date | None = None,
                limit: int = MAX_SAFETY_NET) -> dict:
     """Ensure both dormant accounts and unhealthy live deals have an owned next step.
@@ -135,6 +171,7 @@ def safety_net(conn, *, today: dt.date | None = None,
                 "priority": "high" if account["score"] >= 75 else "normal",
                 "note": (f"Account Brain：最后触达 {account['last_touch']}，"
                          f"累计 {account['touch_count']} 次；建议：{account['next_action']}"),
+                "completion_rule": _completion_rule(account),
             },
             risk="low",
             dedupe_key=(f"account-brain-{account['last_touch']}-"
