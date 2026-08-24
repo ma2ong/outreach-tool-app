@@ -1,0 +1,32 @@
+"""Ownership rules for work that the autonomous operator can safely do itself.
+
+A CRM activity is not automatically human work just because it is visible in the task
+ledger. Account Brain uses activities as durable checkpoints. Routine public research
+belongs to the Agent; commercial commitments and ambiguous judgement stay with the user.
+"""
+from __future__ import annotations
+
+WORK_OWNERS = ("human", "agent")
+
+# These Account Brain rules are deterministic/public-data work with existing safe
+# implementations. They never send a customer message or make a commercial commitment.
+AGENT_EXECUTABLE_ACCOUNT_KEYS = frozenset({
+    "refresh_icp",
+    "find_decision_maker",
+    "replace_invalid_channel",
+    "verify_company",
+})
+
+
+def owner_for_completion_rule(rule: object) -> str:
+    """Return who owns a generated task without guessing from its title."""
+    if not isinstance(rule, dict):
+        return "human"
+    if rule.get("type") != "account_brain":
+        return "human"
+    return "agent" if rule.get("next_action_key") in AGENT_EXECUTABLE_ACCOUNT_KEYS else "human"
+
+
+def owner_for_proposal(proposal: dict | None) -> str:
+    payload = (proposal or {}).get("payload") or {}
+    return owner_for_completion_rule(payload.get("completion_rule"))
