@@ -1,23 +1,25 @@
 $ErrorActionPreference = 'Stop'
 
 function Assert-LastExit([string]$Step) {
-    if ($LASTEXITCODE -ne 0) { throw "$Step 失败（exit $LASTEXITCODE）" }
+    if ($LASTEXITCODE -ne 0) {
+        throw ("{0} failed (exit {1})" -f $Step, $LASTEXITCODE)
+    }
 }
 
 $repo = Split-Path -Parent $PSScriptRoot
 $taskName = 'Maxcolor Outreach Tool'
 
-Write-Host "`n===== MCVISUAL 安全部署 =====" -ForegroundColor Cyan
-Write-Host "仓库: $repo"
+Write-Host "`n===== MCVISUAL SAFE DEPLOY =====" -ForegroundColor Cyan
+Write-Host "Repo: $repo"
 
 $dirty = git -C $repo status --porcelain
-Assert-LastExit '读取 Git 状态'
+Assert-LastExit 'git status'
 if ($dirty) {
     Write-Host $dirty -ForegroundColor Yellow
-    throw '项目目录有未提交文件。为避免覆盖本机改动，部署已停止。'
+    throw 'Working tree is not clean. Deployment stopped to protect local changes.'
 }
 
-Write-Host "`n[1/6] 更新 main" -ForegroundColor Green
+Write-Host "`n[1/6] Update main" -ForegroundColor Green
 git -C $repo fetch origin
 Assert-LastExit 'git fetch'
 git -C $repo switch main
@@ -25,24 +27,24 @@ Assert-LastExit 'git switch main'
 git -C $repo pull --ff-only origin main
 Assert-LastExit 'git pull --ff-only'
 $sha = (git -C $repo rev-parse HEAD).Trim()
-Assert-LastExit '读取 HEAD'
+Assert-LastExit 'git rev-parse HEAD'
 Write-Host "HEAD: $sha"
 
-Write-Host "`n[2/6] 后端依赖" -ForegroundColor Green
+Write-Host "`n[2/6] Backend dependencies" -ForegroundColor Green
 python -m pip install -r "$repo\backend\requirements.txt"
-Assert-LastExit 'Python 依赖安装'
+Assert-LastExit 'Python dependency install'
 
-Write-Host "`n[3/6] 前端锁定依赖 + 安全审计 + build" -ForegroundColor Green
+Write-Host "`n[3/6] Frontend install, audit, build" -ForegroundColor Green
 npm --prefix "$repo\frontend" ci
 Assert-LastExit 'npm ci'
 npm --prefix "$repo\frontend" run audit:production
-Assert-LastExit '生产依赖 audit'
+Assert-LastExit 'production npm audit'
 npm --prefix "$repo\frontend" run audit:all
-Assert-LastExit '完整依赖 audit'
+Assert-LastExit 'full npm audit'
 npm --prefix "$repo\frontend" run build
-Assert-LastExit '前端 build'
+Assert-LastExit 'frontend build'
 
-Write-Host "`n[4/6] 重启本机服务" -ForegroundColor Green
+Write-Host "`n[4/6] Restart local service" -ForegroundColor Green
 Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue |
     ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
@@ -50,21 +52,23 @@ Start-Sleep -Seconds 3
 Start-ScheduledTask -TaskName $taskName
 Start-Sleep -Seconds 12
 
-Write-Host "`n[5/6] 数据恢复边界 + Worker 健康" -ForegroundColor Green
+Write-Host "`n[5/6] Backup and runtime acceptance" -ForegroundColor Green
 Push-Location "$repo\backend"
 try {
-    python -c "from app import backup,production_health,runtime; from app.db import connect; from app.main_deps import DB_PATH; b=backup.ensure_daily_backup(DB_PATH); c=connect(DB_PATH); h=production_health.status(c,DB_PATH); r=runtime.status(c); print('BACKUP=',b['status'],' verified=',b['verified'],' date=',b['date']); print('HEALTH=',h['status'],' critical=',h['critical'],' warnings=',h['warnings']); print('WORKER_ACTIVE=',bool(r.get('lease'))); c.close(); raise SystemExit(0 if b.get('verified') and h.get('status') in ('ok','degraded') and r.get('lease') else 2)"
-    Assert-LastExit '备份/健康/Worker 验证'
+    python ".\production_acceptance.py"
+    Assert-LastExit 'backup/health/worker acceptance'
 }
 finally {
     Pop-Location
 }
 
-Write-Host "`n[6/6] 端口验证" -ForegroundColor Green
+Write-Host "`n[6/6] Port acceptance" -ForegroundColor Green
 $portOk = (Test-NetConnection 127.0.0.1 -Port 8000 -WarningAction SilentlyContinue).TcpTestSucceeded
 Write-Host "PORT 8000 = $portOk"
-if (-not $portOk) { throw '127.0.0.1:8000 未监听，部署验收失败。' }
+if (-not $portOk) {
+    throw '127.0.0.1:8000 is not listening. Deployment acceptance failed.'
+}
 
-Write-Host "`n部署完成 ✓" -ForegroundColor Green
-Write-Host "版本: $sha"
-Write-Host 'Cloudflare Tunnel 配置未修改；浏览器 Ctrl+F5 即可。'
+Write-Host "`nDEPLOYMENT COMPLETE" -ForegroundColor Green
+Write-Host "Version: $sha"
+Write-Host 'Cloudflare Tunnel configuration was not changed. Refresh the browser with Ctrl+F5.'
