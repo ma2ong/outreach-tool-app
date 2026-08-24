@@ -1,6 +1,7 @@
 import datetime as dt
 
 import app.main as main
+from app import activities
 from app.agent import control_center, proposals
 from app.db import connect, init_schema
 from fastapi.testclient import TestClient
@@ -19,6 +20,7 @@ def test_execution_mode_uses_existing_decision_and_execution_timestamps():
 
 
 def test_snapshot_surfaces_high_risk_approval_without_mutating_crm(conn):
+    activities.ensure_schema(conn)
     p = proposals.create(
         conn, "mark_do_not_contact", lead_no=1, title="需要人工确认停发",
         payload={"reason": "customer asked to stop"}, risk="high",
