@@ -28,5 +28,12 @@ def owner_for_completion_rule(rule: object) -> str:
 
 
 def owner_for_proposal(proposal: dict | None) -> str:
-    payload = (proposal or {}).get("payload") or {}
+    proposal = proposal or {}
+    # Decision Maker Radar already did the live public research before creating this
+    # review checkpoint. Its stable dedupe namespace is exact internal provenance, not
+    # a title heuristic. Weak candidates stay in the candidate pool for later rescans;
+    # they should not become a human Sales Task by default.
+    if str(proposal.get("dedupe_key") or "").startswith("decision-maker-"):
+        return "agent"
+    payload = proposal.get("payload") or {}
     return owner_for_completion_rule(payload.get("completion_rule"))
