@@ -49,7 +49,8 @@ def list_activities(status: str | None = "open", scope: str | None = None,
 
 
 @router.get("/stats")
-def activity_stats(work_owner: str | None = None, conn=Depends(get_conn)):
+def activity_stats(work_owner: str | None = "human", conn=Depends(get_conn)):
+    """Sidebar/task counters mean work the user must do, not Agent background work."""
     try:
         task_ownership.backfill(conn)
         return task_ownership.stats(conn, work_owner)
