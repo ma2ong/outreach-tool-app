@@ -147,6 +147,17 @@ def solution_engineering(opportunity_id: int, product_id: int | None = None,
     return solution_engineer.advise(conn, opportunity, product_id=product_id)
 
 
+@router.get("/{opportunity_id}/quote-readiness")
+def quote_readiness(opportunity_id: int, product_id: int | None = None,
+                    conn=Depends(get_conn)):
+    """Return an internal technical starter packet. It never chooses commercial terms."""
+    from app.agent import quote_readiness as readiness
+    opportunity = opportunities.get(conn, opportunity_id)
+    if opportunity is None:
+        raise HTTPException(status_code=404, detail="商机不存在")
+    return readiness.assess(conn, opportunity, product_id=product_id)
+
+
 @router.get("/{opportunity_id}/cases")
 def case_matches(opportunity_id: int, limit: int = 5, conn=Depends(get_conn)):
     from app import case_library
