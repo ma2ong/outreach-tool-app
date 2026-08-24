@@ -4,8 +4,9 @@ The LLM should choose between good options, not remember every account in the da
 This module finds contacted customers whose next step has no owner: no reply waiting,
 no open task, no active sequence and no Agent proposal already covering the account.
 
-It deliberately creates internal task proposals only. Customer-facing follow-up remains
-behind the existing sequence/reply/send paths and their safety/autonomy controls.
+Routine public research is handed to the autonomous work queue and executed by the
+Worker. Customer-facing follow-up remains behind the existing sequence/reply/send paths
+and their safety/autonomy controls.
 """
 from __future__ import annotations
 
@@ -140,13 +141,13 @@ def _completion_rule(account: dict) -> dict:
 
 def safety_net(conn, *, today: dt.date | None = None,
                limit: int = MAX_SAFETY_NET) -> dict:
-    """Ensure both dormant accounts and unhealthy live deals have an owned next step.
+    """Ensure dormant accounts and unhealthy live deals have an owned next step.
 
-    At the default `propose` autonomy this only creates visible recommendations. If Allen
-    explicitly sets create_task to `auto`, the normal proposal executor creates the task.
-    Customer-facing messages are never sent here.
+    Internal public-data research is consumed by `autonomous_work` in the same Worker
+    cycle. Human Sales Tasks therefore represent actual human decisions/work, not an
+    ever-growing list of research chores the Agent could have done itself.
     """
-    from app.agent import opportunity_coach, task_reconciler
+    from app.agent import autonomous_work, opportunity_coach, task_reconciler
 
     today = today or dt.date.today()
     # Close/supersede traceable Agent tasks before they can block a fresh planning pass.
@@ -182,10 +183,14 @@ def safety_net(conn, *, today: dt.date | None = None,
         if p:
             made.append(p["id"])
 
-    # Live opportunities are a separate portfolio: a quoted deal with no next-action
-    # date is more dangerous than a cold account being late by a day. Reuse the same
-    # internal proposal/autonomy mechanism instead of building another executor.
+    # Live opportunities remain human-owned when they require project/commercial
+    # judgement. The same proposal/autonomy mechanism remains authoritative.
     opportunity_result = opportunity_coach.safety_net(conn, today=today, limit=limit)
+
+    # Most importantly, do the routine research now instead of merely creating a task
+    # for the user. This also backfills owner metadata on pre-existing Agent tasks.
+    autonomous_result = autonomous_work.sweep(conn, today=today)
+
     ids = [*made, *opportunity_result["ids"]]
     return {
         "due": len(considered),
@@ -193,5 +198,6 @@ def safety_net(conn, *, today: dt.date | None = None,
         "ids": ids,
         "accounts": considered,
         "task_reconciliation": reconciliation,
+        "autonomous_work": autonomous_result,
         "opportunity_coach": opportunity_result,
     }
