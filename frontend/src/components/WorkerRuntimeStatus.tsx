@@ -17,6 +17,11 @@ function when(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+function mb(value: number | null | undefined): string {
+  if (value == null) return "未知";
+  return `${Math.round(value / 1024 / 1024)} MB`;
+}
+
 export function WorkerRuntimeStatus() {
   const [status, setStatus] = useState<RuntimeStatus | null>(null);
   const [open, setOpen] = useState(false);
@@ -37,22 +42,27 @@ export function WorkerRuntimeStatus() {
 
   const cycleFailed = status.state?.last_cycle_ok === 0;
   const mailDegraded = status.state?.last_email_poll_ok === 0;
+  const productionCritical = status.production?.status === "critical";
+  const productionDegraded = status.production?.status === "degraded";
   const active = status.active;
-  const degraded = active && !cycleFailed && mailDegraded;
-  const label = active
-    ? degraded
-      ? `Sales Worker 运行中 · 邮件同步异常`
-      : `Sales Worker 运行中 · ${status.lease?.mode === "worker" ? "独立 Worker" : "内嵌"}`
-    : status.dedicated_worker_expected
-      ? "Sales Worker 未运行"
-      : "Sales Worker 无活跃租约";
-  const border = active && !cycleFailed && !mailDegraded
+  const degraded = active && !cycleFailed && !productionCritical && (mailDegraded || productionDegraded);
+  const label = productionCritical
+    ? "Sales Worker · 系统健康异常"
+    : active
+      ? degraded
+        ? mailDegraded ? "Sales Worker 运行中 · 邮件/系统需检查" : "Sales Worker 运行中 · 系统需检查"
+        : `Sales Worker 运行中 · ${status.lease?.mode === "worker" ? "独立 Worker" : "内嵌"}`
+      : status.dedicated_worker_expected
+        ? "Sales Worker 未运行"
+        : "Sales Worker 无活跃租约";
+  const border = active && !cycleFailed && !mailDegraded && !productionCritical && !productionDegraded
     ? "var(--green)"
     : degraded ? "var(--warn)" : "var(--danger)";
-  const dot = active && !cycleFailed && !mailDegraded ? "●" : degraded ? "◆" : "⚠";
+  const dot = active && !cycleFailed && !mailDegraded && !productionCritical && !productionDegraded
+    ? "●" : degraded ? "◆" : "⚠";
 
   return (
-    <div style={{ position: "fixed", right: 16, bottom: 14, zIndex: 1000, maxWidth: 390 }}>
+    <div style={{ position: "fixed", right: 16, bottom: 14, zIndex: 1000, maxWidth: 430 }}>
       {open && (
         <div className="card" style={{ marginBottom: 7, padding: 12, boxShadow: "0 8px 28px rgba(0,0,0,.22)" }}>
           <div style={{ fontWeight: 700, marginBottom: 5 }}>自主销售运行状态</div>
@@ -61,6 +71,23 @@ export function WorkerRuntimeStatus() {
             <div>心跳：{age(status.heartbeat_age_seconds)}</div>
             <div>最近周期：{when(status.state?.last_cycle_finished_at)}</div>
             <div>累计周期：{status.state?.cycle_count ?? 0}</div>
+            <div style={{ marginTop: 7, fontWeight: 650 }}>生产健康</div>
+            <div>数据库：{status.production.database.status === "ok" ? "正常" : `异常（${status.production.database.quick_check}）`}</div>
+            <div>最近备份：{status.production.backup.date || "没有"} · {status.production.backup.verified ? "已校验" : "未通过校验"} · 共 {status.production.backup.count} 份</div>
+            <div>磁盘可用：{mb(status.production.disk.free_bytes)}</div>
+            <div>前端构建：{status.production.frontend.built ? "存在" : "缺失"}</div>
+            <div>Python：{status.production.python.version}（CI 基线 {status.production.python.ci_baseline}）</div>
+            {!status.production.python.matches_ci_minor && (
+              <div style={{ color: "var(--warn)", marginTop: 4 }}>
+                当前 Python 与 CI 基线不同；能运行不代表有同等回归覆盖，出现依赖异常时优先对齐 Python 3.11。
+              </div>
+            )}
+            {status.production.warnings.map((item) => (
+              <div key={item} style={{ color: "var(--warn)", marginTop: 4 }}>◆ {item}</div>
+            ))}
+            {status.production.critical.map((item) => (
+              <div key={item} className="error-text" style={{ marginTop: 4 }}>⚠ {item}</div>
+            ))}
             {status.state?.last_email_poll_ok === 0 && (
               <div style={{ color: "var(--warn)", marginTop: 5 }}>
                 Worker 仍在运行，但最近一次邮箱同步没有完整成功；系统会缩短间隔自动重试。
@@ -87,7 +114,7 @@ export function WorkerRuntimeStatus() {
       <button
         className="btn btn-sm"
         onClick={() => setOpen((v) => !v)}
-        title="查看自主销售 Worker 心跳和最近运行结果"
+        title="查看自主销售 Worker、数据库备份和生产健康"
         style={{ borderColor: border, boxShadow: "0 3px 14px rgba(0,0,0,.18)" }}
       >
         <span style={{ color: border, marginRight: 5 }}>{dot}</span>{label}

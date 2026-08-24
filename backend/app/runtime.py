@@ -215,25 +215,42 @@ def run_leased_cycle(db_path: str, cycle_fn: Callable[[], bool], *, owner: str,
                      release_after: bool = False) -> dict:
     """Run one full operating cycle only when this process owns the renewable lease.
 
-    `cycle_fn` returns the email-poll health used by the scheduler's retry cadence. A
+    Before *any* unattended sales work, the leader makes sure today's SQLite snapshot
+    exists and passes ``PRAGMA quick_check``. If backup creation or verification fails,
+    the cycle is recorded as failed and no customer-facing/background sales action runs.
+
+    ``cycle_fn`` returns the email-poll health used by the scheduler's retry cadence. A
     separate heartbeat connection renews the lease during slow website/mailbox work, so
     another process cannot take over mid-send merely because a cycle ran longer than the
-    normal interval. One-shot/cron callers set `release_after=True` to hand off at once.
+    normal interval. One-shot/cron callers set ``release_after=True`` to hand off at once.
     """
+    from app import backup
     from app.db import connect, init_schema
 
     conn = connect(db_path)
     heartbeat_stop: threading.Event | None = None
     heartbeat: threading.Thread | None = None
+    backup_info: dict | None = None
     try:
         init_schema(conn)
         ensure_schema(conn)
         if not acquire(conn, owner=owner, mode=mode, ttl_seconds=ttl_seconds):
             return {
                 "acquired": False, "cycle_ok": None, "email_poll_ok": None,
-                "error": None, "owner": owner, "mode": mode,
+                "error": None, "owner": owner, "mode": mode, "backup": None,
             }
         record_start(conn, owner=owner, mode=mode)
+        try:
+            backup_info = backup.ensure_daily_backup(db_path)
+        except Exception as exc:  # noqa: BLE001 — backup failure is a hard safety gate
+            error = f"BackupError: {exc}"
+            record_finish(conn, ok=False, error=error, email_poll_ok=None,
+                          owner=owner, mode=mode)
+            return {
+                "acquired": True, "cycle_ok": False, "email_poll_ok": None,
+                "error": error, "owner": owner, "mode": mode, "backup": None,
+            }
+
         heartbeat_stop = threading.Event()
         heartbeat_interval = max(10, min(300, int(ttl_seconds) // 3))
         heartbeat = threading.Thread(
@@ -251,14 +268,14 @@ def run_leased_cycle(db_path: str, cycle_fn: Callable[[], bool], *, owner: str,
                           owner=owner, mode=mode)
             return {
                 "acquired": True, "cycle_ok": False, "email_poll_ok": None,
-                "error": error, "owner": owner, "mode": mode,
+                "error": error, "owner": owner, "mode": mode, "backup": backup_info,
             }
         record_finish(conn, ok=True, error=None, email_poll_ok=email_poll_ok,
                       owner=owner, mode=mode)
         renew(conn, owner=owner, ttl_seconds=ttl_seconds)
         return {
             "acquired": True, "cycle_ok": True, "email_poll_ok": email_poll_ok,
-            "error": None, "owner": owner, "mode": mode,
+            "error": None, "owner": owner, "mode": mode, "backup": backup_info,
         }
     finally:
         if heartbeat_stop is not None:
