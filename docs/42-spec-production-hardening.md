@@ -33,7 +33,7 @@ The authenticated runtime status includes a read-only production health section.
 
 Health checks cover:
 
-- live SQLite `quick_check`;
+- live SQLite `quick_check`; because the UI polls status every 15 seconds, file-backed DB integrity results are cached for 60 seconds so observability does not repeatedly scan a growing database;
 - latest backup existence, age and integrity;
 - database disk free space;
 - existence of the built frontend entry point;
@@ -73,6 +73,6 @@ Production hardening may stop unattended work when recovery guarantees are missi
 - full npm audit has no unresolved High/Critical finding after compatible remediation;
 - a verified backup is created once per day and corrupt snapshots are quarantined/rebuilt;
 - backup failure prevents the unattended sales cycle from executing;
-- production health exposes backup/DB/disk/frontend/crash status through the authenticated runtime API;
+- production health exposes backup/DB/disk/frontend/crash status through the authenticated runtime API without re-running DB integrity scans on every UI poll;
 - server logs are bounded and crashes leave diagnostics;
 - full backend tests and frontend production build pass.
