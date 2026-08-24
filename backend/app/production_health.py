@@ -5,6 +5,8 @@ import os
 import shutil
 import sqlite3
 import sys
+import threading
+import time
 from pathlib import Path
 
 from app import auth, backup
@@ -12,15 +14,67 @@ from app import auth, backup
 
 MIN_FREE_CRITICAL_BYTES = 256 * 1024 * 1024
 MIN_FREE_WARN_BYTES = 1024 * 1024 * 1024
+DB_CHECK_TTL_SECONDS = 60
+_DB_CHECK_CACHE: dict[str, tuple[float, dict]] = {}
+_DB_CHECK_LOCK = threading.Lock()
 
 
-def _db_status(conn: sqlite3.Connection) -> dict:
+def _db_cache_key(conn: sqlite3.Connection) -> str | None:
+    """Return the durable SQLite file path; in-memory/test DBs stay uncached."""
+    try:
+        rows = conn.execute("PRAGMA database_list").fetchall()
+    except Exception:  # noqa: BLE001 — the real health check will report the DB failure
+        return None
+    for row in rows:
+        # sqlite3.Row supports both mapping and index access; database_list is
+        # seq/name/file and the main DB is the only one relevant to this app.
+        try:
+            name = row["name"]
+            path = row["file"]
+        except (IndexError, KeyError, TypeError):
+            name, path = row[1], row[2]
+        if name == "main" and path:
+            return os.path.abspath(str(path))
+    return None
+
+
+def _run_db_quick_check(conn: sqlite3.Connection) -> dict:
     try:
         rows = [str(row[0]) for row in conn.execute("PRAGMA quick_check(1)").fetchall()]
         ok = rows == ["ok"]
         return {"status": "ok" if ok else "corrupt", "quick_check": "; ".join(rows[:3])}
     except Exception as exc:  # noqa: BLE001 — health endpoint reports rather than hides
         return {"status": "error", "quick_check": f"{type(exc).__name__}: {exc}"}
+
+
+def _db_status(conn: sqlite3.Connection) -> dict:
+    """Run the live DB check at most once per minute for the same database file.
+
+    The Worker badge polls runtime status every 15 seconds. Re-running SQLite integrity
+    work on every browser poll would make observability itself increasingly expensive as
+    the CRM grows, so file-backed databases share a short process-local cache. In-memory
+    test databases are never cached.
+    """
+    key = _db_cache_key(conn)
+    if key is None:
+        return _run_db_quick_check(conn)
+
+    now = time.monotonic()
+    with _DB_CHECK_LOCK:
+        cached = _DB_CHECK_CACHE.get(key)
+        if cached and now - cached[0] < DB_CHECK_TTL_SECONDS:
+            return dict(cached[1])
+
+    result = _run_db_quick_check(conn)
+    with _DB_CHECK_LOCK:
+        _DB_CHECK_CACHE[key] = (now, dict(result))
+        # Production has one DB, while tests create many temporary paths. Keep this
+        # cache bounded without introducing a second cache dependency.
+        if len(_DB_CHECK_CACHE) > 64:
+            oldest = min(_DB_CHECK_CACHE, key=lambda item: _DB_CHECK_CACHE[item][0])
+            if oldest != key:
+                _DB_CHECK_CACHE.pop(oldest, None)
+    return result
 
 
 def _disk_status(db_path: str) -> dict:
