@@ -20,6 +20,33 @@ export interface RuntimeState {
   updated_at: string;
 }
 
+export interface ProductionHealth {
+  status: "ok" | "degraded" | "critical" | string;
+  critical: string[];
+  warnings: string[];
+  database: { status: string; quick_check: string };
+  backup: {
+    status: string;
+    verified: boolean;
+    path: string | null;
+    date: string | null;
+    age_days: number | null;
+    count: number;
+    size_bytes: number;
+    quick_check: string;
+  };
+  disk: { status: string; free_bytes: number | null; total_bytes: number | null };
+  frontend: { status: string; built: boolean; size_bytes: number };
+  server: {
+    status: string;
+    last_crash_unrecovered: boolean;
+    last_crash_mtime: number | null;
+    last_start_mtime: number | null;
+  };
+  auth_enabled: boolean;
+  python: { version: string; ci_baseline: string; matches_ci_minor: boolean };
+}
+
 export interface RuntimeStatus {
   name: string;
   active: boolean;
@@ -28,6 +55,7 @@ export interface RuntimeStatus {
   heartbeat_age_seconds: number | null;
   embedded_worker_enabled: boolean;
   dedicated_worker_expected: boolean;
+  production: ProductionHealth;
 }
 
 export async function fetchRuntimeStatus(): Promise<RuntimeStatus> {
