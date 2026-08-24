@@ -7,7 +7,6 @@ their titles and are therefore never touched here.
 from __future__ import annotations
 
 import datetime as dt
-import json
 
 from app import activities, opportunities
 from app.agent import proposals
@@ -64,6 +63,12 @@ def _account_rule_done(conn, activity: dict, rule: dict) -> tuple[bool, str]:
         ).fetchone()
         if lead and (lead["email_status"] != "invalid" or lead["phone"] or lead["instagram"] or contact):
             return True, "已补到可行动联系渠道"
+
+    elif key == "verify_company":
+        from app import sales_intelligence
+        lead = conn.execute("SELECT company_en FROM leads WHERE no=?", (lead_no,)).fetchone()
+        if lead and not sales_intelligence._junk_company_name(lead["company_en"]):
+            return True, "公司名称已经核实，不再是页面标题/404 类占位名称"
 
     elif key == "quote_to_order":
         quote_no = (rule.get("context") or {}).get("quote_no")
