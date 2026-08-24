@@ -2,7 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from app import jobs
-from app.agent import classify, conversation, learn, llm, mission, proposals, report, run
+from app.agent import classify, control_center, conversation, learn, llm, mission, proposals, report, run
 from app.main_deps import DB_PATH, get_conn
 
 router = APIRouter(prefix="/api/agent")
@@ -50,6 +50,12 @@ def _bad(exc: Exception):
 @router.get("/status")
 def agent_status(conn=Depends(get_conn)):
     return run.status(conn)
+
+
+@router.get("/control-center")
+def autonomy_control_center(conn=Depends(get_conn)):
+    """One read-only operating picture; it never creates/sends/updates customer work."""
+    return control_center.snapshot(conn)
 
 
 @router.get("/mission")
