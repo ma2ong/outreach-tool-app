@@ -49,7 +49,7 @@ The snapshot is read-only. It may recommend changing autonomy, but must never ch
 
 ## 4. UI
 
-The Agent page gets an `Autonomy Control Center` card above the proposal tabs. It shows:
+A compact global `Autonomy Control Center` control is mounted beside the existing Worker runtime status so the operating picture is available from any CRM page, not only while the Agent tab is open. Opening it shows:
 
 - one-line operating state;
 - approval / autonomous action / failure / handoff / due-account counters;
@@ -57,18 +57,21 @@ The Agent page gets an `Autonomy Control Center` card above the proposal tabs. I
 - top next-best actions for accounts and opportunities;
 - recent action receipts with mode (`自动`, `你确认后`, `等待确认`, `执行中`).
 
-The UI refreshes on a conservative interval and has a manual refresh button. Heavy portfolio computation must not be polled every few seconds.
+The UI refreshes every 60 seconds and also has a manual refresh button. Heavy opportunity/account analysis must not be polled every few seconds. Before login, a 401 simply hides the control; it must not create an error loop.
 
 ## 5. Safe production updater
 
-A manually invoked `scripts/update_production.ps1` packages the production rollout steps that were previously pasted by hand:
+A manually invoked `scripts/update_production.ps1` packages the production rollout steps that were previously pasted by hand. `update_production.bat` is a self-elevating Windows wrapper for the same script.
 
-- require a clean working tree;
-- switch to `main` and `git pull --ff-only`;
-- install backend dependencies;
-- `npm ci`, full High/Critical audit and production build;
-- restart only the existing `Maxcolor Outreach Tool` scheduled task / port 8000 process;
-- verify today's SQLite backup, production health, Worker lease and local port.
+The updater:
+
+- requires a clean working tree;
+- switches to `main` and uses `git pull --ff-only`;
+- installs backend dependencies;
+- runs `npm ci`, production and full High/Critical audits, and production build;
+- restarts only the existing `Maxcolor Outreach Tool` scheduled task / port 8000 process;
+- verifies today's SQLite backup, production health, Worker lease and local port;
+- stops immediately on a failed command rather than leaving a partial deployment reported as successful.
 
 It does not auto-deploy on its own and does not reconfigure Cloudflare Tunnel.
 
@@ -85,7 +88,7 @@ This PR does not grant any new authority to:
 
 - control-center snapshot works on an empty/new database;
 - automatic vs approved execution mode is derived correctly from historic proposal fields;
-- blocker counts do not mutate CRM state;
-- Agent page builds with the new control-center card;
+- blocker counts do not mutate CRM business state;
+- global control center builds and hides safely before authentication;
 - production updater stops on a dirty git tree or failed audit/build rather than deploying partial code;
 - full backend tests, npm audit and frontend production build remain green.
