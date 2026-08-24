@@ -19,6 +19,20 @@ def test_execution_mode_uses_existing_decision_and_execution_timestamps():
     }) == "approved"
 
 
+def test_control_center_receipts_do_not_expose_reply_addresses():
+    reply = control_center._receipt_result({
+        "kind": "reply_draft", "status": "executed",
+        "execution_result": "已从 sales@example.com 回复 buyer@customer.com",
+    })
+    generic = control_center._receipt_result({
+        "kind": "send_outreach", "status": "executed",
+        "execution_result": "已发 3 封，sender@example.com 无异常",
+    })
+    assert reply == "客户回复已执行"
+    assert "@" not in generic
+    assert "[email]" in generic
+
+
 def test_snapshot_surfaces_high_risk_approval_without_mutating_crm(conn):
     activities.ensure_schema(conn)
     p = proposals.create(
