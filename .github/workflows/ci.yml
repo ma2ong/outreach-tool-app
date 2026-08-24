@@ -60,5 +60,7 @@ jobs:
         run: npm run audit:production
       - name: Report full build-tool audit
         run: npm run audit:all -- --json || true
+      - name: Preview non-breaking audit lockfile fix
+        run: npm audit fix --package-lock-only && git diff -- package-lock.json
       - name: Build
         run: npm run build
