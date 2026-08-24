@@ -146,9 +146,11 @@ def safety_net(conn, *, today: dt.date | None = None,
     explicitly sets create_task to `auto`, the normal proposal executor creates the task.
     Customer-facing messages are never sent here.
     """
-    from app.agent import opportunity_coach
+    from app.agent import opportunity_coach, task_reconciler
 
     today = today or dt.date.today()
+    # Close/supersede traceable Agent tasks before they can block a fresh planning pass.
+    reconciliation = task_reconciler.reconcile(conn)
     made: list[int] = []
     considered = due_accounts(conn, today=today, limit=limit)
     for account in considered:
@@ -190,5 +192,6 @@ def safety_net(conn, *, today: dt.date | None = None,
         "proposed": len(ids),
         "ids": ids,
         "accounts": considered,
+        "task_reconciliation": reconciliation,
         "opportunity_coach": opportunity_result,
     }
