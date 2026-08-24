@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app import activities
+from app.agent import task_ownership
 from app.main_deps import get_conn
 
 router = APIRouter(prefix="/api/activities")
@@ -33,23 +34,34 @@ def _bad(exc: activities.ActivityValidation):
 @router.get("")
 def list_activities(status: str | None = "open", scope: str | None = None,
                     lead_no: int | None = None, opportunity_id: int | None = None,
-                    limit: int = 500, conn=Depends(get_conn)):
+                    work_owner: str | None = None, limit: int = 500,
+                    conn=Depends(get_conn)):
     try:
-        return activities.list_all(
+        # Owner metadata is an additive migration and historic Agent provenance is
+        # repaired only from exact proposal/task IDs. Never infer ownership from titles.
+        task_ownership.backfill(conn)
+        rows = activities.list_all(
             conn, status=status, scope=scope, lead_no=lead_no,
-            opportunity_id=opportunity_id, limit=limit)
+            opportunity_id=opportunity_id, limit=max(limit, 1000) if work_owner else limit)
+        return task_ownership.filter_rows(rows, work_owner)[:limit]
     except activities.ActivityValidation as exc:
         _bad(exc)
 
 
 @router.get("/stats")
-def activity_stats(conn=Depends(get_conn)):
-    return activities.stats(conn)
+def activity_stats(work_owner: str | None = None, conn=Depends(get_conn)):
+    try:
+        task_ownership.backfill(conn)
+        return task_ownership.stats(conn, work_owner)
+    except activities.ActivityValidation as exc:
+        _bad(exc)
 
 
 @router.post("")
 def create_activity(req: ActivityCreate, conn=Depends(get_conn)):
     try:
+        # A task explicitly created in the UI is human-owned by the schema default.
+        task_ownership.ensure_schema(conn)
         return activities.create(
             conn, req.lead_no,
             req.model_dump(exclude={"lead_no", "opportunity_id"}, exclude_none=True),
