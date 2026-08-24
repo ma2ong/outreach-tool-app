@@ -1,0 +1,75 @@
+export type ControlCenterReceipt = {
+  id: number;
+  kind: string;
+  lead_no: number | null;
+  company_en: string | null;
+  country: string | null;
+  title: string;
+  risk: "low" | "medium" | "high";
+  status: string;
+  mode: "auto" | "approved" | "awaiting_approval" | "executing" | "not_executed";
+  created_at: string | null;
+  decided_at: string | null;
+  executed_at: string | null;
+  age_hours: number | null;
+  result: string;
+};
+
+export type ControlCenterBlocker = {
+  code: string;
+  severity: "critical" | "high" | "medium" | "info";
+  title: string;
+  detail: string;
+  action: string;
+  count: number;
+};
+
+export type ControlCenterNextAction = {
+  type: "account" | "opportunity";
+  severity: string;
+  lead_no: number | null;
+  opportunity_id: number | null;
+  company_en: string | null;
+  title: string | null;
+  due_at: string | null;
+  score: number | null;
+  action: string;
+};
+
+export type ControlCenterSnapshot = {
+  generated_at: string;
+  state: "healthy" | "attention" | "critical";
+  state_label: string;
+  counters: {
+    awaiting_approval: number;
+    high_risk_approval: number;
+    auto_executed_today: number;
+    approved_executed_today: number;
+    failed_7d: number;
+    human_takeovers: number;
+    due_accounts: number;
+    unhealthy_opportunities: number;
+    unclassified_replies: number;
+  };
+  autonomy: {
+    by_kind: Record<string, string>;
+    counts: Record<string, number>;
+  };
+  blockers: ControlCenterBlocker[];
+  next_actions: ControlCenterNextAction[];
+  approval_backlog: ControlCenterReceipt[];
+  ledger: ControlCenterReceipt[];
+  errors: { source: string; error: string }[];
+};
+
+async function jsonOrThrow(r: Response): Promise<ControlCenterSnapshot> {
+  if (!r.ok) {
+    const detail = (await r.json().catch(() => null))?.detail;
+    throw new Error(detail || `control center ${r.status}`);
+  }
+  return r.json();
+}
+
+export async function fetchControlCenter(): Promise<ControlCenterSnapshot> {
+  return jsonOrThrow(await fetch("/api/agent/control-center"));
+}
