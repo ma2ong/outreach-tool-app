@@ -1,12 +1,13 @@
 """Deterministically close or supersede Agent-created sales tasks.
 
-Only tasks that are explicitly `source='agent'` and trace back to a real Agent proposal
-are eligible. Historical manual/legacy/reply/opportunity tasks are never inferred from
-their titles and are therefore never touched here.
+Only tasks explicitly owned by an Agent proposal are eligible. Historical rows may be
+reclassified from the old `manual` bug only when an executed proposal names the exact
+created activity id in its execution result; titles are never used to guess ownership.
 """
 from __future__ import annotations
 
 import datetime as dt
+import re
 
 from app import activities, opportunities
 from app.agent import proposals
@@ -69,7 +70,37 @@ def _ensure_documents(conn) -> None:
     sales_documents.ensure_schema(conn)
 
 
-def _account_rule_done(conn, activity: dict, rule: dict) -> tuple[bool, str]:
+def backfill_agent_task_provenance(conn) -> int:
+    """Repair the pre-PR4 source bug using the exact task id recorded by the executor.
+
+    The executor result is of the form `已建销售任务 #123：...`. Matching that id plus
+    lead ownership is strong provenance; no title/date heuristic is used.
+    """
+    proposals.ensure_schema(conn)
+    activities.ensure_schema(conn)
+    rows = conn.execute(
+        "SELECT id, lead_no, execution_result FROM agent_proposals"
+        " WHERE kind='create_task' AND status='executed'"
+        " AND execution_result LIKE '已建销售任务 #%'")
+    fixed = 0
+    for row in rows:
+        match = re.search(r"已建销售任务 #(\d+)", row["execution_result"] or "")
+        if not match:
+            continue
+        activity_id = int(match.group(1))
+        cur = conn.execute(
+            "UPDATE activities SET source='agent', source_ref=?, updated_at=?"
+            " WHERE id=? AND lead_no=? AND source='manual' AND COALESCE(source_ref,'')=''",
+            (f"proposal:{row['id']}", dt.datetime.now(dt.UTC).isoformat(),
+             activity_id, row["lead_no"]),
+        )
+        fixed += cur.rowcount
+    if fixed:
+        conn.commit()
+    return fixed
+
+
+def _account_rule_outcome(conn, activity: dict, rule: dict) -> tuple[str, str] | None:
     key = rule.get("next_action_key")
     lead_no = activity["lead_no"]
 
@@ -77,7 +108,7 @@ def _account_rule_done(conn, activity: dict, rule: dict) -> tuple[bool, str]:
         from app import recheck
         row = conn.execute("SELECT target_fit FROM leads WHERE no=?", (lead_no,)).fetchone()
         if row and recheck.fit_score(row["target_fit"]) > 0:
-            return True, "官网 ICP 已重新分级，这条补资料任务已满足"
+            return "done", "官网 ICP 已重新分级，这条补资料任务已满足"
 
     elif key == "find_decision_maker":
         _ensure_contacts(conn)
@@ -86,7 +117,10 @@ def _account_rule_done(conn, activity: dict, rule: dict) -> tuple[bool, str]:
             (lead_no,),
         ).fetchone()
         if found:
-            return True, "已存在明确 decision_maker 联系人"
+            # The original recommendation says find the person *then* continue the
+            # outreach. Finding the person satisfies the precondition, not the whole
+            # multi-step task, so supersede it and let the next cycle choose the new step.
+            return "cancelled", "决策联系人已找到；原多步骤任务进入下一阶段，将按新状态重新规划"
 
     elif key == "replace_invalid_channel":
         _ensure_contacts(conn)
@@ -99,13 +133,13 @@ def _account_rule_done(conn, activity: dict, rule: dict) -> tuple[bool, str]:
             (lead_no,),
         ).fetchone()
         if lead and (lead["email_status"] != "invalid" or lead["phone"] or lead["instagram"] or contact):
-            return True, "已补到可行动联系渠道"
+            return "done", "已补到可行动联系渠道"
 
     elif key == "verify_company":
         from app import sales_intelligence
         lead = conn.execute("SELECT company_en FROM leads WHERE no=?", (lead_no,)).fetchone()
         if lead and not sales_intelligence._junk_company_name(lead["company_en"]):
-            return True, "公司名称已经核实，不再是页面标题/404 类占位名称"
+            return "done", "公司名称已经核实，不再是页面标题/404 类占位名称"
 
     elif key == "quote_to_order":
         _ensure_documents(conn)
@@ -116,7 +150,7 @@ def _account_rule_done(conn, activity: dict, rule: dict) -> tuple[bool, str]:
                 (quote_no,),
             ).fetchone()
             if order:
-                return True, f"报价 {quote_no} 已转订单"
+                return "done", f"报价 {quote_no} 已转订单"
 
     elif key == "quote_followup":
         _ensure_documents(conn)
@@ -124,9 +158,9 @@ def _account_rule_done(conn, activity: dict, rule: dict) -> tuple[bool, str]:
         if quote_no:
             quote = conn.execute("SELECT status FROM quotes WHERE quote_no=?", (quote_no,)).fetchone()
             if quote and quote["status"] != "sent":
-                return True, f"报价 {quote_no} 状态已变为 {quote['status']}"
+                return "done", f"报价 {quote_no} 状态已变为 {quote['status']}"
         if _reply_after(conn, lead_no, activity.get("created_at")):
-            return True, "任务创建后客户已回复，原报价跟进任务已被新事实取代"
+            return "done", "任务创建后客户已回复，原报价跟进任务已经取得结果"
 
     elif key in ("first_touch", "schedule_followup", "generic_followup"):
         baseline = rule.get("baseline_last_touch")
@@ -137,22 +171,21 @@ def _account_rule_done(conn, activity: dict, rule: dict) -> tuple[bool, str]:
                 (lead_no, baseline),
             ).fetchone()
             if newer:
-                return True, "已发生比任务基线更新的客户触达"
+                return "done", "已发生比任务基线更新的客户触达"
         active_sequence = conn.execute(
             "SELECT 1 FROM sequence_enrollments WHERE lead_no=? AND status='active' LIMIT 1",
             (lead_no,),
         ).fetchone()
         if active_sequence:
-            return True, "客户已由自动跟进序列接管"
+            return "done", "客户已由自动跟进序列接管"
 
-    return False, ""
+    return None
 
 
 def _reconcile_one(conn, activity: dict, proposal: dict, rule: dict) -> tuple[str, str] | None:
     rule_type = rule.get("type")
     if rule_type == "account_brain":
-        done, reason = _account_rule_done(conn, activity, rule)
-        return ("done", reason) if done else None
+        return _account_rule_outcome(conn, activity, rule)
 
     if rule_type == "opportunity_coach":
         opportunity_id = proposal.get("opportunity_id") or activity.get("opportunity_id")
@@ -173,9 +206,10 @@ def _reconcile_one(conn, activity: dict, proposal: dict, rule: dict) -> tuple[st
 
 
 def reconcile(conn, *, limit: int = 500) -> dict:
-    """Reconcile traceable Agent tasks before the next planning pass."""
+    """Repair provenance, then reconcile traceable Agent tasks before planning."""
     activities.ensure_schema(conn)
     proposals.ensure_schema(conn)
+    backfilled = backfill_agent_task_provenance(conn)
     rows = conn.execute(
         "SELECT * FROM activities WHERE source='agent' AND status='open'"
         " AND source_ref LIKE 'proposal:%' ORDER BY id LIMIT ?",
@@ -204,4 +238,9 @@ def reconcile(conn, *, limit: int = 500) -> dict:
             resolved += 1
         else:
             cancelled += 1
-    return {"checked": checked, "resolved": resolved, "superseded": cancelled}
+    return {
+        "provenance_backfilled": backfilled,
+        "checked": checked,
+        "resolved": resolved,
+        "superseded": cancelled,
+    }
