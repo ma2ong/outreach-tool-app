@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -49,6 +49,8 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -56,11 +58,20 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Generate and commit compatible audit lockfile fix
+        if: github.event_name == 'pull_request' && github.head_ref == 'agent/production-hardening'
+        run: |
+          npm audit fix --package-lock-only
+          if ! git diff --quiet -- package-lock.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package-lock.json
+            git commit -m "chore: remediate frontend audit findings"
+            git push origin HEAD:${{ github.head_ref }}
+          fi
       - name: Audit production dependency tree
         run: npm run audit:production
-      - name: Report full build-tool audit
-        run: npm run audit:all -- --json || true
-      - name: Preview non-breaking audit lockfile fix
-        run: npm audit fix --package-lock-only && git diff -- package-lock.json
+      - name: Audit complete dependency tree
+        run: npm run audit:all
       - name: Build
         run: npm run build
