@@ -8,6 +8,7 @@ an exact cabinet resolution.
 from __future__ import annotations
 
 import math
+import re
 
 from app.agent import product_advisor
 from app.db import init_schema
@@ -46,6 +47,77 @@ def _product(conn, product_id: int) -> dict | None:
     fields = ",".join(ENGINEERING_PRODUCT_FIELDS)
     row = conn.execute(f"SELECT {fields} FROM products WHERE id=?", (product_id,)).fetchone()
     return dict(row) if row else None
+
+
+def _exact_nominal_pitch(value) -> float | None:
+    values = re.findall(r"\d+(?:\.\d+)?", str(value or ""))
+    if len(values) != 1:
+        return None
+    try:
+        pitch = float(values[0])
+    except ValueError:
+        return None
+    return pitch if pitch > 0 else None
+
+
+def engineering_integrity(product: dict) -> dict:
+    """Cross-check explicit engineering facts without silently correcting any of them."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    derived: dict[str, float] = {}
+
+    cab_w = _positive(product.get("cabinet_width_mm"))
+    cab_h = _positive(product.get("cabinet_height_mm"))
+    px_w = _positive_int(product.get("cabinet_resolution_w"))
+    px_h = _positive_int(product.get("cabinet_resolution_h"))
+
+    pitch_x = cab_w / px_w if cab_w and px_w else None
+    pitch_y = cab_h / px_h if cab_h and px_h else None
+    if pitch_x is not None:
+        derived["effective_pitch_x_mm"] = round(pitch_x, 5)
+    if pitch_y is not None:
+        derived["effective_pitch_y_mm"] = round(pitch_y, 5)
+
+    effective = None
+    if pitch_x is not None and pitch_y is not None:
+        effective = (pitch_x + pitch_y) / 2
+        derived["effective_pitch_mm"] = round(effective, 5)
+        tolerance_xy = max(0.03, effective * 0.02)
+        if abs(pitch_x - pitch_y) > tolerance_xy:
+            errors.append(
+                "箱体宽/像素宽与箱体高/像素高计算出的有效点间距不一致，请核对箱体分辨率"
+            )
+    elif pitch_x is not None or pitch_y is not None:
+        effective = pitch_x if pitch_x is not None else pitch_y
+        warnings.append("目前只能从一个方向校核有效点间距；另一方向的箱体尺寸/分辨率不完整")
+
+    nominal = _exact_nominal_pitch(product.get("pixel_pitch"))
+    if nominal is not None and effective is not None:
+        derived["nominal_pitch_mm"] = nominal
+        tolerance_nominal = max(0.05, nominal * 0.03)
+        if abs(effective - nominal) > tolerance_nominal:
+            errors.append(
+                f"录入的箱体尺寸/分辨率对应约 P{effective:.3f}，与产品标称 P{nominal:g} 不一致"
+            )
+
+    max_w = _positive(product.get("max_power_w_cabinet"))
+    avg_w = _positive(product.get("avg_power_w_cabinet"))
+    if max_w and avg_w and avg_w > max_w:
+        errors.append("单箱平均功耗不能高于单箱最大功耗，请核对产品工程数据")
+
+    mod_w = _positive(product.get("module_width_mm"))
+    mod_h = _positive(product.get("module_height_mm"))
+    if cab_w and mod_w and mod_w > cab_w:
+        errors.append("模组宽度大于箱体宽度，请核对模组/箱体尺寸")
+    if cab_h and mod_h and mod_h > cab_h:
+        errors.append("模组高度大于箱体高度，请核对模组/箱体尺寸")
+
+    return {
+        "valid": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "derived_checks": derived,
+    }
 
 
 def _axis_counts(target_mm: float, cabinet_mm: float) -> dict[str, int]:
@@ -286,6 +358,18 @@ def advise(conn, opportunity: dict, *, product_id: int | None = None) -> dict:
 
     product_public = {field: product.get(field) for field in ENGINEERING_PRODUCT_FIELDS
                       if field not in ("agent_approved",) and product.get(field) not in (None, "")}
+    integrity = engineering_integrity(product)
+    if integrity["errors"]:
+        return {
+            **base,
+            "status": "invalid_product_engineering_facts",
+            "ready": False,
+            "product": product_public,
+            "engineering_integrity": integrity,
+            "engineering_errors": integrity["errors"],
+            "gaps": integrity["errors"],
+        }
+
     gaps: list[str] = []
     target_w_m = _positive(opportunity.get("width_m"))
     target_h_m = _positive(opportunity.get("height_m"))
@@ -299,14 +383,14 @@ def advise(conn, opportunity: dict, *, product_id: int | None = None) -> dict:
         if not target_h_m:
             gaps.append("项目缺少目标高度")
         return {**base, "status": "needs_project_dimensions", "ready": False,
-                "product": product_public, "gaps": gaps}
+                "product": product_public, "engineering_integrity": integrity, "gaps": gaps}
     if not cabinet_w or not cabinet_h:
         if not cabinet_w:
             gaps.append("产品缺少精确箱体宽度 mm")
         if not cabinet_h:
             gaps.append("产品缺少精确箱体高度 mm")
         return {**base, "status": "needs_product_engineering_facts", "ready": False,
-                "product": product_public, "gaps": gaps}
+                "product": product_public, "engineering_integrity": integrity, "gaps": gaps}
 
     options = _layout_options(target_w_m * 1000, target_h_m * 1000, cabinet_w, cabinet_h, quantity)
     layout = _selected(options)
@@ -336,6 +420,8 @@ def advise(conn, opportunity: dict, *, product_id: int | None = None) -> dict:
         "status": "ready" if resolution is not None else "layout_ready_resolution_missing",
         "ready": resolution is not None,
         "engineering_completeness_pct": completeness,
+        "engineering_integrity": integrity,
+        "engineering_errors": [],
         "product": product_public,
         "target": {
             "width_m": target_w_m, "height_m": target_h_m, "quantity": quantity,
