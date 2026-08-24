@@ -2,19 +2,22 @@
 
 A CRM activity is not automatically human work just because it is visible in the task
 ledger. Account Brain uses activities as durable checkpoints. Routine public research
-belongs to the Agent; commercial commitments and ambiguous judgement stay with the user.
+and bounded no-reply email follow-up belong to the Agent; commercial commitments and
+ambiguous judgement stay with the user.
 """
 from __future__ import annotations
 
 WORK_OWNERS = ("human", "agent")
 
-# These Account Brain rules are deterministic/public-data work with existing safe
-# implementations. They never send a customer message or make a commercial commitment.
+# Structured Account Brain rules the Worker can complete without inventing facts or
+# commercial terms. `schedule_followup` only reconnects an already-emailed lead to the
+# approved 3-step email sequence; it does not create copy or bypass autosend controls.
 AGENT_EXECUTABLE_ACCOUNT_KEYS = frozenset({
     "refresh_icp",
     "find_decision_maker",
     "replace_invalid_channel",
     "verify_company",
+    "schedule_followup",
 })
 
 
