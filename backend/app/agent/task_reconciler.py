@@ -21,6 +21,31 @@ def _proposal_id(source_ref: str | None) -> int | None:
         return None
 
 
+def _instant(value: str | None) -> dt.datetime | None:
+    if not value:
+        return None
+    raw = str(value).strip().replace("Z", "+00:00")
+    try:
+        parsed = dt.datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.UTC)
+    return parsed.astimezone(dt.UTC)
+
+
+def _reply_after(conn, lead_no: int, created_at: str | None) -> bool:
+    baseline = _instant(created_at)
+    if baseline is None:
+        return False
+    rows = conn.execute(
+        "SELECT received_at FROM inbox_messages WHERE lead_no=? AND kind='reply'"
+        " AND received_at IS NOT NULL ORDER BY received_at DESC LIMIT 20",
+        (lead_no,),
+    ).fetchall()
+    return any((when := _instant(row["received_at"])) is not None and when > baseline for row in rows)
+
+
 def _append_note(existing: str | None, reason: str) -> str:
     stamp = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M UTC")
     suffix = f"[Agent 自动回收 {stamp}] {reason}"
@@ -34,6 +59,16 @@ def _resolve(conn, activity: dict, *, status: str, reason: str) -> None:
     })
 
 
+def _ensure_contacts(conn) -> None:
+    from app import contacts
+    contacts.ensure_schema(conn)
+
+
+def _ensure_documents(conn) -> None:
+    from app import sales_documents
+    sales_documents.ensure_schema(conn)
+
+
 def _account_rule_done(conn, activity: dict, rule: dict) -> tuple[bool, str]:
     key = rule.get("next_action_key")
     lead_no = activity["lead_no"]
@@ -45,6 +80,7 @@ def _account_rule_done(conn, activity: dict, rule: dict) -> tuple[bool, str]:
             return True, "官网 ICP 已重新分级，这条补资料任务已满足"
 
     elif key == "find_decision_maker":
+        _ensure_contacts(conn)
         found = conn.execute(
             "SELECT 1 FROM contacts WHERE lead_no=? AND role='decision_maker' LIMIT 1",
             (lead_no,),
@@ -53,6 +89,7 @@ def _account_rule_done(conn, activity: dict, rule: dict) -> tuple[bool, str]:
             return True, "已存在明确 decision_maker 联系人"
 
     elif key == "replace_invalid_channel":
+        _ensure_contacts(conn)
         lead = conn.execute(
             "SELECT email_status, phone, instagram FROM leads WHERE no=?", (lead_no,)
         ).fetchone()
@@ -71,6 +108,7 @@ def _account_rule_done(conn, activity: dict, rule: dict) -> tuple[bool, str]:
             return True, "公司名称已经核实，不再是页面标题/404 类占位名称"
 
     elif key == "quote_to_order":
+        _ensure_documents(conn)
         quote_no = (rule.get("context") or {}).get("quote_no")
         if quote_no:
             order = conn.execute(
@@ -81,17 +119,13 @@ def _account_rule_done(conn, activity: dict, rule: dict) -> tuple[bool, str]:
                 return True, f"报价 {quote_no} 已转订单"
 
     elif key == "quote_followup":
+        _ensure_documents(conn)
         quote_no = (rule.get("context") or {}).get("quote_no")
         if quote_no:
             quote = conn.execute("SELECT status FROM quotes WHERE quote_no=?", (quote_no,)).fetchone()
             if quote and quote["status"] != "sent":
                 return True, f"报价 {quote_no} 状态已变为 {quote['status']}"
-        reply = conn.execute(
-            "SELECT 1 FROM inbox_messages WHERE lead_no=? AND kind='reply'"
-            " AND created_at > ? LIMIT 1",
-            (lead_no, activity["created_at"]),
-        ).fetchone()
-        if reply:
+        if _reply_after(conn, lead_no, activity.get("created_at")):
             return True, "任务创建后客户已回复，原报价跟进任务已被新事实取代"
 
     elif key in ("first_touch", "schedule_followup", "generic_followup"):
