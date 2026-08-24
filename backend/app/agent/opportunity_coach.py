@@ -87,6 +87,16 @@ def _fresh_signal(conn, lead_no: int, today: dt.date) -> dict | None:
     return None
 
 
+def _quote_evidence(conn, opportunity_id: int) -> dict | None:
+    row = conn.execute(
+        "SELECT id, quote_no, status, sent_at, accepted_at FROM quotes"
+        " WHERE opportunity_id=? AND status IN ('sent','accepted')"
+        " ORDER BY id DESC LIMIT 1",
+        (opportunity_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
 def coach_opportunity(conn, opportunity: dict, *, today: dt.date | None = None) -> dict:
     today = today or dt.date.today()
     qual = led_playbook.qualification(opportunity)
@@ -97,6 +107,7 @@ def coach_opportunity(conn, opportunity: dict, *, today: dt.date | None = None) 
     }
     coverage = contact_coverage(conn, opportunity["lead_no"], opportunity)
     signal = _fresh_signal(conn, opportunity["lead_no"], today)
+    quote_evidence = _quote_evidence(conn, opportunity["id"])
     next_date = _date(opportunity.get("next_action_date"))
     overdue = bool(next_date and next_date < today)
     missing_next_action = not bool((opportunity.get("next_action") or "").strip())
@@ -155,8 +166,14 @@ def coach_opportunity(conn, opportunity: dict, *, today: dt.date | None = None) 
     engineering_issue = None
     if products.get("ready_to_recommend") and not solution.get("ready"):
         health -= 8
-        engineering_issue = "产品方向已明确，但精确箱体尺寸/分辨率等工程事实不足"
+        engineering_issue = "产品方向已明确，但精确箱体尺寸/分辨率等工程事实不足或互相矛盾"
         risks.append(engineering_issue)
+
+    stage_evidence_issue = None
+    if opportunity.get("stage") in ("quoted", "negotiation") and not quote_evidence:
+        health -= 10
+        stage_evidence_issue = "阶段标记为报价/谈判，但系统里没有已发送报价证据"
+        risks.append(stage_evidence_issue)
     if opportunity.get("stage") in ("quoted", "negotiation") and qual["completeness"] < 60:
         health -= 8
         risks.append("已进入报价/谈判，但技术资格仍偏弱")
@@ -174,12 +191,14 @@ def coach_opportunity(conn, opportunity: dict, *, today: dt.date | None = None) 
         next_best = qual["next_question"] or "先给这个商机定义一个具体下一步动作"
     elif missing_next_date:
         next_best = f"给下一步“{opportunity['next_action']}”确定日期和负责人"
+    elif stage_evidence_issue:
+        next_best = "先核实是否真的已经对外发送正式报价；如已发送请在报价订单中登记，不要把阶段标签当成进展证据"
     elif product_issue and products["status"] == "no_approved_products":
         next_best = "先在产品库核实真实规格并批准至少一个可用于 Agent 的产品，再继续自动产品推荐"
     elif product_issue:
         next_best = "人工确认是否有兼容产品或补齐产品匹配事实，不要让 Agent 猜规格"
     elif engineering_issue:
-        next_best = "到报价订单的项目配置工程师补齐精确箱体尺寸/箱体分辨率并生成实际屏体配置"
+        next_best = "到报价订单的项目配置工程师补齐并校核精确箱体尺寸/箱体分辨率，再生成实际屏体配置"
     elif opportunity.get("stage") in ("quoted", "negotiation") and not coverage["commercial_authority"]:
         next_best = "补齐 Owner / Purchasing / Procurement 等商务决策人，再推进报价决定"
     elif opportunity.get("stage") in ("quoted", "negotiation") and not coverage["project_authority"]:
@@ -198,6 +217,7 @@ def coach_opportunity(conn, opportunity: dict, *, today: dt.date | None = None) 
     urgency += 10 if signal else 0
     urgency += 8 if product_issue else 0
     urgency += 6 if engineering_issue else 0
+    urgency += 8 if stage_evidence_issue else 0
     urgency += min(20, round(float(opportunity.get("amount") or 0) / 5000))
 
     return {
@@ -215,6 +235,7 @@ def coach_opportunity(conn, opportunity: dict, *, today: dt.date | None = None) 
         "product_advice": products,
         "solution_engineering": solution,
         "contact_coverage": coverage,
+        "quote_evidence": quote_evidence,
         "next_action": opportunity.get("next_action"),
         "next_action_date": opportunity.get("next_action_date"),
         "overdue": overdue,
@@ -241,6 +262,7 @@ def portfolio(conn, *, today: dt.date | None = None,
 def _issue_digest(row: dict) -> str:
     products = row.get("product_advice") or {}
     solution = row.get("solution_engineering") or {}
+    quote = row.get("quote_evidence") or {}
     facts = {
         "health": row["health"], "risks": row["risks"],
         "next": row["next_best_action"],
@@ -252,6 +274,8 @@ def _issue_digest(row: dict) -> str:
         "product_ids": [p.get("product_id") for p in products.get("recommendations", [])[:3]],
         "solution_status": solution.get("status"),
         "solution_ready": solution.get("ready"),
+        "quote_no": quote.get("quote_no"),
+        "quote_status": quote.get("status"),
     }
     raw = json.dumps(facts, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
@@ -270,6 +294,7 @@ def safety_net(conn, *, today: dt.date | None = None,
             continue
         considered.append(row)
         title = f"商机体检：{row['company_en']} / {row['title']}"
+        issue_digest = _issue_digest(row)
         proposal = proposals.create(
             conn, "create_task", lead_no=row["lead_no"],
             opportunity_id=row["opportunity_id"],
@@ -286,9 +311,13 @@ def safety_net(conn, *, today: dt.date | None = None,
                 "note": (f"健康度 {row['health']}/100。"
                          f"风险：{'；'.join(row['risks']) or '需完善'}。"
                          f"下一步：{row['next_best_action']}")[:500],
+                "completion_rule": {
+                    "type": "opportunity_coach",
+                    "issue_digest": issue_digest,
+                },
             },
             risk="low",
-            dedupe_key=f"opportunity-coach-{row['opportunity_id']}-{_issue_digest(row)}",
+            dedupe_key=f"opportunity-coach-{row['opportunity_id']}-{issue_digest}",
         )
         if proposal:
             made.append(proposal["id"])

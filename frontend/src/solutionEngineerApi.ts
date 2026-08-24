@@ -32,6 +32,13 @@ export interface LayoutResult {
   delta_height_pct: number;
 }
 
+export interface EngineeringIntegrity {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  derived_checks: Record<string, number>;
+}
+
 export interface SolutionResult {
   status: string;
   ready: boolean;
@@ -47,8 +54,48 @@ export interface SolutionResult {
   control?: Record<string, number | string> | null;
   spares?: Record<string, number> | null;
   sections_ready?: Record<string, boolean>;
+  engineering_integrity?: EngineeringIntegrity;
+  engineering_errors?: string[];
   gaps: string[];
   safety_notes?: string[];
+}
+
+export interface QuoteStarter {
+  description: string;
+  model: string;
+  pixel_pitch: string | null;
+  width_m: number;
+  height_m: number;
+  quantity: number;
+  area_sqm_per_screen: number;
+  area_sqm_project: number;
+  cabinets_per_screen: number;
+  total_cabinets: number;
+  screen_width_px: number | null;
+  screen_height_px: number | null;
+  pricing_unit_suggestion: string;
+  note: string;
+  unit_price: null;
+}
+
+export interface QuoteReadiness {
+  opportunity_id: number;
+  lead_no: number;
+  company_en: string | null;
+  title: string | null;
+  internal_only: boolean;
+  commercial_authority: string;
+  technical_ready: boolean;
+  ready_for_human_pricing: boolean;
+  qualification_pct: number;
+  product_status: string;
+  solution_status: string;
+  quote_starter: QuoteStarter | null;
+  latest_quote: Record<string, unknown> | null;
+  human_decisions: { key: string; label: string; decided: boolean; value: unknown; owner: string }[];
+  blockers: string[];
+  warnings: string[];
+  safety: string[];
 }
 
 async function detail(r: Response, fallback: string): Promise<never> {
@@ -84,5 +131,15 @@ export async function fetchSolutionEngineering(
   const qs = productId ? `?product_id=${productId}` : "";
   const r = await fetch(`/api/opportunities/${opportunityId}/solution${qs}`);
   if (!r.ok) return detail(r, `solution ${r.status}`);
+  return r.json();
+}
+
+export async function fetchQuoteReadiness(
+  opportunityId: number,
+  productId?: number,
+): Promise<QuoteReadiness> {
+  const qs = productId ? `?product_id=${productId}` : "";
+  const r = await fetch(`/api/opportunities/${opportunityId}/quote-readiness${qs}`);
+  if (!r.ok) return detail(r, `quote readiness ${r.status}`);
   return r.json();
 }

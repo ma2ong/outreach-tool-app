@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchKnowledgeProducts } from "../productKnowledgeApi";
 import type { KnowledgeProduct } from "../productKnowledgeApi";
 import {
-  fetchEngineeringOpportunities, fetchSolutionEngineering, updateEngineeringOpportunity,
+  fetchEngineeringOpportunities, fetchQuoteReadiness, fetchSolutionEngineering,
+  updateEngineeringOpportunity,
 } from "../solutionEngineerApi";
-import type { EngineeringOpportunity, SolutionResult } from "../solutionEngineerApi";
+import type { EngineeringOpportunity, QuoteReadiness, SolutionResult } from "../solutionEngineerApi";
 
 const n = (value: string): number | null => value.trim() === "" ? null : Number(value);
 const shown = (value: unknown, suffix = "") => value == null ? "—" : `${String(value)}${suffix}`;
@@ -20,6 +21,7 @@ export function SolutionEngineerPanel() {
     max_pixels_per_port: "", spare_pct: "",
   });
   const [result, setResult] = useState<SolutionResult | null>(null);
+  const [readiness, setReadiness] = useState<QuoteReadiness | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -49,7 +51,7 @@ export function SolutionEngineerPanel() {
       max_pixels_per_port: selectedOpp.max_pixels_per_port?.toString() ?? "",
       spare_pct: selectedOpp.spare_pct?.toString() ?? "",
     });
-    setResult(null); setMsg("");
+    setResult(null); setReadiness(null); setMsg("");
   }, [selectedOpp?.id]);
 
   const set = (key: keyof typeof form, value: string) => setForm((f) => ({ ...f, [key]: value }));
@@ -69,11 +71,14 @@ export function SolutionEngineerPanel() {
         spare_pct: n(form.spare_pct),
       });
       setOpps((rows) => rows.map((row) => row.id === updated.id ? updated : row));
-      const solution = await fetchSolutionEngineering(
-        selectedOpp.id, productId ? Number(productId) : undefined,
-      );
+      const pid = productId ? Number(productId) : undefined;
+      const [solution, quoteReady] = await Promise.all([
+        fetchSolutionEngineering(selectedOpp.id, pid),
+        fetchQuoteReadiness(selectedOpp.id, pid),
+      ]);
       setResult(solution);
-      setMsg(solution.ready ? "已生成可复核工程配置" : "已计算可用部分；请按下方缺口补齐事实");
+      setReadiness(quoteReady);
+      setMsg(solution.ready ? "已生成可复核工程配置，并完成报价就绪检查" : "已计算可用部分；请按下方缺口补齐事实");
     } catch (e) {
       setMsg("计算失败：" + String(e instanceof Error ? e.message : e));
     } finally { setBusy(false); }
@@ -84,6 +89,7 @@ export function SolutionEngineerPanel() {
   const power = result?.power;
   const control = result?.control;
   const spares = result?.spares;
+  const integrity = result?.engineering_integrity;
 
   return (
     <div className="card" style={{ marginBottom: 16, borderColor: "var(--blue)" }}>
@@ -104,7 +110,7 @@ export function SolutionEngineerPanel() {
           <option value="">选择开放商机…</option>
           {opps.map((o) => <option key={o.id} value={o.id}>#{o.id} {o.company_en} · {o.title}</option>)}
         </select>
-        <select className="input" value={productId} onChange={(e) => { setProductId(e.target.value); setResult(null); }} style={{ minWidth: 260 }}>
+        <select className="input" value={productId} onChange={(e) => { setProductId(e.target.value); setResult(null); setReadiness(null); }} style={{ minWidth: 260 }}>
           <option value="">自动使用 Product Advisor 首选产品</option>
           {approvedProducts.map((p) => <option key={p.id} value={p.id}>{p.model} · {p.pixel_pitch || "未填 pitch"}</option>)}
         </select>
@@ -131,6 +137,16 @@ export function SolutionEngineerPanel() {
 
       {result && (
         <div style={{ marginTop: 14 }}>
+          {integrity && (integrity.errors.length > 0 || integrity.warnings.length > 0) && (
+            <div style={{ marginBottom: 10, padding: 10, border: `1px solid ${integrity.errors.length ? "var(--danger)" : "var(--warn)"}`, borderRadius: 7 }}>
+              <strong>{integrity.errors.length ? "工程数据矛盾 — 已阻止继续计算" : "工程数据校核提醒"}</strong>
+              <div className="muted" style={{ fontSize: 12, lineHeight: 1.7, marginTop: 4 }}>
+                {integrity.errors.map((x, i) => <div key={`e-${i}`}>• {x}</div>)}
+                {integrity.warnings.map((x, i) => <div key={`w-${i}`}>• {x}</div>)}
+              </div>
+            </div>
+          )}
+
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 10 }}>
             <div style={{ border: "1px solid var(--border)", borderRadius: 7, padding: 10 }}>
               <strong>实际屏体 / 箱体</strong>
@@ -184,6 +200,59 @@ export function SolutionEngineerPanel() {
               <div className="muted" style={{ fontSize: 12, lineHeight: 1.7, marginTop: 4 }}>
                 {result.gaps.map((gap, i) => <div key={i}>• {gap}</div>)}
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {readiness && (
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: "2px solid var(--border)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <div>
+              <strong>Quote Readiness / 报价就绪包</strong>
+              <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>技术事实由系统整理；价格、运费、付款、交期、质保等仍必须由你决定。</div>
+            </div>
+            <span className={readiness.ready_for_human_pricing ? "stage-badge stage-won" : "stage-badge stage-requirements"}>
+              {readiness.ready_for_human_pricing ? "可以进入人工定价" : "还不能安全定价"}
+            </span>
+          </div>
+
+          {readiness.quote_starter && (
+            <div style={{ marginTop: 10, padding: 10, border: "1px solid var(--border)", borderRadius: 7 }}>
+              <strong>已整理的报价技术行（不含价格）</strong>
+              <div className="muted" style={{ fontSize: 12, lineHeight: 1.7, marginTop: 4 }}>
+                <div>{readiness.quote_starter.model} · {shown(readiness.quote_starter.pixel_pitch)}</div>
+                <div>实际尺寸：{readiness.quote_starter.width_m} × {readiness.quote_starter.height_m} m · 数量 {readiness.quote_starter.quantity}</div>
+                <div>项目面积：{shown(readiness.quote_starter.area_sqm_project, " m²")} · 总箱体 {readiness.quote_starter.total_cabinets}</div>
+                <div>分辨率：{readiness.quote_starter.screen_width_px && readiness.quote_starter.screen_height_px ? `${readiness.quote_starter.screen_width_px} × ${readiness.quote_starter.screen_height_px}px` : "—"}</div>
+                <div><b>单价：未填写（必须人工）</b></div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+            {readiness.human_decisions.map((item) => (
+              <span key={item.key} className="stage-badge" title={item.decided ? String(item.value ?? "") : "需要人工决定"}>
+                {item.decided ? "✓" : "○"} {item.label}
+              </span>
+            ))}
+          </div>
+
+          {readiness.latest_quote && (
+            <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+              已有关联报价：{shown(readiness.latest_quote.quote_no)} · {shown(readiness.latest_quote.status)}
+            </div>
+          )}
+          {readiness.blockers.length > 0 && (
+            <div style={{ marginTop: 10, padding: 10, border: "1px solid var(--danger)", borderRadius: 7 }}>
+              <strong>阻塞项</strong>
+              <div className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>{readiness.blockers.map((x, i) => <div key={i}>• {x}</div>)}</div>
+            </div>
+          )}
+          {readiness.warnings.length > 0 && (
+            <div style={{ marginTop: 10, padding: 10, border: "1px solid var(--warn)", borderRadius: 7 }}>
+              <strong>报价提醒</strong>
+              <div className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>{readiness.warnings.map((x, i) => <div key={i}>• {x}</div>)}</div>
             </div>
           )}
         </div>

@@ -12,7 +12,7 @@ def build(conn, lead_no: int) -> dict | None:
         activities, case_library, contacts, decision_maker_radar, opportunities,
         sales_documents, sales_intelligence,
     )
-    from app.agent import opportunity_coach
+    from app.agent import opportunity_coach, quote_readiness
 
     sales_intelligence.ensure_schema(conn)
     sales_documents.ensure_schema(conn)
@@ -48,6 +48,10 @@ def build(conn, lead_no: int) -> dict | None:
             **row.get("solution_engineering", {}),
         }
         for row in coached
+    ]
+    quote_readiness_rows = [
+        quote_readiness.assess(conn, opp)
+        for opp in opps if opp["stage"] in opportunities.OPEN_STAGES
     ]
     approved_case_matches = []
     for opp in opps:
@@ -134,6 +138,7 @@ def build(conn, lead_no: int) -> dict | None:
         "opportunity_coaching": coached,
         "product_advice": product_advice,
         "solution_engineering": solution_engineering,
+        "quote_readiness": quote_readiness_rows,
         "approved_case_matches": approved_case_matches,
         "buying_signals": signals,
         "open_tasks": open_tasks,
