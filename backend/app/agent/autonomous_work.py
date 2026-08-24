@@ -1,9 +1,10 @@
 """Execute routine Agent-owned CRM work without turning it into human homework.
 
-This worker only handles traceable public-data research. It may read company websites,
-classify ICP, repair a dead contact channel from company-owned evidence, verify a junk
-company name, and run Decision Maker Radar. It never sends a customer message and never
-sets pricing/payment/delivery/warranty/quote terms.
+The worker handles traceable public-data research and may reconnect an already-emailed,
+no-reply lead to the approved 3-step email sequence. It never sends directly: the
+existing autosend safety gate, reply/do-not-contact checks, bounce protection, daily cap
+and batch cap remain authoritative. It never sets pricing/payment/delivery/warranty/
+quote terms.
 """
 from __future__ import annotations
 
@@ -11,14 +12,22 @@ import datetime as dt
 import urllib.parse
 
 from app import activities, enrich, icp, recheck
-from app.agent import opportunity_coach, proposals, task_ownership
+from app.agent import (
+    followup_router,
+    opportunity_coach,
+    proposals,
+    task_ownership,
+    task_policy,
+)
 
 MAX_PER_CYCLE = 6
 DECISION_MAKER_MAX_PER_CYCLE = 2
+PENDING_MATERIALIZE_LIMIT = 20
 TRANSIENT_RETRY_DAYS = 3
 UNKNOWN_ICP_RETRY_DAYS = 30
 DECISION_RETRY_DAYS = 30
 CHANNEL_RETRY_DAYS = 14
+FOLLOWUP_RETRY_DAYS = 14
 
 
 def _today() -> dt.date:
@@ -204,6 +213,33 @@ def _verify_company(conn, task: dict, lead: dict) -> str:
     return "rescheduled"
 
 
+def _schedule_followup(conn, task: dict, lead: dict) -> str:
+    result = followup_router.continue_no_reply(conn, lead["no"])
+    status = result.get("status")
+    reason = result.get("reason") or ""
+    if status == "owned":
+        step = result.get("step_order")
+        _done(
+            conn, task,
+            "Agent 已把客户接回受限 Email 跟进序列"
+            + (f"（下一步为第 {int(step) + 1} 封）" if step is not None else "")
+            + "；真正发送仍由现有 autosend 安全闸、额度和退信规则控制。",
+        )
+        return "done"
+    if status == "retired":
+        _done(
+            conn, task,
+            f"Agent 已结束本轮冷邮件跟进（{reason}），不再无限追发；"
+            "后续由官网复查/新购买信号重新唤醒。",
+        )
+        return "done"
+    _reschedule(
+        conn, task, FOLLOWUP_RETRY_DAYS,
+        f"暂时无法安全接回 Email 跟进序列（{reason}）；保持 Agent 后台队列，不转给人工。",
+    )
+    return "rescheduled"
+
+
 def _radar_review(conn, task: dict) -> str:
     _done(
         conn, task,
@@ -223,9 +259,35 @@ def _rule_for(proposal: dict) -> tuple[str | None, dict]:
     return None, {}
 
 
+def _materialize_safe_pending(conn, limit: int = PENDING_MATERIALIZE_LIMIT) -> dict:
+    """Auto-create machine-owned internal tasks even if generic create_task is propose.
+
+    `off` remains authoritative because no proposal exists in that mode. Only already-
+    recorded pending `create_task` proposals whose structured policy says `agent` are
+    executed here; human/commercial tasks stay pending for approval.
+    """
+    proposals.ensure_schema(conn)
+    rows = conn.execute(
+        "SELECT id FROM agent_proposals WHERE status='pending' AND kind='create_task'"
+        " ORDER BY created_at,id LIMIT ?", (max(1, min(int(limit), 100)),),
+    ).fetchall()
+    executed = failed = 0
+    for row in rows:
+        proposal = proposals.get(conn, row["id"])
+        if not proposal or task_policy.owner_for_proposal(proposal) != "agent":
+            continue
+        result = proposals._execute(conn, proposal, note="Agent-owned routine work")  # noqa: SLF001
+        if result and result.get("status") == "executed":
+            executed += 1
+        else:
+            failed += 1
+    return {"executed": executed, "failed": failed}
+
+
 def sweep(conn, *, today: dt.date | None = None, limit: int = MAX_PER_CYCLE) -> dict:
     """Consume due Agent-owned work with bounded live I/O."""
     today = today or _today()
+    materialized = _materialize_safe_pending(conn)
     ownership = task_ownership.backfill(conn)
     rows = conn.execute(
         "SELECT * FROM activities WHERE status='open' AND source='agent'"
@@ -267,6 +329,8 @@ def sweep(conn, *, today: dt.date | None = None, limit: int = MAX_PER_CYCLE) -> 
                 outcome = _replace_invalid_channel(conn, task, lead)
             elif key == "verify_company":
                 outcome = _verify_company(conn, task, lead)
+            elif key == "schedule_followup":
+                outcome = _schedule_followup(conn, task, lead)
             elif key == "radar_review":
                 outcome = _radar_review(conn, task)
             else:
@@ -286,6 +350,7 @@ def sweep(conn, *, today: dt.date | None = None, limit: int = MAX_PER_CYCLE) -> 
                         "key": key, "outcome": outcome})
 
     return {
+        "materialized": materialized,
         "ownership": ownership,
         "processed": processed,
         "done": done,
