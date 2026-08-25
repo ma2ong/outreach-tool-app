@@ -23,6 +23,9 @@ def conn(tmp_path, monkeypatch):
         {"day_offset": 8, "subject": "Re: LED", "body": "One last useful check-in."},
     ])
     sequences.enroll_leads(c, sid, [10])
+    # The module owns all optional evidence-schema dependencies; make that explicit in
+    # this standalone fixture rather than relying on FastAPI startup side effects.
+    followup_decision.ensure_schema(c)
     eid = c.execute("SELECT id FROM sequence_enrollments WHERE lead_no=10").fetchone()["id"]
     monkeypatch.setattr(
         followup_decision.sales_intelligence, "score_lead",
