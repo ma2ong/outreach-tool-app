@@ -11,6 +11,7 @@ and their safety/autonomy controls.
 from __future__ import annotations
 
 import datetime as dt
+import os
 import re
 
 from app.agent import proposals
@@ -187,9 +188,15 @@ def safety_net(conn, *, today: dt.date | None = None,
     # judgement. The same proposal/autonomy mechanism remains authoritative.
     opportunity_result = opportunity_coach.safety_net(conn, today=today, limit=limit)
 
-    # Most importantly, do the routine research now instead of merely creating a task
-    # for the user. This also backfills owner metadata on pre-existing Agent tasks.
-    autonomous_result = autonomous_work.sweep(conn, today=today)
+    # The global Agent switch is a hard boundary. In CI/tests it is deliberately off so
+    # deterministic planning tests can never reach a real website. In production the
+    # leased Worker enters here only when Agent is enabled, so routine machine work is
+    # still materialized and consumed in the same operating cycle.
+    if os.environ.get("OUTREACH_AGENT", "1") != "0":
+        autonomous_result = autonomous_work.sweep(conn, today=today)
+    else:
+        autonomous_result = {"disabled": True, "processed": 0, "done": 0,
+                             "rescheduled": 0, "failed": 0, "results": []}
 
     ids = [*made, *opportunity_result["ids"]]
     return {
