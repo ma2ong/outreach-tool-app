@@ -1,6 +1,11 @@
 """Auto-send exists because 266 enrolled leads sat for 3 days with zero sends.
 It must: fire once per day inside the window, email only, respect budgets, and be
-trivially switchable off."""
+trivially switchable off.
+
+These tests isolate scheduler/delivery mechanics. PR #21's commercial worth-now policy
+has its own tests; here it is fixed to a healthy account so a cadence test does not turn
+into an accidental sales-scoring test.
+"""
 import datetime as dt
 
 import pytest
@@ -10,7 +15,9 @@ from app.db import connect, init_schema
 
 
 @pytest.fixture
-def conn(tmp_path):
+def conn(tmp_path, monkeypatch):
+    from app.agent import followup_decision
+
     c = connect(str(tmp_path / "t.db"))
     init_schema(c)
     rows = ", ".join(f"({i}, 'Co{i}', 'USA', 'c{i}@x.com')" for i in range(1, 41))
@@ -23,6 +30,12 @@ def conn(tmp_path):
     sequences.enroll_leads(c, sid, list(range(1, 40)))
     wa = sequences.create_sequence(c, "WA序列", "whatsapp", [{"day_offset": 0, "body": "hi"}])
     sequences.enroll_leads(c, wa, [40])
+
+    monkeypatch.setattr(
+        followup_decision.sales_intelligence, "score_lead",
+        lambda *a, **k: {"score": 80, "grade": "A", "best_signal": None,
+                         "data_incomplete": False},
+    )
     return c
 
 
@@ -78,6 +91,7 @@ def test_status_defaults(conn):
     assert st["last_date"] is None and st["last_result"] is None
     assert st["preview"]["due"] == 39
     assert st["preview"]["will_send"] == outreach.MAX_BATCH
+    assert st["preview"]["followup_quality"]["continue"] == 39
 
 
 def test_a_run_that_cannot_read_the_queue_still_says_so(conn, monkeypatch):
