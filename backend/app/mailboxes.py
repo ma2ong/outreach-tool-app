@@ -18,6 +18,11 @@ def infer_imap_host(smtp_host: str) -> str | None:
         "smtp.office365.com": "outlook.office365.com",
         "smtp-mail.outlook.com": "outlook.office365.com",
         "smtp.zoho.com": "imap.zoho.com",
+        # NetEase enterprise mail. The generic smtp->imap swap below would land on the
+        # same host, but the paid (qiye) and free (ym) tiers are different services and
+        # naming both here keeps that visible.
+        "smtp.qiye.163.com": "imap.qiye.163.com",
+        "smtp.ym.163.com": "imap.ym.163.com",
     }
     if host in known:
         return known[host]

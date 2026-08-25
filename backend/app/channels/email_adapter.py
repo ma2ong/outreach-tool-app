@@ -14,7 +14,8 @@ from app import identity
 # longer claims otherwise — GMAIL_USER stays as an alias because callers import it.
 FALLBACK_SENDER = identity.SENDER_EMAIL
 GMAIL_USER = FALLBACK_SENDER
-FALLBACK_SMTP_HOST = "smtp.zoho.com"
+# maxcolorvisual.com is hosted on NetEase enterprise mail (MX hzmx01.mxmail.netease.com).
+FALLBACK_SMTP_HOST = "smtp.qiye.163.com"
 PW_FILE = Path.home() / ".mailbox_app_password"
 LEGACY_PW_FILE = Path.home() / ".gmail_app_password"
 
