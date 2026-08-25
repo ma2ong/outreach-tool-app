@@ -1,4 +1,5 @@
 import app.main as main
+from app.agent import task_ownership
 from app.db import connect, init_schema
 from fastapi.testclient import TestClient
 
@@ -34,6 +35,23 @@ def test_activity_crud_filters_and_stats(tmp_path):
     done = client.post(f"/api/activities/{activity_id}/complete")
     assert done.status_code == 200 and done.json()["status"] == "done"
     assert client.get("/api/activities?lead_no=1").json() == []
+
+
+def test_activity_get_does_not_run_ownership_backfill(tmp_path, monkeypatch):
+    client = _client(tmp_path)
+    created = client.post("/api/activities", json={"lead_no": 1, "title": "Human task"})
+    assert created.status_code == 200
+
+    def forbidden_write(_conn):
+        raise AssertionError("GET /api/activities must not run ownership backfill")
+
+    monkeypatch.setattr(task_ownership, "backfill", forbidden_write)
+    listing = client.get("/api/activities?work_owner=human")
+    stats = client.get("/api/activities/stats?work_owner=human")
+    assert listing.status_code == 200
+    assert len(listing.json()) == 1
+    assert stats.status_code == 200
+    assert stats.json()["open_count"] == 1
 
 
 def test_activity_api_validation_and_not_found(tmp_path):
