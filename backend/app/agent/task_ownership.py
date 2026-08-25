@@ -30,13 +30,16 @@ def ensure_schema(conn) -> None:
     PR #9 can be deployed onto a database that already has the activities table. The
     first API request must not become responsible for a one-shot ALTER TABLE that fails
     just because the embedded Worker happens to be writing at the same instant. Retry a
-    bounded number of times, and also tolerate another connection winning the migration
-    race between PRAGMA and ALTER.
+    bounded number of times, including the base activities schema setup, and tolerate
+    another connection winning the migration race between PRAGMA and ALTER.
     """
-    activities.ensure_schema(conn)
     last_error: sqlite3.OperationalError | None = None
     for attempt in range(_SCHEMA_RETRIES):
         try:
+            # Base activity setup itself executes DDL/index statements, so keep it inside
+            # the retry loop as well; otherwise a busy production DB can fail before the
+            # work_owner migration even starts.
+            activities.ensure_schema(conn)
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(activities)")}
             if "work_owner" not in columns:
                 try:
