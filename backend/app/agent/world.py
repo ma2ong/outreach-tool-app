@@ -75,9 +75,13 @@ def _untouched(conn) -> dict:
     threshold — so the size of the pool is reported separately from the shortlist.
 
     Narrowed in SQL before scoring: `ranked()` scores every open lead, and the planner
-    only ever needs the top of this pile.
+    only ever needs the top of this pile. The shortlist also includes deterministic
+    autonomous-send readiness so the model never has to infer whether missing evidence
+    is acceptable.
     """
     from app import sales_intelligence
+    from app.agent import send_decision
+
     sales_intelligence.ensure_schema(conn)
     candidates = [r["no"] for r in conn.execute(
         "SELECT l.no FROM leads l"
@@ -95,14 +99,28 @@ def _untouched(conn) -> dict:
         "   AND COALESCE(l.email_status,'') != 'invalid'"
         "   AND NOT EXISTS (SELECT 1 FROM outreach o WHERE o.lead_no=l.no"
         "                   AND o.status IN ('messaged','replied'))").fetchone()["c"]
+    top = []
+    for row in scored[:MAX_ROWS]:
+        decision = send_decision.evaluate_account(conn, row["lead_no"], sales=row)
+        top.append({
+            "lead_no": row["lead_no"],
+            "company_en": row["company_en"],
+            "country": row["country"],
+            "score": row["score"],
+            "grade": row["grade"],
+            "next_action": row["next_action"],
+            "missing_decision_maker": row["missing_decision_maker"],
+            "autonomous_send": {
+                "ready_for_template_check": decision["ready_for_template_check"],
+                "blockers": decision["blockers"][:5],
+                "positives": decision["positives"][:5],
+                "best_signal": decision.get("best_signal"),
+            },
+        })
     return {
         "total_untouched": len(candidates),
         "emailable_untouched": emailable,
-        "top": [{"lead_no": r["lead_no"], "company_en": r["company_en"],
-                 "country": r["country"], "score": r["score"], "grade": r["grade"],
-                 "next_action": r["next_action"],
-                 "missing_decision_maker": r["missing_decision_maker"]}
-                for r in scored[:MAX_ROWS]],
+        "top": top,
     }
 
 

@@ -17,7 +17,7 @@ import hashlib
 import json
 
 from app import autosend
-from app.agent import llm, mission, proposals, world
+from app.agent import llm, mission, proposals, send_decision, world
 
 MAX_ACTIONS = 12
 MAX_BATCH_LEADS = 20          # matches channel_outreach.MAX_BATCH; never exceeded
@@ -64,6 +64,11 @@ Rules:
 - `untouched.emailable_untouched` is how many contactable companies have never been
   written to. `untouched.top` is only the highest-scoring dozen — a short list there
   does NOT mean the pool is empty.
+- Every row in `untouched.top` has `autonomous_send`. Prefer send_outreach only for rows
+  where `autonomous_send.ready_for_template_check` is true. If nobody is ready, research,
+  qualify or discover instead of forcing a low-quality send. In auto mode the backend
+  independently enforces this and also checks approved case/product evidence plus the
+  exact rendered message.
 - `weak_campaigns` lists campaigns that reached enough people to judge and got zero
   replies. Worth saying out loud in the summary; do not silently keep feeding them.
 - Think like an experienced LED-display export salesperson. Once a buyer has a real
@@ -166,10 +171,12 @@ def _validate(conn, action: dict) -> dict:
         if pause:
             raise Rejected(f"邮件开发处于安全暂停：{pause['reason']}")
         template_id = _int(payload.get("template_id"), "template_id")
-        tpl = conn.execute("SELECT id, channel FROM templates WHERE id=?",
-                           (template_id,)).fetchone()
+        tpl = conn.execute("SELECT id, channel, COALESCE(subject,'') subject, body"
+                           " FROM templates WHERE id=?", (template_id,)).fetchone()
         if tpl is None:
             raise Rejected(f"模板 {template_id} 不存在")
+        if tpl["channel"] != "email":
+            raise Rejected("send_outreach 只能使用 Email 模板")
         # Capacity is a hard ceiling, not a suggestion: the send path would defer the
         # overflow anyway, and a proposal promising 40 sends that delivers 12 is a lie.
         capacity = world._channel_capacity(conn)
@@ -178,8 +185,29 @@ def _validate(conn, action: dict) -> dict:
         room = min(capacity["email_remaining_today"], MAX_BATCH_LEADS)
         if room <= 0:
             raise Rejected("今日发送额度已用完")
-        clean = {"template_id": template_id, "channel": tpl["channel"],
-                 "lead_nos": _known_leads(conn, payload.get("lead_nos") or [], room)}
+        known = _known_leads(conn, payload.get("lead_nos") or [], room)
+        if proposals.autonomy(conn, "send_outreach") == "auto":
+            decision = send_decision.evaluate_batch(
+                conn, known, subject=tpl["subject"], body=tpl["body"],
+            )
+            if not decision["accepted"]:
+                reasons = []
+                for row in decision["rejected"][:3]:
+                    reason = (row.get("blockers") or ["未通过自主发送质量门槛"])[0]
+                    reasons.append(f"#{row['lead_no']} {reason}")
+                raise Rejected("自主发送质量门槛未通过：" + "；".join(reasons))
+            clean = {
+                "template_id": template_id,
+                "channel": "email",
+                "lead_nos": decision["accepted"],
+                "autonomous_decision": {
+                    "minimum_score": send_decision.MIN_AUTONOMOUS_SCORE,
+                    "accepted": [send_decision.compact(d) for d in decision["decisions"] if d["ready"]],
+                    "rejected": [send_decision.compact(d) for d in decision["rejected"]],
+                },
+            }
+        else:
+            clean = {"template_id": template_id, "channel": "email", "lead_nos": known}
     elif kind == "enroll_sequence":
         sequence_id = _int(payload.get("sequence_id"), "sequence_id")
         if conn.execute("SELECT 1 FROM sequences WHERE id=?",
