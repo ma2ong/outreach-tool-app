@@ -43,3 +43,28 @@ def test_old_agent_proposals_without_execution_result_does_not_break_backfill(tm
         row["name"] for row in conn.execute("PRAGMA table_info(activities)")
     }
     conn.close()
+
+
+def test_backfill_retries_transient_database_lock(tmp_path, monkeypatch):
+    db = str(tmp_path / "retry.db")
+    conn = connect(db)
+    init_schema(conn)
+    task_ownership.ensure_schema(conn)
+
+    calls = {"count": 0}
+    real = task_ownership._backfill_once
+
+    def flaky(c):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return real(c)
+
+    monkeypatch.setattr(task_ownership, "_backfill_once", flaky)
+    monkeypatch.setattr(task_ownership.time, "sleep", lambda _seconds: None)
+
+    result = task_ownership.backfill(conn)
+
+    assert calls["count"] == 2
+    assert result == {"provenance_backfilled": 0, "owners_changed": 0}
+    conn.close()
