@@ -1,5 +1,6 @@
 import datetime
 import glob
+import datetime as _dt
 import os
 import sqlite3
 import threading
@@ -164,8 +165,17 @@ def auto_send_sequences() -> None:
         conn = connect(DB_PATH)
         if autosend.should_run(conn):
             autosend.run_once(conn, send_api.pick_sender(conn), send_api.DEFAULT_ATTACHMENT)
-    except Exception:  # noqa: BLE001 — autosend records its own run failures where possible
-        pass
+    except Exception as exc:  # noqa: BLE001 — a bad tick must not kill the loop
+        # But it must not vanish either. pick_sender() is evaluated out here, so a
+        # "no usable mailbox" error used to disappear without touching any status the
+        # dashboard reads: the panel kept showing a five-day-old result with no reason.
+        if conn is not None:
+            try:
+                from app import settings
+                settings.set_value(conn, "autosend_last_result",
+                                   f"{_dt.datetime.now():%m-%d %H:%M} 自动发送启动失败：{str(exc)[:110]}")
+            except Exception:  # noqa: BLE001
+                pass
     finally:
         if conn is not None:
             conn.close()
