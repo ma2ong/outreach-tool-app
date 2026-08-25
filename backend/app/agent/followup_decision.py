@@ -52,6 +52,11 @@ def _today() -> dt.date:
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
+    # The decision reads contacts/opportunities/activities/quotes/signals through Sales
+    # Intelligence before it can score timing. Lightweight maintenance/test databases may
+    # not have initialized those optional modules yet, so own that dependency here instead
+    # of assuming application startup happened first.
+    sales_intelligence.ensure_schema(conn)
     conn.executescript(SCHEMA)
     conn.commit()
 
