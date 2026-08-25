@@ -3,7 +3,7 @@ import random
 import time
 from typing import Callable
 
-from app import campaigns
+from app import campaigns, message_guard
 from app.personalize import render
 
 # Email needs the same anti-ban discipline as WhatsApp/Instagram. A single Gmail that
@@ -35,7 +35,7 @@ def eligible_leads(conn, lead_nos: list[int], channel: str) -> list[dict]:
     placeholders = ",".join("?" * len(lead_nos))
     rows = conn.execute(
         f"""SELECT l.no, l.company_en, l.contact_name, l.country, l.city, l.email,
-                   l.hook, l.brief FROM leads l
+                   l.website, l.hook, l.brief FROM leads l
             WHERE l.no IN ({placeholders})
               AND l.email IS NOT NULL AND l.email != ''
               AND (l.email_status IS NULL OR l.email_status != 'invalid')
@@ -79,22 +79,35 @@ def send_campaign(conn, lead_nos: list[int], subject: str, body: str,
     budget = remaining_today(conn) if max_send is None else max_send
     targets = all_targets[:min(budget, MAX_BATCH)]
     deferred = len(all_targets) - len(targets)
-    sent = failed = 0
+    sent = failed = held = 0
     errors: list[dict] = []
+    holds: list[dict] = []
     for i, lead in enumerate(targets, 1):
+        attempted_send = False
         try:
-            sender(lead["email"], render(subject, lead), render(body, lead), attachment)
-            _mark_messaged(conn, lead["no"], today)
-            campaigns.log_send(conn, lead["no"], "email", label)
-            sent += 1
+            rendered_subject = render(subject, lead)
+            rendered_body = render(body, lead)
+            verdict = message_guard.check(rendered_body, lead, subject=rendered_subject)
+            if verdict.blocked:
+                held += 1
+                holds.append({"no": lead["no"], "reason": verdict.reason,
+                              "detail": verdict.detail})
+            else:
+                attempted_send = True
+                # Send the exact strings that passed the guard; never render a second time.
+                sender(lead["email"], rendered_subject, rendered_body, attachment)
+                _mark_messaged(conn, lead["no"], today)
+                campaigns.log_send(conn, lead["no"], "email", label)
+                sent += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1
             errors.append({"no": lead["no"], "error": str(exc)})
         if on_progress:
             on_progress(i, len(targets))
-        if i < len(targets):
+        if attempted_send and i < len(targets):
             lo, hi = delay_range
             if hi > 0:
                 time.sleep(random.randint(lo, hi))
     return {"sent": sent, "failed": failed, "deferred": deferred,
-            "skipped": total_selected - len(all_targets), "errors": errors}
+            "skipped": total_selected - len(all_targets), "errors": errors,
+            "held": held, "holds": holds}
