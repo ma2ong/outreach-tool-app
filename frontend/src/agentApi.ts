@@ -268,3 +268,35 @@ export async function importCandidates(
     body: JSON.stringify({ candidates: payload, country }),
   }), "import");
 }
+
+// 客户记忆：Agent 合成的条目和 Allen 手写的条目在同一个列表里，origin 区分。
+export type MemoryItem = {
+  id: number;
+  lead_no: number;
+  kind: "profile" | "log";
+  content: string;
+  origin: "explicit" | "synthesized";
+  evidence: string;
+  created_at: string;
+  updated_at: string;
+  superseded_at: string | null;
+};
+
+export type LeadMemory = { lead_no: number; summary: string; items: MemoryItem[] };
+
+export async function fetchLeadMemory(leadNo: number): Promise<LeadMemory> {
+  return jsonOrThrow(await fetch(`/api/agent/memory/${leadNo}`), "lead memory");
+}
+
+export async function writeLeadMemory(leadNo: number, content: string,
+                                      kind: "profile" | "log"): Promise<MemoryItem> {
+  return jsonOrThrow(await fetch(`/api/agent/memory/${leadNo}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content, kind }),
+  }), "write memory");
+}
+
+export async function forgetLeadMemory(leadNo: number, itemId: number): Promise<void> {
+  await jsonOrThrow(await fetch(`/api/agent/memory/${leadNo}/${itemId}`, { method: "DELETE" }),
+                    "forget memory");
+}

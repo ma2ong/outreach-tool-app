@@ -2,10 +2,16 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from app import jobs
-from app.agent import classify, control_center, conversation, learn, llm, mission, proposals, report, run
+from app.agent import (classify, control_center, conversation, learn, llm, memory as memory_mod,
+                       mission, proposals, report, run)
 from app.main_deps import DB_PATH, get_conn
 
 router = APIRouter(prefix="/api/agent")
+
+
+class MemoryWriteRequest(BaseModel):
+    content: str
+    kind: str = "profile"
 
 
 class ApproveRequest(BaseModel):
@@ -268,4 +274,22 @@ def learning(conn=Depends(get_conn)):
 
 @router.get("/memory/{lead_no}")
 def lead_memory(lead_no: int, conn=Depends(get_conn)):
-    return proposals.get_memory(conn, lead_no) or {"lead_no": lead_no, "summary": ""}
+    stored = proposals.get_memory(conn, lead_no) or {"lead_no": lead_no, "summary": ""}
+    return {**stored, "items": memory_mod.items(conn, lead_no)}
+
+
+@router.post("/memory/{lead_no}")
+def write_lead_memory(lead_no: int, req: MemoryWriteRequest, conn=Depends(get_conn)):
+    """A memory Allen writes himself. The agent may read it and may never rewrite it."""
+    try:
+        return memory_mod.write_explicit(conn, lead_no, req.content, req.kind)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/memory/{lead_no}/{item_id}")
+def forget_lead_memory(lead_no: int, item_id: int, conn=Depends(get_conn)):
+    """Retire one memory. The row stays on the record; it just stops being current."""
+    if not memory_mod.forget(conn, lead_no, item_id):
+        raise HTTPException(status_code=404, detail="记忆不存在")
+    return {"ok": True}

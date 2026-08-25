@@ -167,3 +167,27 @@ def test_a_restart_does_not_leave_a_proposal_executing_forever(tmp_path):
     after = proposals.get(conn, p["id"])
     conn.close()
     assert after["status"] == "failed" and "重启" in after["execution_result"]
+
+
+def test_allen_can_write_and_retire_a_customer_memory(tmp_path):
+    """The rule that the agent may never edit Allen's memory needs a way for him to
+    write one in the first place."""
+    client, _ = _client(tmp_path)
+    written = client.post("/api/agent/memory/1",
+                          json={"content": "老板不喜欢被追，等他主动。", "kind": "profile"})
+    assert written.status_code == 200
+    item = written.json()
+    assert item["origin"] == "explicit"
+
+    stored = client.get("/api/agent/memory/1").json()
+    assert [i["content"] for i in stored["items"]] == ["老板不喜欢被追，等他主动。"]
+    assert "老板不喜欢被追" in stored["summary"]
+
+    assert client.delete(f"/api/agent/memory/1/{item['id']}").status_code == 200
+    assert client.get("/api/agent/memory/1").json()["items"] == []
+    assert client.delete(f"/api/agent/memory/1/{item['id']}").status_code == 404
+
+
+def test_empty_memory_is_refused(tmp_path):
+    client, _ = _client(tmp_path)
+    assert client.post("/api/agent/memory/1", json={"content": "   "}).status_code == 400

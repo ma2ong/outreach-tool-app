@@ -140,3 +140,13 @@ def test_synthesis_falls_back_to_the_existing_memory_when_the_model_is_down(conn
         assert "distributor" in memory.update(conn, ctx)
     finally:
         llm_module.complete_json = original
+
+
+def test_a_fully_rejected_synthesis_does_not_wipe_what_was_there(conn):
+    """Every change failing is exactly when the old memory matters most; rendering an
+    empty item set over it would turn a rejected batch into data loss."""
+    proposals.set_memory(conn, 1, "Legacy paragraph from before the item store.", 3)
+    result = memory.apply_changes(conn, 1, [
+        {"action": "create", "kind": "log", "content": "Invented.", "evidence": ["inbox:99999"]}])
+    assert result["applied"] == 0
+    assert proposals.get_memory(conn, 1)["summary"] == "Legacy paragraph from before the item store."

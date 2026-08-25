@@ -135,7 +135,16 @@ def _render_summary(conn, lead_no: int) -> str:
 
 
 def _sync_summary(conn, lead_no: int) -> str:
+    """Render the items into the summary field, but never render *nothing* over it.
+
+    A synthesis whose every change was rejected leaves no items, and that is exactly the
+    moment the memory written before this store existed matters most. Writing an empty
+    string there would turn a rejected batch into data loss.
+    """
     summary = _render_summary(conn, lead_no)
+    if not summary:
+        existing = proposals.get_memory(conn, lead_no) or {}
+        return existing.get("summary", "")
     count = conn.execute(
         "SELECT COUNT(*) c FROM lead_memory_items WHERE lead_no=? AND superseded_at IS NULL",
         (lead_no,)).fetchone()["c"]
