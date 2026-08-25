@@ -35,15 +35,19 @@ def _now() -> str:
     return dt.datetime.now(dt.UTC).isoformat()
 
 
-def ensure_schema(conn) -> None:
-    conn.executescript(SCHEMA)
-    conn.commit()
-
-
 def _table_exists(conn, name: str) -> bool:
     return conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
     ).fetchone() is not None
+
+
+def ensure_schema(conn) -> None:
+    # The worker records several attempts per sweep. Once the table exists, avoid
+    # repeatedly running CREATE IF NOT EXISTS statements and taking schema locks.
+    if _table_exists(conn, "agent_work_state"):
+        return
+    conn.executescript(SCHEMA)
+    conn.commit()
 
 
 def _column_exists(conn, table: str, column: str) -> bool:
@@ -132,7 +136,7 @@ def queue_health(conn, *, today: dt.date | None = None) -> dict:
         " SUM(CASE WHEN status='open' AND source='agent' AND work_owner='agent'"
         "   AND (due_at IS NULL OR due_at='' OR due_at<=?) THEN 1 ELSE 0 END) due_count,"
         " SUM(CASE WHEN status='open' AND source='agent' AND work_owner='agent'"
-        "   AND due_at IS NOT NULL AND due_at!='' AND due_at<? THEN 1 ELSE 0 END) stale_count"
+        "   AND due_at IS NOT NULL AND due_at!='' AND due_at<=? THEN 1 ELSE 0 END) stale_count"
         " FROM activities",
         (today_s, stale_before),
     ).fetchone()
