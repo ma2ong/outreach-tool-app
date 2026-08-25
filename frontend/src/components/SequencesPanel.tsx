@@ -18,14 +18,11 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
   const [sending, setSending] = useState(false);
   const [msg, setMsg] = useState("");
 
-  // builder state
   const [name, setName] = useState("");
   const [channel, setChannel] = useState("email");
   const [steps, setSteps] = useState<Step[]>(BLANK_STEPS);
-
   const [quota, setQuota] = useState<Record<string, { sent_today: number; cap: number; batch?: number }>>({});
 
-  // 默认只勾选今天真能发出去的量：全选 266 条再点发，后端会截断，界面却让人以为都发了。
   function pickWithinQuota(items: DueItem[], q: typeof quota): Set<number> {
     const left: Record<string, number> = {};
     const picked = new Set<number>();
@@ -73,7 +70,7 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
     setSending(true); setMsg(""); setJob(null);
     try {
       const start = await sendDue([...picked]);
-      setMsg(`本批将发送 ${start.will_send} 条跟进…`);
+      setMsg(`本批将处理 ${start.will_send} 条跟进；不符合最终发送规则的会保留在队列，不会发出。`);
       if (pollRef.current) clearInterval(pollRef.current);
       pollRef.current = window.setInterval(async () => {
         const j = await fetchJob(start.job_id);
@@ -91,7 +88,7 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
       const r = await loadSeeds();
       setMsg(r.templates === 0 && r.sequence_ids.length === 0
         ? "现成话术已经载入过了"
-        : `已载入 ${r.templates} 条话术模板${r.sequence_ids.length ? ` + ${r.sequence_ids.length} 个 3 步冷邮件跟进序列（英/西/葡，第 0/3/8 天）` : ""}。序列在下方，模板在触达面板的下拉里选。`);
+        : `已载入 ${r.templates} 条话术模板${r.sequence_ids.length ? ` + ${r.sequence_ids.length} 个 3 步冷邮件跟进序列（英语/韩语，第 0/3/8 天）` : ""}。序列在下方，模板在触达面板的下拉里选。`);
       reload(); onChanged?.();
     } catch (e) { setMsg("载入失败：" + String(e)); }
   }
@@ -108,7 +105,7 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
           <h3 style={{ margin: 0 }}>今日待发跟进（{due.length}）</h3>
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn btn-sm" onClick={seed}
-              title="一键载入现成话术：英/西/葡三语首次触达邮件 + 跟进邮件 + WA/IG DM 模板，外加一个 3 步冷邮件跟进序列（第 0/3/8 天）。已存在的不会重复添加。">
+              title="一键载入英语/韩语首次触达 + 跟进邮件 + WA/IG DM 模板，以及第 0/3/8 天的 3 步冷邮件序列。已存在的不会重复添加。">
               ✨ 载入现成话术
             </button>
             <button className="btn btn-sm" onClick={poll} title="从 Gmail 收件箱拉取回复，自动停掉已回复客户的后续跟进">↻ 拉取邮件回复</button>
@@ -143,7 +140,16 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
         )}
         {job && <div className="muted" style={{ marginTop: 8 }}>进度 {job.done}/{job.total}
           {job.status === "done" && job.result && "sent" in job.result &&
-            ` — 成功 ${job.result.sent}，失败 ${job.result.failed}${job.result.deferred ? `，延后 ${job.result.deferred}（日上限）` : ""}`}
+            ` — 成功 ${job.result.sent}，失败 ${job.result.failed}${job.result.deferred ? `，延后 ${job.result.deferred}（日上限）` : ""}${job.result.held ? `，安全拦下 ${job.result.held}` : ""}`}
+          {job.status === "done" && job.result && (job.result.holds ?? []).length > 0 && (
+            <div className="muted" style={{ marginTop: 6 }}>
+              以下没有发出去，仍留在跟进队列：
+              {(job.result.holds ?? []).slice(0, 5).map((h: any) => (
+                <div key={h.enrollment_id ?? h.no}>· #{h.no} {h.detail}</div>
+              ))}
+              {(job.result.holds ?? []).length > 5 && <div>· 还有 {(job.result.holds ?? []).length - 5} 家同样问题</div>}
+            </div>
+          )}
           {job.status === "error" && job.result && "error" in job.result && ` — 错误：${job.result.error}`}
         </div>}
         {msg && <div className="muted" style={{ marginTop: 8 }}>{msg}</div>}
@@ -152,7 +158,7 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
       <div className="card" style={{ marginBottom: 16 }}>
         <h3>新建跟进序列</h3>
         <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
-          冷触达发一次基本没人回，回复几乎都在第 2–4 次跟进。设定几步话术和间隔天数，到期后系统会把这一步放进上面的待发队列，仍由你手动确认发送（守住防封）。正文里可用变量：{"{name}"}=公司名、{"{contact}"}=联系人（没有就只留 "Hi,"）、{"{country}"}、{"{city}"}、{"{hook}"}=按客户官网写的开场白（这家没抓到就自动省掉这句）。
+          设定几步话术和间隔天数，到期后系统会把这一步放进上面的待发队列。正文里可用变量：{"{name}"}/{"{company}"}=公司名、{"{contact}"}=联系人、{"{country}"}、{"{city}"}、{"{hook}"}=按客户官网写的开场白。邮件首封如果最终文本没有客户特征或出现明确价格，会保留在队列并显示原因，不会发出去。
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
           <input className="input" placeholder="序列名称，如「冷触达 3 步」" value={name} onChange={(e) => setName(e.target.value)} style={{ minWidth: 220 }} />
@@ -172,7 +178,7 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
                   style={{ width: 60, margin: "0 4px" }} /> 天发送</label>
               {steps.length > 1 && <button className="btn btn-sm" onClick={() => setSteps((st) => st.filter((_, j) => j !== i))}>删除此步</button>}
             </div>
-            {isEmail && <input className="input" placeholder="邮件主题（可用 {name}）" value={s.subject} style={{ width: "100%", marginBottom: 6 }}
+            {isEmail && <input className="input" placeholder="邮件主题（可用 {company}）" value={s.subject} style={{ width: "100%", marginBottom: 6 }}
               onChange={(e) => setSteps((st) => st.map((x, j) => j === i ? { ...x, subject: e.target.value } : x))} />}
             <textarea className="input" placeholder="这一步的话术正文" value={s.body} style={{ height: 80 }}
               onChange={(e) => setSteps((st) => st.map((x, j) => j === i ? { ...x, body: e.target.value } : x))} />
