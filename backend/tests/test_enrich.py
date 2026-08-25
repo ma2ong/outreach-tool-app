@@ -186,3 +186,26 @@ def test_enrich_reports_how_many_pages_answered():
         raise OSError("unreachable")
 
     assert enrich.enrich_domain("dead.com", fetch=dead)["pages"] == 0
+
+
+def test_local_format_phone_keeps_its_local_form():
+    """Regression: eidim.com's 'tel:877.773.4346' became '+8777734346' — a US toll-free
+    number wearing an invented country code, which no one can dial back."""
+    got = enrich.extract_phones("call us tel:877.773.4346 today")
+    assert got == ["877.773.4346"]
+
+
+def test_whatsapp_link_number_is_still_international():
+    assert enrich.extract_phones("wa.me/5511956635316") == ["+5511956635316"]
+
+
+def test_enrich_domain_reports_the_country_on_the_page():
+    pages = {"https://eidim.com/contact":
+             "1015 S Placentia Ave, Fullerton, CA 92831 hello@eidim.com"}
+    out = enrich.enrich_domain("eidim.com", fetch=lambda url: pages.get(url, ""))
+    assert out["country"] == "USA"
+
+
+def test_enrich_domain_country_is_none_when_unknown():
+    out = enrich.enrich_domain("mystery.com", fetch=lambda url: "we make screens")
+    assert out["country"] is None

@@ -92,6 +92,12 @@ def _now() -> str:
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
+    from app.db import tables_exist
+
+    # Read paths call this on every request; skip the write transaction once the
+    # tables exist so a busy Worker cannot fail an ordinary read.
+    if tables_exist(conn, "agent_proposals", "lead_memory"):
+        return
     conn.executescript(SCHEMA)
     conn.commit()
 

@@ -53,7 +53,12 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     # Activities may be invoked by reply polling in tests and maintenance scripts
     # that only initialized the base schema, so own the dependency instead of
     # relying on FastAPI startup order.
+    from app.db import tables_exist
     from app.opportunities import ensure_schema as ensure_opportunity_schema
+    # Already set up: stay read-only. `activities` only ever gets created after
+    # `opportunities` (its foreign key), so its presence covers both.
+    if tables_exist(conn, "activities"):
+        return
     ensure_opportunity_schema(conn)
     conn.executescript(SCHEMA)
     conn.commit()

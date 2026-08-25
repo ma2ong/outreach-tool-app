@@ -24,6 +24,15 @@ def _locked(exc: sqlite3.OperationalError) -> bool:
     return "locked" in text or "busy" in text
 
 
+def _owner_column_present(conn) -> bool:
+    """Migration already done — a read-only check, so a busy DB costs nothing."""
+    from app.db import tables_exist
+
+    if not tables_exist(conn, "activities"):
+        return False
+    return "work_owner" in {row["name"] for row in conn.execute("PRAGMA table_info(activities)")}
+
+
 def ensure_schema(conn) -> None:
     """Own the additive owner migration and tolerate a concurrently busy live DB.
 
@@ -33,6 +42,8 @@ def ensure_schema(conn) -> None:
     bounded number of times, including the base activities schema setup, and tolerate
     another connection winning the migration race between PRAGMA and ALTER.
     """
+    if _owner_column_present(conn):
+        return
     last_error: sqlite3.OperationalError | None = None
     for attempt in range(_SCHEMA_RETRIES):
         try:
@@ -84,7 +95,12 @@ def _legacy_provenance(conn) -> int:
     rows = conn.execute(
         "SELECT id,lead_no,execution_result FROM agent_proposals"
         " WHERE kind='create_task' AND status='executed'"
-        " AND execution_result LIKE '已建销售任务 #%'")
+        " AND execution_result LIKE '已建销售任务 #%'"
+        # Only rows still unattributed can change anything. Without this the repair
+        # opens a write transaction on every single task-list request forever, and
+        # loses the race against the Worker's lock.
+        " AND EXISTS (SELECT 1 FROM activities a WHERE a.lead_no=agent_proposals.lead_no"
+        "             AND a.source='manual' AND COALESCE(a.source_ref,'')='')").fetchall()
     fixed = 0
     for row in rows:
         match = re.search(r"已建销售任务 #(\d+)", row["execution_result"] or "")
@@ -101,7 +117,26 @@ def _legacy_provenance(conn) -> int:
 
 
 def backfill(conn) -> dict:
-    """Classify exact Agent-created activities as human or machine work."""
+    """Classify exact Agent-created activities as human or machine work.
+
+    Best effort on purpose: this repair runs on the task-list read path, where the
+    embedded Sales Worker may hold the write lock at any moment. A skipped pass is
+    retried on the next request and costs nothing; raising here took the whole task
+    list and every customer's task panel down with a 500.
+    """
+    try:
+        return _backfill(conn)
+    except sqlite3.OperationalError as exc:
+        if not _locked(exc):
+            raise
+        try:
+            conn.rollback()
+        except sqlite3.Error:
+            pass
+        return {"provenance_backfilled": 0, "owners_changed": 0, "skipped": "locked"}
+
+
+def _backfill(conn) -> dict:
     ensure_schema(conn)
     proposals.ensure_schema(conn)
     provenance = _legacy_provenance(conn)

@@ -1,6 +1,7 @@
 import re
 from typing import Callable
 
+from app import screening
 from app.brief import build as build_brief
 from app.icp import classify_text
 from app.jina import fetch as jina_fetch
@@ -14,7 +15,9 @@ _TITLE = re.compile(r'^\s*(?:#\s+|Title:\s*)(.+)$', re.I | re.M)
 _TITLE_SEP = re.compile(r'\s+[|\-–—]\s+')
 
 _WA = re.compile(r'(?:wa\.me/|api\.whatsapp\.com/send\?phone=)(?:%2B|\+)?(\d{8,15})', re.I)
-_TEL = re.compile(r'tel:\+?([\d\-().\s]{8,20})', re.I)
+# The '+' is captured, not skipped: it is the only thing separating a dialable
+# international number from a local one.
+_TEL = re.compile(r'tel:(\+?[\d\-().\s]{8,20})', re.I)
 _INTL = re.compile(r'\+\d[\d\-().\s]{7,18}\d')
 
 _IG = re.compile(r'instagram\.com/([A-Za-z0-9_.]{2,30})', re.I)
@@ -44,20 +47,29 @@ def _digits(raw: str) -> str:
 
 
 def extract_phones(text: str) -> list[str]:
-    """Normalized +digits, WhatsApp (wa.me) numbers first."""
+    """WhatsApp (wa.me) numbers first, then whatever the page prints.
+
+    Only a number that already carries a country code keeps the '+' form. A local
+    number written as 'tel:877.773.4346' has no country in it, and prefixing one
+    ('+8777734346') both invents a country code screening would then read back as
+    China and leaves a number nobody can dial. wa.me numbers are exempt: WhatsApp
+    links are international by definition.
+    """
     out, seen = [], set()
     groups = (
-        [m.group(1) for m in _WA.finditer(text)],
-        [m.group(1) for m in _TEL.finditer(text)],
-        [m.group(0) for m in _INTL.finditer(text)],
+        [(m.group(1), True) for m in _WA.finditer(text)],
+        [(m.group(1), False) for m in _TEL.finditer(text)],
+        [(m.group(0), True) for m in _INTL.finditer(text)],
     )
     for grp in groups:
-        for raw in grp:
+        for raw, international in grp:
             d = _digits(raw)
             if not 8 <= len(d) <= 15 or d in seen:
                 continue
             seen.add(d)
-            out.append("+" + d)
+            cleaned = raw.strip()
+            international = international or cleaned.startswith(("+", "00"))
+            out.append("+" + d if international else cleaned)
     return out
 
 
@@ -222,6 +234,11 @@ def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict
 
     text = "\n".join(page["text"] for page in pages)
     icp = classify_text(text)
+    # Where the company actually is, read from its own pages. Without this the import
+    # path has nothing to go on for the .com + local-phone majority and falls back to
+    # the country we happened to be searching — how a Fullerton, CA integrator ended
+    # up in the book as a South Korean lead.
+    country = screening.country_from_text(text)
     best = None
     for e in emails:
         if any(e.lower().startswith(p) for p in _PREFER):
@@ -230,7 +247,7 @@ def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict
     if best is None and emails:
         best = emails[0]
     written = build_brief(text, icp=icp)
-    return {"domain": domain, "pages": len(pages),
+    return {"domain": domain, "pages": len(pages), "country": country,
             "emails": emails, "email": best, "company": company,
             "email_source": email_sources.get(best.lower()) if best else None,
             "phone": phones[0] if phones else None, "phones": phones,

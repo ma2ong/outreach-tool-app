@@ -251,6 +251,21 @@ def connect(path: str) -> sqlite3.Connection:
     return conn
 
 
+def tables_exist(conn: sqlite3.Connection, *names: str) -> bool:
+    """Read-only check that a module's tables are already there.
+
+    `CREATE TABLE IF NOT EXISTS` changes nothing when the table exists, but it still
+    runs in a write transaction and blocks on the Worker's lock. Modules whose
+    ensure_schema sits on a read path use this to stay read-only once set up —
+    otherwise a background write turns an ordinary page load into a 500.
+    """
+    placeholders = ",".join("?" * len(names))
+    found = conn.execute(
+        f"SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name IN ({placeholders})",
+        names).fetchone()["c"]
+    return int(found) == len(names)
+
+
 def _migrate_columns(conn: sqlite3.Connection) -> None:
     for table, cols in _TABLE_COLUMNS.items():
         existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
