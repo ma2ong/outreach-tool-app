@@ -9,27 +9,78 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+import sqlite3
+import time
 
 from app import activities
 from app.agent import proposals, task_policy
 
+_SCHEMA_RETRIES = 6
+_SCHEMA_RETRY_SECONDS = 0.25
+
+
+def _locked(exc: sqlite3.OperationalError) -> bool:
+    text = str(exc).lower()
+    return "locked" in text or "busy" in text
+
 
 def ensure_schema(conn) -> None:
-    activities.ensure_schema(conn)
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(activities)")}
-    if "work_owner" not in columns:
-        conn.execute(
-            "ALTER TABLE activities ADD COLUMN work_owner TEXT NOT NULL DEFAULT 'human'"
-        )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_activities_owner_status_due "
-        "ON activities(work_owner,status,due_at)"
-    )
-    conn.commit()
+    """Own the additive owner migration and tolerate a concurrently busy live DB.
+
+    PR #9 can be deployed onto a database that already has the activities table. The
+    first API request must not become responsible for a one-shot ALTER TABLE that fails
+    just because the embedded Worker happens to be writing at the same instant. Retry a
+    bounded number of times, including the base activities schema setup, and tolerate
+    another connection winning the migration race between PRAGMA and ALTER.
+    """
+    last_error: sqlite3.OperationalError | None = None
+    for attempt in range(_SCHEMA_RETRIES):
+        try:
+            # Base activity setup itself executes DDL/index statements, so keep it inside
+            # the retry loop as well; otherwise a busy production DB can fail before the
+            # work_owner migration even starts.
+            activities.ensure_schema(conn)
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(activities)")}
+            if "work_owner" not in columns:
+                try:
+                    conn.execute(
+                        "ALTER TABLE activities ADD COLUMN work_owner TEXT NOT NULL DEFAULT 'human'"
+                    )
+                except sqlite3.OperationalError as exc:
+                    # A second process may have completed the same additive migration
+                    # after our PRAGMA read. Verify the actual table before failing.
+                    columns = {row["name"] for row in conn.execute("PRAGMA table_info(activities)")}
+                    if "work_owner" not in columns:
+                        raise exc
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_activities_owner_status_due "
+                "ON activities(work_owner,status,due_at)"
+            )
+            conn.commit()
+            return
+        except sqlite3.OperationalError as exc:
+            last_error = exc
+            try:
+                conn.rollback()
+            except sqlite3.Error:
+                pass
+            if not _locked(exc) or attempt + 1 >= _SCHEMA_RETRIES:
+                raise
+            time.sleep(_SCHEMA_RETRY_SECONDS * (attempt + 1))
+    if last_error is not None:
+        raise last_error
 
 
 def _legacy_provenance(conn) -> int:
-    """Repair only rows whose exact activity id was recorded by the Agent executor."""
+    """Repair only rows whose exact activity id was recorded by the Agent executor.
+
+    Very old production databases may predate `execution_result`. CREATE TABLE IF NOT
+    EXISTS does not add missing columns, so absence of that optional historical evidence
+    must mean "cannot backfill", not a 500 for the entire Sales Tasks page.
+    """
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(agent_proposals)")}
+    if "execution_result" not in columns:
+        return 0
     rows = conn.execute(
         "SELECT id,lead_no,execution_result FROM agent_proposals"
         " WHERE kind='create_task' AND status='executed'"
