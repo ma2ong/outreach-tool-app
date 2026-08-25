@@ -34,13 +34,12 @@ def _count(conn: sqlite3.Connection, sql: str, params=()) -> int:
     return int((row[0] if row else 0) or 0)
 
 
+def _lead_ids(conn: sqlite3.Connection, sql: str, params=()) -> set[int]:
+    return {int(row[0]) for row in conn.execute(sql, params).fetchall()}
+
+
 def _anomaly(code: str, severity: str, detail: str, *, repairable: bool = False) -> dict:
-    return {
-        "code": code,
-        "severity": severity,
-        "detail": detail,
-        "repairable": repairable,
-    }
+    return {"code": code, "severity": severity, "detail": detail, "repairable": repairable}
 
 
 def assess(conn: sqlite3.Connection, lead_no: int) -> dict | None:
@@ -52,8 +51,7 @@ def assess(conn: sqlite3.Connection, lead_no: int) -> dict | None:
         return None
 
     stage = (lead["stage"] or "new").strip().lower()
-    human_replies = 0
-    auto_replies = 0
+    human_replies = auto_replies = 0
     if _table_exists(conn, "inbox_messages"):
         human_replies = _count(
             conn, "SELECT COUNT(*) FROM inbox_messages WHERE lead_no=? AND kind='reply'", (lead_no,)
@@ -67,8 +65,7 @@ def assess(conn: sqlite3.Connection, lead_no: int) -> dict | None:
         outreach_rows = conn.execute(
             "SELECT channel,status,COALESCE(touch_count,0) touch_count,"
             " COALESCE(reply_received,0) reply_received,message_sent_date"
-            " FROM outreach WHERE lead_no=?",
-            (lead_no,),
+            " FROM outreach WHERE lead_no=?", (lead_no,),
         ).fetchall()
     touch_count = sum(int(r["touch_count"] or 0) for r in outreach_rows
                       if r["status"] in ("messaged", "replied"))
@@ -84,17 +81,13 @@ def assess(conn: sqlite3.Connection, lead_no: int) -> dict | None:
     active_sequences = 0
     if _table_exists(conn, "sequence_enrollments"):
         active_sequences = _count(
-            conn,
-            "SELECT COUNT(*) FROM sequence_enrollments WHERE lead_no=? AND status='active'",
-            (lead_no,),
+            conn, "SELECT COUNT(*) FROM sequence_enrollments WHERE lead_no=? AND status='active'", (lead_no,)
         )
 
     quote_sent = quote_accepted = 0
     if _table_exists(conn, "quotes"):
         quote_sent = _count(
-            conn,
-            "SELECT COUNT(*) FROM quotes WHERE lead_no=? AND status IN ('sent','accepted')",
-            (lead_no,),
+            conn, "SELECT COUNT(*) FROM quotes WHERE lead_no=? AND status IN ('sent','accepted')", (lead_no,)
         )
         quote_accepted = _count(
             conn, "SELECT COUNT(*) FROM quotes WHERE lead_no=? AND status='accepted'", (lead_no,)
@@ -158,8 +151,7 @@ def assess(conn: sqlite3.Connection, lead_no: int) -> dict | None:
             "SELECT a.id,a.source_ref,m.kind FROM activities a"
             " LEFT JOIN inbox_messages m ON m.id=CAST(substr(a.source_ref,7) AS INTEGER)"
             " WHERE a.lead_no=? AND a.status='open' AND a.source='reply'"
-            " AND a.source_ref LIKE 'inbox:%'",
-            (lead_no,),
+            " AND a.source_ref LIKE 'inbox:%'", (lead_no,),
         ).fetchall()
         stale_reply_tasks = sum(1 for row in rows if row["kind"] != "reply")
         if stale_reply_tasks:
@@ -199,13 +191,34 @@ def assess(conn: sqlite3.Connection, lead_no: int) -> dict | None:
     }
 
 
+def _anomaly_candidate_ids(conn: sqlite3.Connection) -> set[int]:
+    """Cheap SQL pre-filter so the control center does not N+1-scan every lead."""
+    ids = _lead_ids(conn, "SELECT no FROM leads WHERE lower(COALESCE(stage,''))='replied'")
+    if _table_exists(conn, "outreach"):
+        ids |= _lead_ids(conn,
+            "SELECT DISTINCT lead_no FROM outreach WHERE status='replied' OR COALESCE(reply_received,0)=1")
+    if _table_exists(conn, "inbox_messages"):
+        ids |= _lead_ids(conn, "SELECT DISTINCT lead_no FROM inbox_messages WHERE kind='reply'")
+    if _table_exists(conn, "quotes"):
+        ids |= _lead_ids(conn, "SELECT DISTINCT lead_no FROM quotes WHERE status='accepted'")
+    if _table_exists(conn, "orders"):
+        ids |= _lead_ids(conn, "SELECT DISTINCT lead_no FROM orders")
+    if _table_exists(conn, "activities") and _table_exists(conn, "inbox_messages"):
+        ids |= _lead_ids(conn,
+            "SELECT DISTINCT a.lead_no FROM activities a"
+            " LEFT JOIN inbox_messages m ON m.id=CAST(substr(a.source_ref,7) AS INTEGER)"
+            " WHERE a.status='open' AND a.source='reply' AND a.source_ref LIKE 'inbox:%'"
+            " AND COALESCE(m.kind,'')!='reply'")
+    return ids
+
+
 def portfolio(conn: sqlite3.Connection, *, limit: int = 50) -> dict:
     """Aggregate read-only truth health for the control center."""
     rows: list[dict] = []
     counts: dict[str, int] = {}
     repairable = 0
-    for lead in conn.execute("SELECT no FROM leads ORDER BY no").fetchall():
-        truth = assess(conn, lead["no"])
+    for lead_no in sorted(_anomaly_candidate_ids(conn)):
+        truth = assess(conn, lead_no)
         if not truth or not truth["has_anomaly"]:
             continue
         rows.append(truth)
@@ -240,8 +253,7 @@ def _cancel_stale_reply_tasks(conn: sqlite3.Connection, lead_no: int) -> int:
         "SELECT a.id,a.source_ref,m.kind FROM activities a"
         " LEFT JOIN inbox_messages m ON m.id=CAST(substr(a.source_ref,7) AS INTEGER)"
         " WHERE a.lead_no=? AND a.status='open' AND a.source='reply'"
-        " AND a.source_ref LIKE 'inbox:%'",
-        (lead_no,),
+        " AND a.source_ref LIKE 'inbox:%'", (lead_no,),
     ).fetchall()
     ids = [row["id"] for row in rows if row["kind"] != "reply"]
     if not ids:
@@ -258,6 +270,27 @@ def _cancel_stale_reply_tasks(conn: sqlite3.Connection, lead_no: int) -> int:
     return len(ids)
 
 
+def _repair_candidate_ids(conn: sqlite3.Connection) -> list[int]:
+    ids: set[int] = set()
+    if _table_exists(conn, "sequence_enrollments"):
+        reply_sources = []
+        if _table_exists(conn, "inbox_messages"):
+            reply_sources.append("lead_no IN (SELECT lead_no FROM inbox_messages WHERE kind='reply')")
+        if _table_exists(conn, "outreach"):
+            reply_sources.append("lead_no IN (SELECT lead_no FROM outreach WHERE COALESCE(reply_received,0)=1)")
+        if reply_sources:
+            ids |= _lead_ids(conn,
+                "SELECT DISTINCT lead_no FROM sequence_enrollments WHERE status='active' AND ("
+                + " OR ".join(reply_sources) + ")")
+    if _table_exists(conn, "activities") and _table_exists(conn, "inbox_messages"):
+        ids |= _lead_ids(conn,
+            "SELECT DISTINCT a.lead_no FROM activities a"
+            " LEFT JOIN inbox_messages m ON m.id=CAST(substr(a.source_ref,7) AS INTEGER)"
+            " WHERE a.status='open' AND a.source='reply' AND a.source_ref LIKE 'inbox:%'"
+            " AND COALESCE(m.kind,'')!='reply'")
+    return sorted(ids)
+
+
 def self_heal(conn: sqlite3.Connection, *, limit: int = 100) -> dict:
     """Repair only contradictions in machine-owned derived state.
 
@@ -267,18 +300,20 @@ def self_heal(conn: sqlite3.Connection, *, limit: int = 100) -> dict:
     healed_sequences = 0
     cancelled_tasks = 0
     touched: list[int] = []
-    for lead in conn.execute("SELECT no FROM leads ORDER BY no LIMIT ?", (max(1, int(limit)),)).fetchall():
-        truth = assess(conn, lead["no"])
+    candidates = _repair_candidate_ids(conn)[:max(1, int(limit))]
+    for lead_no in candidates:
+        truth = assess(conn, lead_no)
         if not truth:
             continue
         before = healed_sequences + cancelled_tasks
         if truth["verified_human_reply"] and truth["evidence"]["active_sequences"]:
-            healed_sequences += _stop_active_sequences(conn, lead["no"])
+            healed_sequences += _stop_active_sequences(conn, lead_no)
         if truth["evidence"]["stale_reply_tasks"]:
-            cancelled_tasks += _cancel_stale_reply_tasks(conn, lead["no"])
+            cancelled_tasks += _cancel_stale_reply_tasks(conn, lead_no)
         if healed_sequences + cancelled_tasks > before:
-            touched.append(lead["no"])
+            touched.append(lead_no)
     return {
+        "candidates": len(candidates),
         "leads_touched": len(touched),
         "lead_nos": touched,
         "sequences_stopped": healed_sequences,
