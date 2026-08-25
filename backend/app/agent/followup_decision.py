@@ -3,6 +3,10 @@
 A sequence due date is permission to consider a follow-up, not permission to send one.
 This module decides whether automatic follow-up should continue, wait, change angle or
 stop. It never writes customer-facing copy and never interprets silence as rejection.
+
+Sequence step zero is still a first touch. It reuses PR #20's stricter first-touch gate
+(with only the current enrollment ignored as a blocker) so sequences cannot become a
+back door around autonomous first-touch quality.
 """
 from __future__ import annotations
 
@@ -93,6 +97,8 @@ def _latest_send(conn: sqlite3.Connection, lead_no: int) -> tuple[int, dt.date |
 
 def _best_signal(sales: dict | None) -> tuple[int, str | None]:
     signal = (sales or {}).get("best_signal") or {}
+    if not signal:
+        return 0, None
     return int(signal.get("confidence") or 0), signal.get("headline")
 
 
@@ -114,9 +120,12 @@ def evaluate(conn: sqlite3.Connection, enrollment_id: int,
     row = conn.execute(
         "SELECT e.id enrollment_id,e.lead_no,e.sequence_id,e.current_step,e.status,"
         " e.next_due_date,s.name sequence_name,s.channel,l.company_en,l.stage,"
-        " COALESCE(l.do_not_contact,0) do_not_contact,l.email,l.email_status"
+        " COALESCE(l.do_not_contact,0) do_not_contact,l.email,l.email_status,"
+        " COALESCE(st.subject,'') step_subject,st.body step_body"
         " FROM sequence_enrollments e JOIN sequences s ON s.id=e.sequence_id"
-        " JOIN leads l ON l.no=e.lead_no WHERE e.id=?", (enrollment_id,),
+        " JOIN leads l ON l.no=e.lead_no"
+        " JOIN sequence_steps st ON st.sequence_id=e.sequence_id AND st.step_order=e.current_step"
+        " WHERE e.id=?", (enrollment_id,),
     ).fetchone()
     if row is None:
         return {"enrollment_id": enrollment_id, "action": "stop", "reason": "跟进记录不存在",
@@ -176,6 +185,28 @@ def evaluate(conn: sqlite3.Connection, enrollment_id: int,
                 "score": score, "touch_count": touches,
                 "signal_confidence": signal_confidence, "signal": signal_headline,
                 "next_due_date": None, "memory": memory_ctx}
+
+    # Sequence step zero is a first touch, not a follow-up. Reuse PR #20 exactly, with
+    # this enrollment ignored so it does not disqualify itself.
+    if int(data["current_step"] or 0) == 0 and touches == 0:
+        from app.agent import send_decision
+        first = send_decision.evaluate(
+            conn, no, subject=data["step_subject"], body=data["step_body"],
+            sales=sales, allow_active_sequence=True,
+        )
+        if not first["ready"]:
+            return {**data, "action": "change_angle",
+                    "reason": "序列首封未通过自主首触质量门：" + "；".join(first["blockers"][:4]),
+                    "score": score, "touch_count": 0,
+                    "signal_confidence": signal_confidence, "signal": signal_headline,
+                    "next_due_date": None, "memory": memory_ctx,
+                    "first_touch_decision": send_decision.compact(first)}
+        return {**data, "action": "continue",
+                "reason": "序列首封通过 PR #20 自主首触质量门",
+                "score": score, "touch_count": 0,
+                "signal_confidence": signal_confidence, "signal": signal_headline,
+                "next_due_date": None, "memory": memory_ctx,
+                "first_touch_decision": send_decision.compact(first)}
 
     # Repeated silence changes the angle, never the inferred intent.
     if touches >= ANGLE_AFTER_UNANSWERED and signal_confidence < FRESH_SIGNAL:
