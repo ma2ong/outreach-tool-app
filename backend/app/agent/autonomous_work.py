@@ -18,12 +18,12 @@ from app.agent import (
     proposals,
     task_ownership,
     task_policy,
+    work_reliability,
 )
 
 MAX_PER_CYCLE = 6
 DECISION_MAKER_MAX_PER_CYCLE = 2
 PENDING_MATERIALIZE_LIMIT = 20
-TRANSIENT_RETRY_DAYS = 3
 UNKNOWN_ICP_RETRY_DAYS = 30
 DECISION_RETRY_DAYS = 30
 CHANNEL_RETRY_DAYS = 14
@@ -285,8 +285,9 @@ def _materialize_safe_pending(conn, limit: int = PENDING_MATERIALIZE_LIMIT) -> d
 
 
 def sweep(conn, *, today: dt.date | None = None, limit: int = MAX_PER_CYCLE) -> dict:
-    """Consume due Agent-owned work with bounded live I/O."""
+    """Consume due Agent-owned work with bounded live I/O and durable retry state."""
     today = today or _today()
+    work_reliability.ensure_schema(conn)
     materialized = _materialize_safe_pending(conn)
     ownership = task_ownership.backfill(conn)
     rows = conn.execute(
@@ -317,6 +318,8 @@ def sweep(conn, *, today: dt.date | None = None, limit: int = MAX_PER_CYCLE) -> 
         lead = _lead(conn, task["lead_no"])
         if lead is None:
             _done(conn, task, "客户记录已不存在，任务自动关闭。")
+            work_reliability.record_attempt(conn, task["id"], "done")
+            done += 1
             continue
         processed += 1
         try:
@@ -337,11 +340,17 @@ def sweep(conn, *, today: dt.date | None = None, limit: int = MAX_PER_CYCLE) -> 
                 continue
         except Exception as exc:  # noqa: BLE001 — one dead site must not stop other accounts
             failed += 1
+            error = f"{type(exc).__name__}: {str(exc)[:300]}"
+            failure_count, delay = work_reliability.next_failure_delay(conn, task["id"])
             _reschedule(
-                conn, task, TRANSIENT_RETRY_DAYS,
-                f"自动处理暂时失败：{type(exc).__name__}: {str(exc)[:180]}。已排队重试。",
+                conn, task, delay,
+                f"自动处理暂时失败（连续第 {failure_count} 次）：{error[:180]}。"
+                f" Agent 将在 {delay} 天后自动重试，不转给人工。",
             )
+            work_reliability.record_attempt(conn, task["id"], "retry", error=error)
             outcome = "retry"
+        else:
+            work_reliability.record_attempt(conn, task["id"], outcome)
         if outcome == "done":
             done += 1
         elif outcome == "rescheduled":
@@ -349,7 +358,7 @@ def sweep(conn, *, today: dt.date | None = None, limit: int = MAX_PER_CYCLE) -> 
         results.append({"activity_id": task["id"], "lead_no": task["lead_no"],
                         "key": key, "outcome": outcome})
 
-    return {
+    summary = {
         "materialized": materialized,
         "ownership": ownership,
         "processed": processed,
@@ -358,3 +367,8 @@ def sweep(conn, *, today: dt.date | None = None, limit: int = MAX_PER_CYCLE) -> 
         "failed": failed,
         "results": results,
     }
+    try:
+        work_reliability.save_sweep(conn, summary)
+    except Exception:  # noqa: BLE001 — telemetry must never block real queue work
+        pass
+    return summary
