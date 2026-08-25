@@ -90,6 +90,13 @@ def pause(conn, code: str, reason: str, evidence: dict) -> dict:
 
 
 def preview(conn) -> dict:
+    """Cheap queue/capacity preview; Worth-Now is evaluated only at the send boundary.
+
+    This endpoint is polled by health/UI surfaces. Running Sales Truth, memory and weak-
+    sequence analysis across the whole due queue on every refresh creates needless SQLite
+    work and lock pressure. The actual scheduler still evaluates each chosen enrollment
+    immediately before sender invocation.
+    """
     from app import outreach, sequences
     due = sequences.due_queue(conn, "email")
     sendable = [d for d in due if conn.execute(
@@ -102,18 +109,12 @@ def preview(conn) -> dict:
         " JOIN sequences s ON s.id=e.sequence_id"
         " WHERE e.status='active' AND s.channel='email' AND e.next_due_date <= date('now')"
     ).fetchone()["oldest"]
-    quality = {"continue": 0, "delay": 0, "change_angle": 0, "stop": 0}
-    if sendable:
-        from app.agent import followup_decision
-        assessment = followup_decision.evaluate_due(
-            conn, [d["enrollment_id"] for d in sendable])
-        quality = {key: assessment[key] for key in quality}
     return {
         "due": len(due),
         "sendable": len(sendable),
-        "will_send": min(quality["continue"], outreach.remaining_today(conn), outreach.MAX_BATCH),
+        "will_send": min(len(sendable), outreach.remaining_today(conn), outreach.MAX_BATCH),
         "oldest_due": oldest,
-        "followup_quality": quality,
+        "quality_gate": "evaluated_at_send",
     }
 
 
