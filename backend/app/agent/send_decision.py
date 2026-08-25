@@ -16,9 +16,13 @@ from app.personalize import render
 MIN_AUTONOMOUS_SCORE = 65
 GOOD_EMAIL_STATUSES = {"valid", "role"}
 
+# A prospect question such as "Are you working on a current project?" is not a claim
+# about our own history. Require case-library evidence only when the template asserts
+# delivery / installation / references / recent projects as our proof.
 _CASE_CLAIM_RE = re.compile(
-    r"\b(?:deliver(?:ed|y)|installed|installation|project(?:s)?|reference(?:s)?)\b"
-    r"|납품|설치사례|프로젝트", re.I,
+    r"\b(?:delivered|installed|installation|references?|case\s+stud(?:y|ies))\b"
+    r"|\brecent\b.{0,50}\bprojects?\b"
+    r"|납품|설치사례|최근.{0,40}프로젝트", re.I | re.S,
 )
 _PRODUCT_CLAIM_RE = re.compile(
     r"\bP\s*\d+(?:\.\d+)?\b|\bpixel\s+pitch\b|\bindoor\b|\boutdoor\b"
