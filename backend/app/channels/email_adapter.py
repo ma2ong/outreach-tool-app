@@ -7,13 +7,27 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 
-GMAIL_USER = "allenma2ong@gmail.com"
-PW_FILE = Path.home() / ".gmail_app_password"
+from app import identity
+
+# The legacy single-mailbox fallback, used only when no mailbox is configured in the
+# Mailboxes panel. It is the company address now, not a personal Gmail, so the name no
+# longer claims otherwise — GMAIL_USER stays as an alias because callers import it.
+FALLBACK_SENDER = identity.SENDER_EMAIL
+GMAIL_USER = FALLBACK_SENDER
+FALLBACK_SMTP_HOST = "smtp.zoho.com"
+PW_FILE = Path.home() / ".mailbox_app_password"
+LEGACY_PW_FILE = Path.home() / ".gmail_app_password"
 
 
 def get_password() -> str:
-    return os.environ.get("GMAIL_APP_PASSWORD") or (
-        PW_FILE.read_text(encoding="utf-8").strip() if PW_FILE.exists() else "")
+    for env in ("MAILBOX_APP_PASSWORD", "GMAIL_APP_PASSWORD"):
+        value = os.environ.get(env)
+        if value:
+            return value
+    for path in (PW_FILE, LEGACY_PW_FILE):
+        if path.exists():
+            return path.read_text(encoding="utf-8").strip()
+    return ""
 
 
 def build_message(sender: str, to: str, subject: str, body: str, attachment: str | None) -> MIMEMultipart:
@@ -40,8 +54,8 @@ def default_mailbox() -> dict:
     pw = get_password()
     if not pw:
         raise RuntimeError("Gmail app password missing (~/.gmail_app_password or GMAIL_APP_PASSWORD)")
-    return {"email": GMAIL_USER, "smtp_host": "smtp.gmail.com", "port": 465,
-            "username": GMAIL_USER, "password": pw}
+    return {"email": FALLBACK_SENDER, "smtp_host": FALLBACK_SMTP_HOST, "port": 465,
+            "username": FALLBACK_SENDER, "password": pw}
 
 
 def send_email(to: str, subject: str, body: str, attachment: str | None = None) -> None:

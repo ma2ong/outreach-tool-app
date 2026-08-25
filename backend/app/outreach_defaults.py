@@ -7,17 +7,14 @@ from __future__ import annotations
 
 import sqlite3
 
+from app import identity
+
 MIGRATION_KEY = "outreach_default_copy_v2"
 
-SIGNOFF = """Best regards,
-Allen Ma
-Shenzhen Maxcolor Visual Co., Ltd.
-WhatsApp/WeChat: +86 135-7087-1001"""
-
-KO_SIGNOFF = """Allen Ma
-Shenzhen Maxcolor Visual Co., Ltd.
-Kakaotalk / WeChat: +86 13570871001
-Email: allenma2ong@gmail.com"""
+# Who we are to a customer is decided in one place (app/identity.py) — the address, the
+# company name and the quote header used to disagree with each other across four files.
+SIGNOFF = identity.SIGNOFF
+KO_SIGNOFF = identity.KO_SIGNOFF
 
 LEGACY_EN_SUBJECT = "Recent LED Display Projects — Shenzhen Maxcolor Visual"
 LEGACY_EN_BODY = f"""Hi {{contact}},

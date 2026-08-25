@@ -24,8 +24,10 @@ DEFAULT_PRODUCTS = [
      "use_case": "Billboards / building facade", "ref_price_sqm": "USD 500-1100"},
 ]
 
-_BRAND = "Shenzhen Maxcolor Visual Co., Ltd."
-_CONTACT = "Allen Ma · WhatsApp/WeChat +86 135-7087-1001 · allenma2ong@gmail.com"
+from app import identity
+
+_BRAND = identity.COMPANY
+_CONTACT = identity.CONTACT_LINE
 _COLS = [("Model", 240), ("Pixel pitch", 150), ("Brightness", 170),
          ("Application", 330), ("Ref. price / m²", 190)]
 _KEYS = ["model", "pixel_pitch", "brightness", "use_case", "ref_price_sqm"]
