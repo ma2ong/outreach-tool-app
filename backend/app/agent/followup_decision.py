@@ -51,14 +51,20 @@ def _today() -> dt.date:
     return dt.date.today()
 
 
-def ensure_schema(conn: sqlite3.Connection) -> None:
-    # The decision reads contacts/opportunities/activities/quotes/signals through Sales
-    # Intelligence before it can score timing. Lightweight maintenance/test databases may
-    # not have initialized those optional modules yet, so own that dependency here instead
-    # of assuming application startup happened first.
-    sales_intelligence.ensure_schema(conn)
+def _ensure_audit_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     conn.commit()
+
+
+def ensure_schema(conn: sqlite3.Connection) -> None:
+    """Initialize evidence dependencies once before a decision batch.
+
+    Sales Intelligence owns contacts/opportunities/activities/quotes/signals. The
+    automatic sender calls this once per batch; standalone callers still get a complete
+    safe initialization through evaluate()'s default `_ensure=True`.
+    """
+    sales_intelligence.ensure_schema(conn)
+    _ensure_audit_schema(conn)
 
 
 def _parse_date(value) -> dt.date | None:
@@ -118,9 +124,11 @@ def _memory_context(conn: sqlite3.Connection, lead_no: int) -> list[str]:
 
 
 def evaluate(conn: sqlite3.Connection, enrollment_id: int,
-             *, today: dt.date | None = None) -> dict:
+             *, today: dt.date | None = None, _ensure: bool = True,
+             weak_sequence_ids: set[int] | None = None) -> dict:
     """Return one of continue/delay/change_angle/stop without mutating the enrollment."""
-    ensure_schema(conn)
+    if _ensure:
+        ensure_schema(conn)
     today = today or _today()
     row = conn.execute(
         "SELECT e.id enrollment_id,e.lead_no,e.sequence_id,e.current_step,e.status,"
@@ -176,15 +184,17 @@ def evaluate(conn: sqlite3.Connection, enrollment_id: int,
                 "score": 0, "touch_count": 0, "signal_confidence": 0,
                 "next_due_date": None, "memory": _memory_context(conn, no)}
 
-    sales = sales_intelligence.score_lead(conn, no)
+    sales = sales_intelligence.score_lead(conn, no, _ensure=False)
     score = int((sales or {}).get("score") or 0)
     signal_confidence, signal_headline = _best_signal(sales)
     touches, latest = _latest_send(conn, no)
     memory_ctx = _memory_context(conn, no)
 
-    # A campaign proven weak must not keep spending mailbox reputation on the same angle.
-    from app.agent import oversight
-    if data["sequence_id"] in oversight.weak_sequence_ids(conn):
+    # Compute Oversight once for an automatic batch; standalone evaluation remains safe.
+    if weak_sequence_ids is None:
+        from app.agent import oversight
+        weak_sequence_ids = oversight.weak_sequence_ids(conn)
+    if data["sequence_id"] in weak_sequence_ids:
         return {**data, "action": "change_angle",
                 "reason": "当前序列已有足够发送样本但零回复，停止重复同一角度",
                 "score": score, "touch_count": touches,
@@ -255,9 +265,10 @@ def evaluate(conn: sqlite3.Connection, enrollment_id: int,
             "next_due_date": None, "memory": memory_ctx}
 
 
-def apply(conn: sqlite3.Connection, decision: dict) -> dict:
+def apply(conn: sqlite3.Connection, decision: dict, *, _ensure: bool = True) -> dict:
     """Apply only machine-owned sequence state and append an audit row."""
-    ensure_schema(conn)
+    if _ensure:
+        _ensure_audit_schema(conn)
     action = decision["action"]
     enrollment_id = int(decision["enrollment_id"])
     applied = False
@@ -275,7 +286,6 @@ def apply(conn: sqlite3.Connection, decision: dict) -> dict:
         )
         applied = True
     elif action == "stop":
-        # Keep why in the audit table; status only needs to remove it from active queues.
         conn.execute(
             "UPDATE sequence_enrollments SET status='stopped' WHERE id=? AND status='active'",
             (enrollment_id,),
@@ -298,7 +308,11 @@ def apply(conn: sqlite3.Connection, decision: dict) -> dict:
 
 
 def evaluate_due(conn: sqlite3.Connection, enrollment_ids: list[int]) -> dict:
-    decisions = [evaluate(conn, int(eid)) for eid in enrollment_ids]
+    ensure_schema(conn)
+    from app.agent import oversight
+    weak = oversight.weak_sequence_ids(conn)
+    decisions = [evaluate(conn, int(eid), _ensure=False, weak_sequence_ids=weak)
+                 for eid in enrollment_ids]
     counts = {key: 0 for key in ("continue", "delay", "change_angle", "stop")}
     for decision in decisions:
         counts[decision["action"]] = counts.get(decision["action"], 0) + 1
@@ -306,7 +320,7 @@ def evaluate_due(conn: sqlite3.Connection, enrollment_ids: list[int]) -> dict:
 
 
 def recent(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
-    ensure_schema(conn)
+    _ensure_audit_schema(conn)
     return [dict(r) for r in conn.execute(
         "SELECT d.*,l.company_en,s.name sequence_name FROM followup_decisions d"
         " LEFT JOIN leads l ON l.no=d.lead_no LEFT JOIN sequences s ON s.id=d.sequence_id"
