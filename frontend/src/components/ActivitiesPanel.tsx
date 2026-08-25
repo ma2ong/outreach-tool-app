@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { completeActivity, createActivity, fetchActivities, fetchActivityStats, fetchLeads } from "../api";
+import { completeActivity, createActivity, fetchLeads } from "../api";
+import { fetchOwnedActivities, fetchOwnedActivityStats } from "../activityOwnershipApi";
+import type { WorkOwner } from "../activityOwnershipApi";
 import type { Activity, ActivityStats, Lead } from "../types";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -35,6 +37,9 @@ export function ActivitiesPanel({ onOpenLead, onChanged }: {
 }) {
   const [tasks, setTasks] = useState<Activity[]>([]);
   const [stats, setStats] = useState<ActivityStats | null>(null);
+  const [humanStats, setHumanStats] = useState<ActivityStats | null>(null);
+  const [agentStats, setAgentStats] = useState<ActivityStats | null>(null);
+  const [workOwner, setWorkOwner] = useState<WorkOwner>("human");
   const [leads, setLeads] = useState<Lead[]>([]);
   const [scope, setScope] = useState("");
   const [status, setStatus] = useState("open");
@@ -53,15 +58,20 @@ export function ActivitiesPanel({ onOpenLead, onChanged }: {
 
   async function load() {
     try {
-      const [items, summary] = await Promise.all([
-        fetchActivities({ status, ...(status === "open" && scope ? { scope } : {}) }),
-        fetchActivityStats(),
+      const [items, humanSummary, agentSummary] = await Promise.all([
+        fetchOwnedActivities(workOwner, { status, ...(status === "open" && scope ? { scope } : {}) }),
+        fetchOwnedActivityStats("human"),
+        fetchOwnedActivityStats("agent"),
       ]);
-      setTasks(items); setStats(summary); setErr("");
+      setTasks(items);
+      setHumanStats(humanSummary);
+      setAgentStats(agentSummary);
+      setStats(workOwner === "human" ? humanSummary : agentSummary);
+      setErr("");
     } catch (e) { setErr(`任务加载失败：${String(e)}`); }
   }
 
-  useEffect(() => { load(); }, [scope, status]);
+  useEffect(() => { load(); }, [scope, status, workOwner]);
   useEffect(() => {
     fetchLeads().then(setLeads).catch((e) => setErr(`客户列表加载失败：${String(e)}`));
   }, []);
@@ -77,13 +87,14 @@ export function ActivitiesPanel({ onOpenLead, onChanged }: {
         ...(dueAt ? { due_at: dueAt } : {}),
       });
       setTitle(""); setLeadChoice(""); setDueAt(today()); setType("task"); setPriority("normal");
-      setStatus("open"); setScope("");
+      setWorkOwner("human"); setStatus("open"); setScope("");
       await load(); onChanged();
     } catch (e) { setErr(`新建失败：${String(e)}`); }
     finally { setBusy(false); }
   }
 
   async function finish(task: Activity) {
+    if (workOwner === "agent") return;
     setBusy(true); setErr("");
     try { await completeActivity(task.id); await load(); onChanged(); }
     catch (e) { setErr(`完成任务失败：${String(e)}`); load(); onChanged(); }
@@ -99,6 +110,27 @@ export function ActivitiesPanel({ onOpenLead, onChanged }: {
 
   return (
     <>
+      <div className="filter-bar" style={{ marginBottom: 12 }}>
+        <button className={`btn${workOwner === "human" ? " btn-primary" : ""}`}
+          onClick={() => { setWorkOwner("human"); setStatus("open"); setScope(""); }}>
+          需要我处理 {humanStats?.open_count ?? 0}
+        </button>
+        <button className={`btn${workOwner === "agent" ? " btn-primary" : ""}`}
+          onClick={() => { setWorkOwner("agent"); setStatus("open"); setScope(""); }}>
+          Agent处理中 {agentStats?.open_count ?? 0}
+        </button>
+      </div>
+
+      {workOwner === "agent" && (
+        <div className="card" style={{ marginBottom: 12, padding: 14 }}>
+          <b>这些不是你的待办。</b>
+          <span className="muted" style={{ marginLeft: 8 }}>
+            Worker 会自动读官网、做 ICP、查公开决策人、修复联系渠道并回收任务；失败会自动延期重试。
+            这里只用于查看 Agent 正在做什么。
+          </span>
+        </div>
+      )}
+
       <div className="cards-row" style={{ marginBottom: 16 }}>
         {filters.map((item) => (
           <button key={item.key} className="card stat-card" style={{ textAlign: "left", cursor: "pointer" }}
@@ -111,27 +143,29 @@ export function ActivitiesPanel({ onOpenLead, onChanged }: {
         ))}
       </div>
 
-      <div className="card" style={{ marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0 }}>＋ 安排下一步</h3>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <input className="input" list="activity-lead-options" style={{ minWidth: 260, flex: 1 }}
-            value={leadChoice} onChange={(e) => setLeadChoice(e.target.value)} placeholder="输入并选择客户公司" />
-          <datalist id="activity-lead-options">
-            {leadOptions.map((item) => <option key={item.lead.no} value={item.label} />)}
-          </datalist>
-          <input className="input" style={{ minWidth: 260, flex: 2 }} value={title}
-            onChange={(e) => setTitle(e.target.value)} placeholder="下一步动作，如：确认 P2.5 箱体尺寸" />
-          <select className="input" value={type} onChange={(e) => setType(e.target.value)}>
-            {Object.entries(TYPE_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
-          <input className="input" type="date" value={dueAt} onChange={(e) => setDueAt(e.target.value)} />
-          <select className="input" value={priority} onChange={(e) => setPriority(e.target.value)}>
-            {Object.entries(PRIORITY_LABEL).map(([value, label]) => <option key={value} value={value}>{label}优先级</option>)}
-          </select>
-          <button className="btn btn-primary" onClick={addTask} disabled={busy}>创建任务</button>
+      {workOwner === "human" && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <h3 style={{ marginTop: 0 }}>＋ 安排下一步</h3>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <input className="input" list="activity-lead-options" style={{ minWidth: 260, flex: 1 }}
+              value={leadChoice} onChange={(e) => setLeadChoice(e.target.value)} placeholder="输入并选择客户公司" />
+            <datalist id="activity-lead-options">
+              {leadOptions.map((item) => <option key={item.lead.no} value={item.label} />)}
+            </datalist>
+            <input className="input" style={{ minWidth: 260, flex: 2 }} value={title}
+              onChange={(e) => setTitle(e.target.value)} placeholder="下一步动作，如：确认 P2.5 箱体尺寸" />
+            <select className="input" value={type} onChange={(e) => setType(e.target.value)}>
+              {Object.entries(TYPE_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+            <input className="input" type="date" value={dueAt} onChange={(e) => setDueAt(e.target.value)} />
+            <select className="input" value={priority} onChange={(e) => setPriority(e.target.value)}>
+              {Object.entries(PRIORITY_LABEL).map(([value, label]) => <option key={value} value={value}>{label}优先级</option>)}
+            </select>
+            <button className="btn btn-primary" onClick={addTask} disabled={busy}>创建任务</button>
+          </div>
+          {err && <div className="error-text" style={{ marginTop: 8 }}>{err}</div>}
         </div>
-        {err && <div className="error-text" style={{ marginTop: 8 }}>{err}</div>}
-      </div>
+      )}
 
       <div className="filter-bar">
         <button className={`btn btn-sm${status === "open" && !scope ? " btn-primary" : ""}`}
@@ -147,15 +181,21 @@ export function ActivitiesPanel({ onOpenLead, onChanged }: {
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         {tasks.length === 0 ? (
           <div className="muted" style={{ padding: 24, textAlign: "center" }}>
-            {status === "done" ? "还没有已完成任务" : "这个范围没有待办，销售行动已清空。"}
+            {status === "done"
+              ? "还没有已完成任务"
+              : workOwner === "agent"
+                ? "Agent 后台队列已清空。"
+                : "当前没有需要你处理的销售任务。"}
           </div>
         ) : (
           <table className="lead-table">
-            <thead><tr><th>完成</th><th>日期</th><th>行动</th><th>客户</th><th>类型</th><th>优先级</th><th>来源</th></tr></thead>
+            <thead><tr><th>状态</th><th>日期</th><th>行动</th><th>客户</th><th>类型</th><th>优先级</th><th>来源</th></tr></thead>
             <tbody>{tasks.map((task) => (
               <tr key={task.id}>
                 <td>{task.status === "open" ? (
-                  <button className="btn btn-sm" onClick={() => finish(task)} disabled={busy} title="标记已完成">✓</button>
+                  workOwner === "human"
+                    ? <button className="btn btn-sm" onClick={() => finish(task)} disabled={busy} title="标记已完成">✓</button>
+                    : <span className="muted">⚙ Agent</span>
                 ) : <span style={{ color: "var(--green)" }}>✓ 已完成</span>}</td>
                 <td><span style={{ color: task.due_at && task.due_at < today() && task.status === "open" ? "var(--danger)" : undefined }}>
                   {dueLabel(task)}</span></td>
@@ -170,6 +210,7 @@ export function ActivitiesPanel({ onOpenLead, onChanged }: {
           </table>
         )}
       </div>
+      {workOwner === "agent" && err && <div className="error-text" style={{ marginTop: 8 }}>{err}</div>}
     </>
   );
 }
