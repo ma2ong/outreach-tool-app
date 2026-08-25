@@ -11,7 +11,14 @@ import re
 from typing import Callable, TypeVar
 
 from app import activities, autosend
-from app.agent import account_brain, classify, conversation, opportunity_coach, proposals
+from app.agent import (
+    account_brain,
+    classify,
+    conversation,
+    opportunity_coach,
+    proposals,
+    work_reliability,
+)
 
 LEDGER_LIMIT = 20
 BACKLOG_LIMIT = 20
@@ -175,6 +182,11 @@ def snapshot(conn, *, now: dt.datetime | None = None) -> dict:
         lambda: opportunity_coach.portfolio(conn, today=local_today, limit=30), [],
     )
     unhealthy = [r for r in opportunity_rows if r.get("severity") in ("critical", "high")]
+    agent_queue = _safe(
+        "agent_queue", errors,
+        lambda: work_reliability.queue_health(conn, today=local_today),
+        {"open": 0, "due": 0, "stale": 0, "repeated_failures": 0, "last_sweep": None},
+    )
 
     autonomy = _safe("autonomy", errors, lambda: proposals.autonomy_map(conn), {})
     autonomy_counts = {
@@ -206,6 +218,22 @@ def snapshot(conn, *, now: dt.datetime | None = None) -> dict:
             "recent_failures", "high", f"近 {FAILURE_LOOKBACK_DAYS} 天有 {len(recent_failed)} 条 Agent 动作失败",
             "失败动作不会盲目自动重试，尤其发送类动作可能已经部分完成。",
             "查看行动账本的失败结果，确认真实结果后再决定是否重跑。", len(recent_failed),
+        ))
+    if int(agent_queue.get("repeated_failures") or 0):
+        blockers.append(_blocker(
+            "agent_work_repeated_failures", "high",
+            f"{int(agent_queue['repeated_failures'])} 条 Agent 后台任务连续失败",
+            "这些是官网研究/资料修复等机器工作，仍由 Agent 负责；系统已自动延长重试间隔，避免反复撞同一个失败源。",
+            "通常无需你处理。若长期不下降，再查看最近 Worker/官网错误。",
+            int(agent_queue["repeated_failures"]),
+        ))
+    if int(agent_queue.get("stale") or 0):
+        blockers.append(_blocker(
+            "agent_work_stale", "medium",
+            f"{int(agent_queue['stale'])} 条 Agent 后台任务已逾期超过 7 天",
+            "队列仍归 Agent，不会变成你的销售任务；这通常说明目标网站长期不可读或公开证据不足。",
+            "Agent 会继续按退避策略复查；只有长期高价值客户才值得人工介入。",
+            int(agent_queue["stale"]),
         ))
     if takeovers:
         blockers.append(_blocker(
@@ -302,7 +330,12 @@ def snapshot(conn, *, now: dt.datetime | None = None) -> dict:
             "due_accounts": len(due_accounts),
             "unhealthy_opportunities": len(unhealthy),
             "unclassified_replies": int(unclassified),
+            "agent_work_open": int(agent_queue.get("open") or 0),
+            "agent_work_due": int(agent_queue.get("due") or 0),
+            "agent_work_stale": int(agent_queue.get("stale") or 0),
+            "agent_work_repeated_failures": int(agent_queue.get("repeated_failures") or 0),
         },
+        "agent_queue": agent_queue,
         "autonomy": {"by_kind": autonomy, "counts": autonomy_counts},
         "blockers": blockers,
         "next_actions": next_actions[:12],
