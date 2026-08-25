@@ -22,6 +22,7 @@ def conn(tmp_path, monkeypatch):
     init_schema(c)
     rows = ", ".join(f"({i}, 'Co{i}', 'USA', 'c{i}@x.com')" for i in range(1, 41))
     c.executescript(f"INSERT INTO leads(no, company_en, country, email) VALUES {rows};")
+    c.execute("UPDATE leads SET email_status='valid'")
     # one lead with phone in a WA sequence — must NOT be auto-sent
     c.execute("UPDATE leads SET phone='+15550001' WHERE no=40")
     c.commit()
@@ -34,7 +35,7 @@ def conn(tmp_path, monkeypatch):
     monkeypatch.setattr(
         followup_decision.sales_intelligence, "score_lead",
         lambda *a, **k: {"score": 80, "grade": "A", "best_signal": None,
-                         "data_incomplete": False},
+                         "data_incomplete": False, "missing_decision_maker": False},
     )
     return c
 
