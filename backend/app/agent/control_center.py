@@ -17,6 +17,7 @@ from app.agent import (
     conversation,
     opportunity_coach,
     proposals,
+    sales_truth,
     work_reliability,
 )
 
@@ -97,8 +98,6 @@ def _receipt_result(row: dict) -> str:
     raw = str(row.get("execution_result") or "").strip()
     if not raw:
         return ""
-    # Reply executors may include the mailbox, customer email or social handle in their
-    # human-facing result. The aggregate control center needs only the outcome.
     if row.get("kind") == "reply_draft":
         return "客户回复已执行" if row.get("status") == "executed" else "客户回复执行未完成"
     return _EMAIL.sub("[email]", raw)[:300]
@@ -137,8 +136,6 @@ def _blocker(code: str, severity: str, title: str, detail: str, action: str,
 
 def snapshot(conn, *, now: dt.datetime | None = None) -> dict:
     """Return one non-mutating autonomy/attention snapshot for the Agent page."""
-    # Schema ownership is additive/idempotent. Ensuring activities here prevents a
-    # newly-created DB from looking "partially broken" before the first task is ever made.
     activities.ensure_schema(conn)
     proposals.ensure_schema(conn)
 
@@ -187,6 +184,11 @@ def snapshot(conn, *, now: dt.datetime | None = None) -> dict:
         lambda: work_reliability.queue_health(conn, today=local_today),
         {"open": 0, "due": 0, "stale": 0, "repeated_failures": 0, "last_sweep": None},
     )
+    truth_health = _safe(
+        "sales_truth", errors,
+        lambda: sales_truth.portfolio(conn, limit=12),
+        {"anomalous_accounts": 0, "repairable_anomalies": 0, "by_code": {}, "accounts": []},
+    )
 
     autonomy = _safe("autonomy", errors, lambda: proposals.autonomy_map(conn), {})
     autonomy_counts = {
@@ -218,6 +220,17 @@ def snapshot(conn, *, now: dt.datetime | None = None) -> dict:
             "recent_failures", "high", f"近 {FAILURE_LOOKBACK_DAYS} 天有 {len(recent_failed)} 条 Agent 动作失败",
             "失败动作不会盲目自动重试，尤其发送类动作可能已经部分完成。",
             "查看行动账本的失败结果，确认真实结果后再决定是否重跑。", len(recent_failed),
+        ))
+    if int(truth_health.get("anomalous_accounts") or 0):
+        codes = truth_health.get("by_code") or {}
+        severe = int(codes.get("outreach_replied_without_human_reply") or 0) + int(codes.get("accepted_quote_without_order") or 0)
+        blockers.append(_blocker(
+            "sales_truth_anomalies", "high" if severe else "medium",
+            f"{int(truth_health['anomalous_accounts'])} 个客户的 CRM 标签与可验证事实不一致",
+            "Agent 会以 inbox/outreach/quote/order 等证据为准，不会仅凭 CRM stage 推进。"
+            f" 其中 {int(truth_health.get('repairable_anomalies') or 0)} 项属于机器状态，可由 Worker 安全自愈。",
+            "无需批量手改 CRM 阶段；先看 Customer 360 的 Sales Truth，商业里程碑仍由你确认。",
+            int(truth_health["anomalous_accounts"]),
         ))
     if int(agent_queue.get("repeated_failures") or 0):
         blockers.append(_blocker(
@@ -271,8 +284,6 @@ def snapshot(conn, *, now: dt.datetime | None = None) -> dict:
 
     blockers.sort(key=lambda item: (_SEVERITY_ORDER.get(item["severity"], 9), -item["count"]))
 
-    # A compact next-best-action list. These are recommendations only; the module does
-    # not call proposals.create(), change a stage, send a message, or alter autonomy.
     next_actions: list[dict] = []
     for row in unhealthy[:OPPORTUNITY_LIMIT]:
         next_actions.append({
@@ -334,8 +345,11 @@ def snapshot(conn, *, now: dt.datetime | None = None) -> dict:
             "agent_work_due": int(agent_queue.get("due") or 0),
             "agent_work_stale": int(agent_queue.get("stale") or 0),
             "agent_work_repeated_failures": int(agent_queue.get("repeated_failures") or 0),
+            "sales_truth_anomalies": int(truth_health.get("anomalous_accounts") or 0),
+            "sales_truth_repairable": int(truth_health.get("repairable_anomalies") or 0),
         },
         "agent_queue": agent_queue,
+        "sales_truth": truth_health,
         "autonomy": {"by_kind": autonomy, "counts": autonomy_counts},
         "blockers": blockers,
         "next_actions": next_actions[:12],
