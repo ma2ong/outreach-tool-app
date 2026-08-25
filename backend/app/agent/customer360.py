@@ -12,7 +12,7 @@ def build(conn, lead_no: int) -> dict | None:
         activities, case_library, contacts, decision_maker_radar, opportunities,
         sales_documents, sales_intelligence,
     )
-    from app.agent import opportunity_coach, quote_readiness
+    from app.agent import opportunity_coach, quote_readiness, sales_truth
 
     sales_intelligence.ensure_schema(conn)
     sales_documents.ensure_schema(conn)
@@ -23,6 +23,7 @@ def build(conn, lead_no: int) -> dict | None:
         return None
 
     account = dict(lead)
+    truth = sales_truth.assess(conn, lead_no)
     people = contacts.list_all(conn, lead_no=lead_no)
     contact_candidates = decision_maker_radar.list_candidates(
         conn, lead_no=lead_no, status="new", limit=10)
@@ -101,6 +102,8 @@ def build(conn, lead_no: int) -> dict | None:
         risks.append(f"有 {len(contact_candidates)} 个公开关键联系人候选尚未确认")
     if account.get("email_status") == "invalid" and not account.get("phone") and not account.get("instagram"):
         risks.append("主邮箱无效且没有替代联系渠道")
+    if truth and truth.get("anomalies"):
+        risks.extend(f"销售事实异常：{item['detail']}" for item in truth["anomalies"][:4])
 
     next_actions = []
     waiting = next((m for m in inbound if not m.get("handled_at")), None)
@@ -130,6 +133,7 @@ def build(conn, lead_no: int) -> dict | None:
 
     return {
         "account": account,
+        "sales_truth": truth,
         "score": score,
         "contacts": people,
         "contact_candidates": contact_candidates,
