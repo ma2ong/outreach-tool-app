@@ -542,3 +542,42 @@ def test_which_simple_replies_get_drafted_is_configurable(conn):
     assert set(classify.draftable(conn)) == {"inquiry", "spec", "sample"}
     classify.set_draftable(conn, ["spec"])
     assert classify.draftable(conn) == ("spec",)
+
+
+# ------------------------------------------------- one open task per customer
+
+def test_agent_does_not_stack_a_second_task_on_the_same_customer(conn):
+    """The plan dedupes within a day, so the same unfinished job came back as a new
+    task every morning — 89 open items, the same sentence three times over. An agent
+    waking up on its own has nothing new to say until the last thing it asked for is
+    done."""
+    first = executors.create_task(conn, {
+        "id": 11, "lead_no": 1, "title": "跟进 Alpha AV：先找到决策联系人", "payload": {}})
+    assert "已建销售任务" in first
+    second = executors.create_task(conn, {
+        "id": 12, "lead_no": 1, "title": "跟进 Alpha AV：先重新读取官网", "payload": {}})
+    assert "已有未完成任务" in second
+    open_tasks = conn.execute(
+        "SELECT COUNT(*) c FROM activities WHERE lead_no=1 AND status='open'").fetchone()["c"]
+    assert open_tasks == 1
+
+
+def test_a_finished_task_frees_the_customer_for_the_next_one(conn):
+    from app import activities
+
+    executors.create_task(conn, {"id": 21, "lead_no": 1, "title": "找决策人", "payload": {}})
+    task_id = conn.execute(
+        "SELECT id FROM activities WHERE lead_no=1 AND status='open'").fetchone()["id"]
+    activities.complete(conn, task_id)
+    assert "已建销售任务" in executors.create_task(
+        conn, {"id": 22, "lead_no": 1, "title": "下一步：确认尺寸", "payload": {}})
+
+
+def test_a_task_allen_created_himself_does_not_silence_the_agent(conn):
+    """His own task is not the agent's report on this customer, so it must not stand in
+    for one — only an open agent task means "you already asked for this"."""
+    from app import activities
+
+    activities.create(conn, 1, {"title": "我自己记的：周五打电话"})
+    assert "已建销售任务" in executors.create_task(
+        conn, {"id": 31, "lead_no": 1, "title": "跟进 Alpha AV：先找到决策联系人", "payload": {}})
