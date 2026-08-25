@@ -148,9 +148,12 @@ def safety_net(conn, *, today: dt.date | None = None,
     cycle. Human Sales Tasks therefore represent actual human decisions/work, not an
     ever-growing list of research chores the Agent could have done itself.
     """
-    from app.agent import autonomous_work, opportunity_coach, task_reconciler
+    from app.agent import autonomous_work, opportunity_coach, sales_truth, task_reconciler
 
     today = today or dt.date.today()
+    # Stronger reply evidence is allowed to repair only machine-owned sequence/task
+    # contradictions before planning. Human CRM stage and commercial state are untouched.
+    truth_self_heal = sales_truth.self_heal(conn, limit=100)
     # Close/supersede traceable Agent tasks before they can block a fresh planning pass.
     reconciliation = task_reconciler.reconcile(conn)
     made: list[int] = []
@@ -204,6 +207,7 @@ def safety_net(conn, *, today: dt.date | None = None,
         "proposed": len(ids),
         "ids": ids,
         "accounts": considered,
+        "sales_truth_self_heal": truth_self_heal,
         "task_reconciliation": reconciliation,
         "autonomous_work": autonomous_result,
         "opportunity_coach": opportunity_result,

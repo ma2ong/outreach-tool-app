@@ -51,6 +51,23 @@ export type AgentQueueHealth = {
   };
 };
 
+export type SalesTruthAccount = {
+  lead_no: number;
+  company_en: string | null;
+  country: string | null;
+  crm_stage: string;
+  factual_state: string;
+  repairable_anomalies: number;
+  anomalies: { code: string; severity: string; detail: string; repairable: boolean }[];
+};
+
+export type SalesTruthHealth = {
+  anomalous_accounts: number;
+  repairable_anomalies: number;
+  by_code: Record<string, number>;
+  accounts: SalesTruthAccount[];
+};
+
 export type ControlCenterSnapshot = {
   generated_at: string;
   state: "healthy" | "attention" | "critical";
@@ -69,8 +86,11 @@ export type ControlCenterSnapshot = {
     agent_work_due: number;
     agent_work_stale: number;
     agent_work_repeated_failures: number;
+    sales_truth_anomalies: number;
+    sales_truth_repairable: number;
   };
   agent_queue: AgentQueueHealth;
+  sales_truth: SalesTruthHealth;
   autonomy: {
     by_kind: Record<string, string>;
     counts: Record<string, number>;

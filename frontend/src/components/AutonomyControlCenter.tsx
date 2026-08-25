@@ -30,6 +30,17 @@ const SEVERITY_LABEL: Record<string, string> = {
   info: "信息",
 };
 
+const FACT_LABEL: Record<string, string> = {
+  never_contacted: "未触达",
+  contacted: "已触达",
+  human_replied: "真人已回复",
+  quoted: "已报价",
+  quote_accepted: "报价已接受",
+  ordered: "已下单",
+  won: "已成交",
+  lost: "已丢单",
+};
+
 function Stat({ label, value, hint }: { label: string; value: number; hint?: string }) {
   return (
     <div style={{ padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 8, minWidth: 92 }}>
@@ -118,10 +129,11 @@ export function AutonomyControlCenter() {
 
   const c = data?.counters;
   const queue = data?.agent_queue;
+  const truth = data?.sales_truth;
   const sweep = queue?.last_sweep;
   const state = data?.state ?? "attention";
   const stateText = state === "healthy" ? "自主销售正常" : state === "critical" ? "自主销售有严重阻塞" : "自主销售需要关注";
-  const dot = state === "healthy" ? "●" : state === "critical" ? "●" : "●";
+  const dot = "●";
 
   return (
     <div style={{ position: "fixed", right: 14, bottom: 52, zIndex: 70 }}>
@@ -148,6 +160,7 @@ export function AutonomyControlCenter() {
               <Stat label="Agent待处理" value={c.agent_work_open} hint={`到期 ${c.agent_work_due}`} />
               <Stat label="Agent长期积压" value={c.agent_work_stale} />
               <Stat label="Agent反复失败" value={c.agent_work_repeated_failures} />
+              <Stat label="销售事实异常" value={c.sales_truth_anomalies} hint={`可自愈 ${c.sales_truth_repairable}`} />
               <Stat label="今日自动完成" value={c.auto_executed_today} />
               <Stat label="今日你确认后" value={c.approved_executed_today} />
               <Stat label="近7天失败" value={c.failed_7d} />
@@ -155,6 +168,26 @@ export function AutonomyControlCenter() {
               <Stat label="到期客户" value={c.due_accounts} />
               <Stat label="高风险商机" value={c.unhealthy_opportunities} />
             </div>
+          )}
+
+          {truth && truth.accounts.length > 0 && (
+            <details style={{ marginTop: 10 }}>
+              <summary className="stat-label" style={{ cursor: "pointer" }}>
+                Sales Truth / 销售事实一致性 · {truth.anomalous_accounts} 个客户
+              </summary>
+              {truth.accounts.slice(0, 8).map((item) => (
+                <div key={item.lead_no} style={{ padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
+                  <div style={{ fontSize: 12 }}>
+                    <strong>{item.company_en || `客户 #${item.lead_no}`}</strong>{" "}
+                    <span className="muted">CRM {item.crm_stage} → 事实 {FACT_LABEL[item.factual_state] ?? item.factual_state}</span>
+                  </div>
+                  <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>
+                    {item.anomalies[0]?.detail}
+                    {item.repairable_anomalies ? ` · 可自愈 ${item.repairable_anomalies}` : ""}
+                  </div>
+                </div>
+              ))}
+            </details>
           )}
 
           {sweep && (
@@ -191,7 +224,7 @@ export function AutonomyControlCenter() {
           {data && (
             <div className="muted" style={{ fontSize: 10, marginTop: 12 }}>
               自主度：自动 {data.autonomy.counts.auto ?? 0} · 提议 {data.autonomy.counts.propose ?? 0} · 关闭 {data.autonomy.counts.off ?? 0}。
-              控制中心只读，不会因为打开页面而发送消息、改商机或改变自主度。
+              控制中心只读；CRM stage 保留人工判断，Agent 的通信/商业事实优先使用可验证证据。
             </div>
           )}
         </div>
