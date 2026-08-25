@@ -53,7 +53,8 @@ def extract_phones(text: str) -> list[str]:
     number written as 'tel:877.773.4346' has no country in it, and prefixing one
     ('+8777734346') both invents a country code screening would then read back as
     China and leaves a number nobody can dial. wa.me numbers are exempt: WhatsApp
-    links are international by definition.
+    links are international by definition. A conventional `00` international prefix
+    is normalized to `+` rather than being preserved as the fake country code `+00`.
     """
     out, seen = [], set()
     groups = (
@@ -63,12 +64,14 @@ def extract_phones(text: str) -> list[str]:
     )
     for grp in groups:
         for raw, international in grp:
+            cleaned = raw.strip()
             d = _digits(raw)
+            international = international or cleaned.startswith(("+", "00"))
+            if cleaned.startswith("00"):
+                d = d[2:]
             if not 8 <= len(d) <= 15 or d in seen:
                 continue
             seen.add(d)
-            cleaned = raw.strip()
-            international = international or cleaned.startswith(("+", "00"))
             out.append("+" + d if international else cleaned)
     return out
 
@@ -225,7 +228,13 @@ def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict
             break
     company = home_company or company
 
-    joined = "\n".join(page["text"] for page in pages)
+    # Country is an identity fact. Infer it only from the bounded contact/home pass,
+    # before following product, project, news or signal pages. Those later pages often
+    # mention customer markets and case-study countries that are not the company's own.
+    identity_text = "\n".join(page["text"] for page in pages)
+    country = screening.country_from_text(identity_text)
+
+    joined = identity_text
     seen = {page["url"] for page in pages}
     # Improve product/company evidence only when the contact pass did not already find a
     # specific pitch. This keeps the old bounded behavior.
@@ -242,11 +251,6 @@ def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict
 
     text = "\n".join(page["text"] for page in pages)
     icp = classify_text(text)
-    # Where the company actually is, read from its own pages. Without this the import
-    # path has nothing to go on for the .com + local-phone majority and falls back to
-    # the country we happened to be searching — how a Fullerton, CA integrator ended
-    # up in the book as a South Korean lead.
-    country = screening.country_from_text(text)
     best = None
     for e in emails:
         if any(e.lower().startswith(p) for p in _PREFER):
