@@ -15,10 +15,9 @@ case photo attached) so the first send is one click, not one hour of typing.
 #     笼统的 "P0.7–P10" 读起来像产品目录。
 #   - 不写退订段落。Allen 的既有做法；回复里说要停的，由 replies._UNSUB_RE
 #     识别（中英韩都覆盖）自动加入不再联系，不靠信里那一行。
-SIGNOFF = """Best regards,
-Allen Ma
-Shenzhen Maxcolor Visual Co., Ltd.
-WhatsApp/WeChat: +86 135-7087-1001"""
+from app import identity
+
+SIGNOFF = identity.SIGNOFF
 
 # 韩语不是把英文翻过去，是 Allen 实际发韩国客户那封信的写法：
 #   - 先给价值再说自己是谁。开头就是「韩国交付案例分享」，不是公司自我介绍。
@@ -27,10 +26,7 @@ WhatsApp/WeChat: +86 135-7087-1001"""
 #   - 列真实交付过的点距，不写笼统范围：韩国同行看 P1.53 / P1.86 认得出是行内人。
 #   - 联系方式给 KakaoTalk。韩国客户不用 WhatsApp。
 #   - 语气松弛（~ 和 !），不用격식체。过度郑重反而像模板群发。
-KO_SIGNOFF = """Allen Ma
-Shenzhen Maxcolor Visual Co., Ltd.
-Kakaotalk / WeChat: +86 13570871001
-Email: allenma2ong@gmail.com"""
+KO_SIGNOFF = identity.KO_SIGNOFF
 
 EMAIL_TEMPLATES = [
     # The subject used to lead with our own company name, and the body opened with

@@ -31,7 +31,7 @@ from email.header import decode_header, make_header
 from email.utils import parseaddr, parsedate_to_datetime
 
 from app import contacts, mailboxes, repository, settings
-from app.channels.email_adapter import GMAIL_USER, get_password
+from app.channels.email_adapter import FALLBACK_SENDER, get_password
 
 # Allow-list what an address may contain rather than blacklisting delimiters: Gmail's
 # bounce notice is localised, so the failed address is followed immediately by a
@@ -118,6 +118,11 @@ def adaptive_since_days(conn) -> int:
     return max(SINCE_DAYS_MIN, min(SINCE_DAYS_MAX, gap + 2))
 
 
+def _fallback_imap_host() -> str | None:
+    from app.channels import email_adapter
+    return mailboxes.infer_imap_host(email_adapter.FALLBACK_SMTP_HOST)
+
+
 def _norm(addr: str) -> str:
     return (addr or "").strip().lower()
 
@@ -193,15 +198,16 @@ def fetch_mailbox_messages(mailbox: dict, since_days: int = 7) -> list[dict]:
 
 
 def fetch_recent_messages(since_days: int = 7) -> list[dict]:
-    """Backward-compatible fetch for the legacy fallback Gmail."""
+    """Backward-compatible fetch for the single fallback mailbox."""
+    from app.channels import email_adapter
     pw = get_password()
     if not pw:
-        raise RuntimeError("Gmail app password missing (~/.gmail_app_password or GMAIL_APP_PASSWORD)")
+        raise RuntimeError("发件邮箱密码缺失（~/.mailbox_app_password 或 MAILBOX_APP_PASSWORD）")
     return fetch_mailbox_messages({
-        "email": GMAIL_USER,
-        "username": GMAIL_USER,
+        "email": FALLBACK_SENDER,
+        "username": FALLBACK_SENDER,
         "password": pw,
-        "imap_host": "imap.gmail.com",
+        "imap_host": mailboxes.infer_imap_host(email_adapter.FALLBACK_SMTP_HOST),
         "imap_port": 993,
     }, since_days)
 
@@ -408,8 +414,8 @@ def poll_all_replies(conn, fetcher=fetch_mailbox_messages, since_days: int | Non
         pw = get_password()
         if pw:
             targets = [{
-                "email": GMAIL_USER, "username": GMAIL_USER, "password": pw,
-                "imap_host": "imap.gmail.com", "imap_port": 993,
+                "email": FALLBACK_SENDER, "username": FALLBACK_SENDER, "password": pw,
+                "imap_host": _fallback_imap_host(), "imap_port": 993,
             }]
     if not targets:
         settings.set_value(conn, _K_LAST_STATUS, "error")
