@@ -92,7 +92,7 @@ def test_status_defaults(conn):
     assert st["last_date"] is None and st["last_result"] is None
     assert st["preview"]["due"] == 39
     assert st["preview"]["will_send"] == outreach.MAX_BATCH
-    assert st["preview"]["followup_quality"]["continue"] == 39
+    assert st["preview"]["quality_gate"] == "evaluated_at_send"
 
 
 def test_a_run_that_cannot_read_the_queue_still_says_so(conn, monkeypatch):
