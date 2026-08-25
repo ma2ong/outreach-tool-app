@@ -33,16 +33,18 @@ Kakaotalk / WeChat: +86 13570871001
 Email: allenma2ong@gmail.com"""
 
 EMAIL_TEMPLATES = [
-    ("首次触达（英语）", "en", "Recent LED Display Projects — Shenzhen Maxcolor Visual",
+    # The subject used to lead with our own company name, and the body opened with
+    # projects "delivered in Korea" — sent to American, Brazilian and Chilean
+    # integrators, who have no reason to care. {hook} is what we already read off this
+    # company's own website and had never once used.
+    ("首次触达（英语）", "en", "{company} — LED display supply",
      f"""Hi {{contact}},
 
-I'd like to share some recent LED display projects we delivered in Korea.
+{{hook}}
 
-We have completed various indoor and outdoor projects including P1.86, P2.5, P3.91, and P10 LED displays.
+We manufacture the panels behind that kind of work — indoor and outdoor, P1.86 through P10 — and supply integrators and rental companies directly.
 
-If you have any upcoming projects, please feel free to contact me anytime. We would be happy to recommend suitable products and provide you with competitive pricing based on your project needs.
-
-Hope we can have a good opportunity to work together!
+If something is coming up, tell me the pitch and the size and I'll send specs the same day. If nothing is, no problem: keep me on file.
 
 {SIGNOFF}"""),
     ("跟进2：案例+提问（英语）", "en", "Re: Recent LED Display Projects",

@@ -19,7 +19,7 @@ def conn(tmp_path):
 
 
 def test_send_campaign_logs_with_label(conn):
-    outreach.send_campaign(conn, [1, 2], subject="S", body="B", attachment=None,
+    outreach.send_campaign(conn, [1, 2], subject="S", body="Hi {company},", attachment=None,
                            sender=lambda *a: None, delay_range=(0, 0), campaign="七月美国话术A")
     rows = conn.execute("SELECT campaign, channel FROM send_log").fetchall()
     assert len(rows) == 2
@@ -27,9 +27,9 @@ def test_send_campaign_logs_with_label(conn):
 
 
 def test_campaign_stats_reply_attribution(conn):
-    outreach.send_campaign(conn, [1, 2], subject="S", body="B", attachment=None,
+    outreach.send_campaign(conn, [1, 2], subject="S", body="Hi {company},", attachment=None,
                            sender=lambda *a: None, delay_range=(0, 0), campaign="话术A")
-    outreach.send_campaign(conn, [3], subject="S", body="B", attachment=None,
+    outreach.send_campaign(conn, [3], subject="S", body="Hi {company},", attachment=None,
                            sender=lambda *a: None, delay_range=(0, 0), campaign="话术B")
     repository.mark_replied(conn, 1, "email")
     stats = {s["campaign"]: s for s in campaigns.campaign_stats(conn)}
@@ -39,7 +39,7 @@ def test_campaign_stats_reply_attribution(conn):
 
 
 def test_default_label_when_no_campaign(conn):
-    outreach.send_campaign(conn, [1], subject="S", body="B", attachment=None,
+    outreach.send_campaign(conn, [1], subject="S", body="Hi {company},", attachment=None,
                            sender=lambda *a: None, delay_range=(0, 0))
     row = conn.execute("SELECT campaign FROM send_log").fetchone()
     assert row["campaign"].startswith("email 20")
@@ -68,7 +68,7 @@ def test_one_bulk_touch_per_lead_per_day_across_channels(conn):
     conn.execute("UPDATE leads SET phone='+1 555 100 2000', instagram='a_ig' WHERE no=1")
     conn.commit()
     outreach.send_campaign(
-        conn, [1], subject="S", body="B", attachment=None,
+        conn, [1], subject="S", body="Hi {company},", attachment=None,
         sender=lambda *a: None, delay_range=(0, 0),
     )
     assert campaigns.contacted_today(conn, 1)
@@ -84,7 +84,7 @@ def test_quality_stats_splits_reply_rate_by_email_quality(conn):
     conn.execute("UPDATE leads SET email_status='role' WHERE no IN (1,2)")
     conn.execute("UPDATE leads SET email_status='valid' WHERE no IN (3,4)")
     conn.commit()
-    outreach.send_campaign(conn, [1, 2, 3, 4], subject="S", body="B", attachment=None,
+    outreach.send_campaign(conn, [1, 2, 3, 4], subject="S", body="Hi {company},", attachment=None,
                            sender=lambda *a: None, delay_range=(0, 0))
     repository.mark_replied(conn, 3, "email")
     rows = {r["quality"]: r for r in campaigns.quality_stats(conn)}
@@ -95,7 +95,7 @@ def test_quality_stats_splits_reply_rate_by_email_quality(conn):
 
 
 def test_quality_stats_buckets_never_verified_separately(conn):
-    outreach.send_campaign(conn, [1], subject="S", body="B", attachment=None,
+    outreach.send_campaign(conn, [1], subject="S", body="Hi {company},", attachment=None,
                            sender=lambda *a: None, delay_range=(0, 0))
     assert campaigns.quality_stats(conn)[0]["quality"] == "unverified"
 
@@ -111,7 +111,7 @@ def test_quality_stats_ignores_browser_channels(conn):
 
 
 def test_deliverability_flags_a_reputation_risk(conn):
-    outreach.send_campaign(conn, [1, 2, 3, 4], subject="S", body="B", attachment=None,
+    outreach.send_campaign(conn, [1, 2, 3, 4], subject="S", body="Hi {company},", attachment=None,
                            sender=lambda *a: None, delay_range=(0, 0))
     conn.execute("UPDATE leads SET bounced_at=datetime('now') WHERE no=1")
     conn.commit()
@@ -122,7 +122,7 @@ def test_deliverability_flags_a_reputation_risk(conn):
 
 def test_deliverability_ignores_a_bounce_older_than_the_window(conn):
     """The alarm is about the list being sent now, not one cleaned up months ago."""
-    outreach.send_campaign(conn, [1, 2, 3, 4], subject="S", body="B", attachment=None,
+    outreach.send_campaign(conn, [1, 2, 3, 4], subject="S", body="Hi {company},", attachment=None,
                            sender=lambda *a: None, delay_range=(0, 0))
     conn.execute("UPDATE leads SET bounced_at='2026-01-01T00:00:00+00:00' WHERE no=1")
     conn.commit()
@@ -138,7 +138,7 @@ def test_deliverability_quiet_when_nothing_sent(conn):
 def test_deliverability_admits_when_it_cannot_see_bounces(conn):
     """A broken inbox poll must not read as a clean bounce rate: no IMAP, no bounces."""
     from app import settings
-    outreach.send_campaign(conn, [1, 2, 3, 4], subject="S", body="B", attachment=None,
+    outreach.send_campaign(conn, [1, 2, 3, 4], subject="S", body="Hi {company},", attachment=None,
                            sender=lambda *a: None, delay_range=(0, 0))
     assert campaigns.deliverability(conn)["blind"] is True   # never polled at all
     settings.set_value(conn, "reply_sync_last_status", "success")
@@ -151,7 +151,7 @@ def test_deliverability_goes_blind_once_a_send_only_mailbox_has_sent(conn):
     """The trap: replies still arrive via Reply-To so the sweep reads 'success', while
     every bounce goes to the envelope sender's unreadable mailbox."""
     from app import mailboxes, settings
-    outreach.send_campaign(conn, [1, 2, 3, 4], subject="S", body="B", attachment=None,
+    outreach.send_campaign(conn, [1, 2, 3, 4], subject="S", body="Hi {company},", attachment=None,
                            sender=lambda *a: None, delay_range=(0, 0))
     settings.set_value(conn, "reply_sync_last_status", "success")
     assert campaigns.deliverability(conn)["blind"] is False

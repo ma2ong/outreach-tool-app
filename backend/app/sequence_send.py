@@ -12,6 +12,7 @@ import time
 
 from app import campaigns
 from app import channel_outreach as co
+from app import message_guard
 from app import outreach as email_outreach
 from app import sequences
 from app.personalize import render
@@ -32,8 +33,9 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
     due = {d["enrollment_id"]: d for d in sequences.due_queue(conn)}
     items = [due[i] for i in enrollment_ids if i in due]
     today = datetime.date.today().isoformat()
-    sent = failed = deferred = 0
+    sent = failed = deferred = held = 0
     errors: list[dict] = []
+    holds: list[dict] = []
 
     # Every channel is capped per day and per batch — email included (a 266-lead due
     # queue sent in one go from one Gmail is a spam-folder event).
@@ -56,8 +58,18 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
                 if not to or lead.get("email_status") == "invalid":
                     deferred += 1
                     continue
-                sender(to, render(d.get("subject"), lead),
-                       render(d["body"], lead), d.get("image") or image_default)
+                subject_text = render(d.get("subject"), lead)
+                body_text = render(d["body"], lead)
+                # The rendered text is the only string a customer ever sees, and it is
+                # not the one anybody reviewed.
+                verdict = message_guard.check(body_text, lead, subject=subject_text,
+                                              step_order=d.get("step_order", 0))
+                if verdict.blocked:
+                    held += 1
+                    holds.append({"no": no, "reason": verdict.reason,
+                                  "detail": verdict.detail})
+                    continue
+                sender(to, subject_text, body_text, d.get("image") or image_default)
                 email_outreach._mark_messaged(conn, no, today)
                 remaining["email"] -= 1
                 batch_used["email"] += 1
@@ -83,4 +95,5 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
             lo, hi = channel_delay or (co.DEFAULT_DELAY.get(ch, (0, 0)) if ch != "email" else email_delay)
             if hi > 0:
                 time.sleep(random.randint(lo, hi))
-    return {"sent": sent, "failed": failed, "deferred": deferred, "errors": errors}
+    return {"sent": sent, "failed": failed, "deferred": deferred,
+            "errors": errors, "held": held, "holds": holds}

@@ -39,7 +39,7 @@ def test_send_campaign_records_failure(conn):
     def boom(to, s, b, a):
         raise RuntimeError("smtp down")
 
-    result = outreach.send_campaign(conn, [1], subject="S", body="B", attachment=None,
+    result = outreach.send_campaign(conn, [1], subject="S", body="Hi {company},", attachment=None,
                                     sender=boom, delay_range=(0, 0))
     assert result["sent"] == 0
     assert result["failed"] == 1
@@ -48,7 +48,7 @@ def test_send_campaign_records_failure(conn):
 def test_send_campaign_progress_callback(conn):
     _seed(conn)
     seen = []
-    outreach.send_campaign(conn, [1, 2], subject="S", body="B", attachment=None,
+    outreach.send_campaign(conn, [1, 2], subject="S", body="Hi {company},", attachment=None,
                            sender=lambda *a: None, delay_range=(0, 0),
                            on_progress=lambda done, total: seen.append((done, total)))
     assert seen[-1] == (2, 2)
