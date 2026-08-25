@@ -15,10 +15,8 @@ import re
 # restricted: English is the working language of the trade, and a Korean buyer reading
 # an English cold email is ordinary.
 #
-# This exists because enrolling is two clicks and the lead selection survives the first
-# one: on 2026-08-13 the same fifty Brazilian and Chilean leads were added to the English
-# sequence and then to the Korean one, and stayed queued for Korean cold email for
-# twelve days. A rule the send path enforces is worth more than remembering to unselect.
+# The guard is enforced both when enrolling and again when building the due/send queue.
+# That second boundary matters for historical bad enrollments created before this rule.
 _KOREAN_TEXT = re.compile(r"[가-힣]")
 _KOREAN_COUNTRIES = {"south korea", "korea", "republic of korea", "대한민국", "한국"}
 
@@ -79,13 +77,18 @@ def get_sequence(conn, sid: int) -> dict | None:
 
 
 def is_korean_sequence(conn, sid: int) -> bool:
-    """Written in Korean — judged from the copy itself, not from the sequence name."""
-    row = conn.execute("SELECT name FROM sequences WHERE id=?", (sid,)).fetchone()
-    if row is None:
-        return False
-    text = row["name"] + " " + " ".join(
+    """Whether the actual customer-facing copy is Korean.
+
+    The sequence name is deliberately ignored. Operators may label an English sequence
+    in Korean for their own convenience; only subject/body text is a sending condition.
+    """
+    text = " ".join(
         f"{s.get('subject') or ''} {s.get('body') or ''}" for s in _steps(conn, sid))
     return bool(_KOREAN_TEXT.search(text))
+
+
+def _is_korean_country(value: str | None) -> bool:
+    return str(value or "").strip().lower() in _KOREAN_COUNTRIES
 
 
 def language_blocked(conn, sid: int, lead_nos: list[int]) -> list[int]:
@@ -95,8 +98,7 @@ def language_blocked(conn, sid: int, lead_nos: list[int]) -> list[int]:
     placeholders = ",".join("?" * len(lead_nos))
     rows = conn.execute(
         f"SELECT no, country FROM leads WHERE no IN ({placeholders})", lead_nos).fetchall()
-    return [r["no"] for r in rows
-            if str(r["country"] or "").strip().lower() not in _KOREAN_COUNTRIES]
+    return [r["no"] for r in rows if not _is_korean_country(r["country"])]
 
 
 def enroll_leads(conn, sid: int, lead_nos: list[int]) -> int:
@@ -133,10 +135,15 @@ def enroll_leads(conn, sid: int, lead_nos: list[int]) -> int:
 
 
 def due_queue(conn, channel: str | None = None) -> list[dict]:
-    """Active enrollments whose next touch is due today and whose lead has not replied."""
+    """Active enrollments safe and due for their next touch today.
+
+    Language is checked again here, not only at enrollment. `sequence_send.send_due`
+    derives its sendable IDs from this queue, so a historical wrong-language enrollment
+    cannot bypass the rule merely because it predates the enrollment guard.
+    """
     sql = (
         "SELECT e.id enrollment_id, e.lead_no, e.sequence_id, e.current_step,"
-        "       l.company_en, s.name sequence_name, s.channel,"
+        "       l.company_en, l.country AS _lead_country, s.name sequence_name, s.channel,"
         "       st.subject, st.body, st.image, st.step_order"
         " FROM sequence_enrollments e"
         " JOIN sequences s ON s.id = e.sequence_id"
@@ -152,7 +159,17 @@ def due_queue(conn, channel: str | None = None) -> list[dict]:
         sql += " AND s.channel = ?"
         params.append(channel)
     sql += " ORDER BY e.next_due_date, e.lead_no"
-    return [dict(r) for r in conn.execute(sql, params)]
+    rows = [dict(r) for r in conn.execute(sql, params)]
+    korean_by_sequence: dict[int, bool] = {}
+    safe: list[dict] = []
+    for row in rows:
+        sid = row["sequence_id"]
+        korean = korean_by_sequence.setdefault(sid, is_korean_sequence(conn, sid))
+        country = row.pop("_lead_country", None)
+        if korean and not _is_korean_country(country):
+            continue
+        safe.append(row)
+    return safe
 
 
 # The lead column a sequence needs an address in, per channel.
