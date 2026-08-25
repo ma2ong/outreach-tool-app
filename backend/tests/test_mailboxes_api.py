@@ -137,3 +137,34 @@ def test_test_endpoint_skips_imap_for_a_send_only_mailbox(tmp_path, monkeypatch)
                          "pw", imap_enabled=False)
     r = client.post(f"/api/mailboxes/{mid}/test")
     assert r.status_code == 200 and r.json() == {"ok": True, "smtp": True, "imap": False}
+
+
+def test_a_mailbox_password_can_be_changed_without_deleting_it(tmp_path):
+    """Until this existed the only way to fix a password was delete-and-re-add, so the
+    obvious move — type in the password box, press Test — was filling in the *new
+    mailbox* form while testing the old row."""
+    client, _ = _client(tmp_path)
+    created = client.post("/api/mailboxes", json={
+        "email": "allen@maxcolorvisual.com", "smtp_host": "smtp.qiye.163.com",
+        "username": "allen@maxcolorvisual.com", "password": "first", "daily_cap": 30})
+    mid = created.json()["id"]
+    assert client.put(f"/api/mailboxes/{mid}/password", json={"password": "second"}).status_code == 200
+    assert client.put(f"/api/mailboxes/{mid}/password", json={"password": "  "}).status_code == 400
+    assert client.put("/api/mailboxes/9999/password", json={"password": "x"}).status_code == 404
+
+
+def test_testing_a_mailbox_with_no_password_says_so(tmp_path):
+    """NetEase answers an empty credential by closing the socket, which surfaces as
+    'Connection unexpectedly closed' — indistinguishable from a network fault."""
+    from app.db import connect
+    client, db = _client(tmp_path)
+    created = client.post("/api/mailboxes", json={
+        "email": "allen@maxcolorvisual.com", "smtp_host": "smtp.qiye.163.com",
+        "username": "allen@maxcolorvisual.com", "password": "x", "daily_cap": 30})
+    mid = created.json()["id"]
+    conn = connect(db)
+    conn.execute("UPDATE mailboxes SET password='' WHERE id=?", (mid,))
+    conn.commit()
+    conn.close()
+    r = client.post(f"/api/mailboxes/{mid}/test")
+    assert r.status_code == 400 and "还没有密码" in r.json()["detail"]

@@ -62,6 +62,29 @@ def list_mailboxes(conn, include_secrets: bool = False) -> list[dict]:
     return out
 
 
+def set_password(conn, mailbox_id: int, password: str) -> bool:
+    """Replace the stored credential.
+
+    Without this the only way to fix a password was to delete the mailbox and add it
+    again, so the natural move — typing into the password box on screen and pressing
+    Test — was filling in the *new mailbox* form while testing the old row. The test then
+    logged in with an empty string, and NetEase answers that by closing the connection:
+    "Connection unexpectedly closed", which reads like a network fault rather than a
+    missing password.
+    """
+    if not password:
+        return False
+    cur = conn.execute("UPDATE mailboxes SET password=? WHERE id=?", (password, mailbox_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def has_password(conn, mailbox_id: int) -> bool:
+    row = conn.execute("SELECT COALESCE(password,'') p FROM mailboxes WHERE id=?",
+                       (mailbox_id,)).fetchone()
+    return bool(row and row["p"])
+
+
 def set_active(conn, mailbox_id: int, active: bool) -> bool:
     cur = conn.execute("UPDATE mailboxes SET active=? WHERE id=?", (1 if active else 0, mailbox_id))
     conn.commit()
