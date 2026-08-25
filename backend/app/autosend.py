@@ -134,14 +134,14 @@ def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None =
         due_ids = [d["enrollment_id"] for d in sequences.due_queue(conn, "email")]
         if not due_ids:
             settings.set_value(conn, _K_LAST_RESULT, f"{now:%m-%d %H:%M} 无到期邮件跟进")
-            return {"sent": 0, "failed": 0, "deferred": 0, "held": 0}
+            return {"sent": 0, "failed": 0, "deferred": 0}
         res = sequence_send.send_due(
             conn, due_ids, sender=sender, image_default=image_default,
             email_delay=email_delay,
         )
     except Exception as exc:  # noqa: BLE001
         settings.set_value(conn, _K_LAST_RESULT, f"{now:%m-%d %H:%M} 运行失败：{str(exc)[:120]}")
-        return {"sent": 0, "failed": 0, "deferred": 0, "held": 0}
+        return {"sent": 0, "failed": 0, "deferred": 0}
     note = f"{now:%m-%d %H:%M} 自动发送：成功 {res['sent']}，失败 {res['failed']}"
     if res.get("held"):
         note += f"，安全拦下 {res['held']}"
