@@ -136,13 +136,30 @@ def mark_do_not_contact(conn, p: dict) -> str:
     return f"{lead['company_en']} 已标记不再联系，全渠道停发"
 
 
+def _persist_autonomous_recheck(conn, p: dict, payload: dict, decision: dict) -> None:
+    """Keep the execution-time decision even if it refuses the send."""
+    import json
+    from app.agent import send_decision
+
+    payload = dict(payload)
+    payload["execution_recheck"] = {
+        "accepted": [send_decision.compact(d) for d in decision["decisions"] if d["ready"]],
+        "rejected": [send_decision.compact(d) for d in decision["rejected"]],
+    }
+    conn.execute("UPDATE agent_proposals SET payload=?, updated_at=? WHERE id=?",
+                 (json.dumps(payload, ensure_ascii=False),
+                  dt.datetime.now(dt.UTC).isoformat(), p["id"]))
+    conn.commit()
+
+
 def send_outreach(conn, p: dict) -> str:
     """First-touch a batch using one of Allen's templates.
 
     Goes through `outreach.send_campaign`, which is the same call the Outreach panel
     makes — so the batch cap, the daily quota, the one-touch-per-lead-per-day rule and
     the invalid-address skip all apply, and anything over budget is deferred rather than
-    dropped. The agent chose who; the template is what Allen actually sends.
+    dropped. The Agent's auto mode additionally rechecks whether each account is still
+    worth contacting now; manual approval remains the human timing override.
     """
     pause = autosend.safety_pause(conn)
     if pause:
@@ -160,11 +177,30 @@ def send_outreach(conn, p: dict) -> str:
     lead_nos = [int(n) for n in payload.get("lead_nos") or []]
     if not lead_nos:
         raise ExecutionRefused("没有选中客户")
+
+    late_removed = 0
+    if p.get("execution_mode") == "auto":
+        from app.agent import send_decision
+        decision = send_decision.evaluate_batch(
+            conn, lead_nos, subject=tpl["subject"] or "", body=tpl["body"],
+        )
+        _persist_autonomous_recheck(conn, p, payload, decision)
+        late_removed = len(lead_nos) - len(decision["accepted"])
+        lead_nos = decision["accepted"]
+        if not lead_nos:
+            reason = (decision["rejected"][0].get("blockers") or
+                      ["当前已不满足自主发送质量门槛"])[0]
+            raise ExecutionRefused(f"执行前复检停止发送：{reason}")
+
     result = outreach.send_campaign(
         conn, lead_nos, tpl["subject"] or "", tpl["body"],
         send_api.DEFAULT_ATTACHMENT, send_api.pick_sender(conn),
         campaign=f"Agent {dt.date.today().isoformat()}")
     note = f"已发 {result['sent']} 封，失败 {result['failed']}"
+    if late_removed:
+        note += f"，执行前质量复检移除 {late_removed} 家"
+    if result.get("held"):
+        note += f"，最终文本安全拦下 {result['held']} 家"
     if result.get("deferred"):
         note += f"，额度外延后 {result['deferred']}（明天继续）"
     if result.get("skipped"):
