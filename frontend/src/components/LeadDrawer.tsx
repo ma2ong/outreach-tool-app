@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead, fetchActivities, createActivity, completeActivity, fetchLead, fetchContacts, createContact, updateContact, setPrimaryContact, deleteContact, recheckLead } from "../api";
 import type { Activity, Contact, Lead, LeadIntelligence, Opportunity } from "../types";
 import { fetchLeadIntelligence } from "../salesIntelligenceApi";
+import { fetchLeadMemory, writeLeadMemory, forgetLeadMemory, type MemoryItem } from "../agentApi";
 import { STAGES, STAGE_LABEL, OPPORTUNITY_STAGE_LABEL } from "../types";
 
 const CH_LABEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", instagram: "Instagram" };
@@ -33,6 +34,9 @@ function ContactCard({ contact, onRefresh, onError }: {
   const [draft, setDraft] = useState(contact);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
+  const [memoryDraft, setMemoryDraft] = useState("");
+  const [memoryKind, setMemoryKind] = useState<"profile" | "log">("profile");
   useEffect(() => setDraft(contact), [contact]);
   const set = (key: keyof Contact, value: string | null) =>
     setDraft((old) => ({ ...old, [key]: value }));
@@ -109,6 +113,9 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
   const [projectClose, setProjectClose] = useState("");
   const [projectBusy, setProjectBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
+  const [memoryDraft, setMemoryDraft] = useState("");
+  const [memoryKind, setMemoryKind] = useState<"profile" | "log">("profile");
   const [deleting, setDeleting] = useState(false);
   const [blockToo, setBlockToo] = useState(true);
   const [openTasks, setOpenTasks] = useState<Activity[]>([]);
@@ -165,7 +172,27 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
       .catch((e) => setErr("联系人加载失败：" + String(e)));
     fetchLeadIntelligence(lead.no).then(setIntelligence)
       .catch((e) => setErr("销售评分加载失败：" + String(e)));
+    setMemoryDraft("");
+    fetchLeadMemory(lead.no).then((m) => setMemoryItems(m.items))
+      .catch((e) => setErr("客户记忆加载失败：" + String(e)));
   }, [lead.no]);
+
+  async function submitMemory() {
+    const text = memoryDraft.trim();
+    if (!text) return;
+    try {
+      await writeLeadMemory(lead.no, text, memoryKind);
+      setMemoryDraft("");
+      setMemoryItems((await fetchLeadMemory(lead.no)).items);
+    } catch (e) { setErr("记忆保存失败：" + String(e)); }
+  }
+
+  async function dropMemory(itemId: number) {
+    try {
+      await forgetLeadMemory(lead.no, itemId);
+      setMemoryItems((await fetchLeadMemory(lead.no)).items);
+    } catch (e) { setErr("记忆删除失败：" + String(e)); }
+  }
 
   const set = (k: keyof Lead, v: string) => { setDraft((d) => ({ ...d, [k]: v })); setDirty(true); };
 
@@ -487,6 +514,34 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
               <i />{CH_LABEL[o.channel] ?? o.channel}：{STATE_TEXT[o.status] ?? o.status}
               {o.message_sent_date ? ` (${o.message_sent_date})` : ""}
             </span>
+          ))}
+
+        {/* 客户记忆：Agent 从往来里合成的事实，加上 Allen 手写的。手写的 Agent 不会改。 */}
+        <div className="section-title">客户记忆</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+          <select className="input" style={{ width: 110 }} value={memoryKind}
+            onChange={(e) => setMemoryKind(e.target.value as "profile" | "log")}>
+            <option value="profile">长期</option>
+            <option value="log">阶段性</option>
+          </select>
+          <input className="input" style={{ flex: 1 }} value={memoryDraft}
+            placeholder="记一条 Agent 看不出来的事，如：老板不喜欢被追，等他主动"
+            onChange={(e) => setMemoryDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") submitMemory(); }} />
+          <button className="btn btn-sm" onClick={submitMemory}>记住</button>
+        </div>
+        {memoryItems.length === 0 ? <div className="muted">还没有记忆；Agent 每次收到回复会自己补充。</div> :
+          memoryItems.map((m) => (
+            <div key={m.id} className="note-item" style={{ display: "flex", gap: 8 }}>
+              <span className={`badge badge-${m.kind === "profile" ? "messaged" : "untouched"}`}>
+                <i />{m.kind === "profile" ? "长期" : "阶段性"}
+              </span>
+              <div style={{ flex: 1 }}>
+                {m.content}
+                <div className="ts">{m.origin === "explicit" ? "我记的" : "Agent 从往来里总结"}</div>
+              </div>
+              <button className="btn btn-sm" onClick={() => dropMemory(m.id)}>删除</button>
+            </div>
           ))}
 
         <div className="section-title">跟进记录</div>
