@@ -1,7 +1,7 @@
 """Evidence-backed account truth that stays separate from the human CRM stage.
 
 `leads.stage` is a useful sales judgement, but it is not evidence that a message was
-answered or a commercial milestone happened.  This module derives communication and
+answered or a commercial milestone happened. This module derives communication and
 commercial truth from durable rows and reports contradictions without rewriting the
 human stage.
 
@@ -12,7 +12,6 @@ It never changes CRM stage, quotes, orders, price, payment or delivery commitmen
 from __future__ import annotations
 
 import datetime as dt
-import re
 import sqlite3
 
 
@@ -230,19 +229,8 @@ def portfolio(conn: sqlite3.Connection, *, limit: int = 50) -> dict:
 def _stop_active_sequences(conn: sqlite3.Connection, lead_no: int) -> int:
     if not _table_exists(conn, "sequence_enrollments"):
         return 0
-    rows = conn.execute(
-        "SELECT id FROM sequence_enrollments WHERE lead_no=? AND status='active'",
-        (lead_no,),
-    ).fetchall()
-    if not rows:
-        return 0
-    now = _now()
-    conn.execute(
-        "UPDATE sequence_enrollments SET status='replied', updated_at=?"
-        " WHERE lead_no=? AND status='active'",
-        (now, lead_no),
-    )
-    return len(rows)
+    from app import sequences
+    return sequences.stop_for_lead(conn, lead_no)
 
 
 def _cancel_stale_reply_tasks(conn: sqlite3.Connection, lead_no: int) -> int:
@@ -264,6 +252,9 @@ def _cancel_stale_reply_tasks(conn: sqlite3.Connection, lead_no: int) -> int:
             "UPDATE activities SET status='cancelled',completed_at=NULL,updated_at=? WHERE id=?",
             (now, activity_id),
         )
+    conn.commit()
+    from app import activities
+    activities.sync_lead(conn, lead_no)
     return len(ids)
 
 
@@ -287,8 +278,6 @@ def self_heal(conn: sqlite3.Connection, *, limit: int = 100) -> dict:
             cancelled_tasks += _cancel_stale_reply_tasks(conn, lead["no"])
         if healed_sequences + cancelled_tasks > before:
             touched.append(lead["no"])
-    if touched:
-        conn.commit()
     return {
         "leads_touched": len(touched),
         "lead_nos": touched,
