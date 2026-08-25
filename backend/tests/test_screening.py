@@ -59,7 +59,65 @@ def test_local_format_us_numbers_are_not_china():
         assert not screening.screen({"domain": "atd-av.com", "phone": local})["excluded"], local
 
 
-def test_usa_phone_not_confused_with_longer_codes():
-    assert screening.detect_country({"phone": "+16162021473"}) == "USA/Canada"
+def test_phone_code_not_confused_with_longer_codes():
     assert screening.detect_country({"phone": "+971529357710"}) == "UAE"
     assert screening.detect_country({"phone": "+8613427921400"}) == "China"
+
+
+EIDIM_FOOTER = """
+EIDIM GROUP
+877.773.4346
+1015 S Placentia Ave, Fullerton, CA 92831
+hello@eidim.com
+"""
+
+
+def test_us_address_is_read_from_the_page():
+    """Regression: eidim.com is a Fullerton, CA integrator that the book filed under
+    South Korea, because nothing ever looked at the address on its own contact page."""
+    assert screening.country_from_text(EIDIM_FOOTER) == "USA"
+    assert screening.detect_country(
+        {"domain": "eidim.com", "text": EIDIM_FOOTER}) == "USA"
+
+
+def test_canadian_postcode_is_not_usa():
+    text = "Suite 400, 200 Front St W, Toronto, ON M5V 3L9"
+    assert screening.country_from_text(text) == "Canada"
+
+
+def test_plus_one_alone_decides_nothing():
+    """'1' covers two countries. Writing either one is a guess, and 'USA/Canada' is
+    not a country the target-market check or the dashboard can use."""
+    assert screening.detect_country({"phone": "+16162021473"}) is None
+    assert screening.detect_country({"phone": "+16162021473",
+                                     "domain": "example.ca"}) == "Canada"
+
+
+def test_chinese_phone_still_beats_a_us_office_address():
+    """A Shenzhen factory listing a US branch address must stay screened out."""
+    cand = {"domain": "szledfactory.com", "phone": "+8613809866355",
+            "text": "US office: 100 Main St, Irvine, CA 92618"}
+    assert screening.detect_country(cand) == "China"
+    assert screening.screen(cand)["excluded"]
+
+
+def test_country_named_on_the_page():
+    assert screening.country_from_text("Seoul, Republic of Korea") == "South Korea"
+    assert screening.country_from_text("Av. Paulista, São Paulo, Brasil") == "Brazil"
+    assert screening.country_from_text("no address anywhere") is None
+
+
+def test_us_place_names_are_not_countries():
+    """Regression: 'Indiana' read as India, 'New Mexico' as Mexico, 'Chilean' as Chile —
+    19 leads in the book carried a country picked up from a word inside another word."""
+    assert screening.country_from_text("Serving Indianapolis, Indiana since 1998") is None
+    assert screening.country_from_text("Albuquerque, New Mexico") is None
+    assert screening.country_from_text("our Chilean-born founder") is None
+    assert screening.country_from_text("Bloomington, IN 47401") == "USA"
+
+
+def test_dot_co_is_only_colombian_as_com_co():
+    """Regression: pureav.co and visualizeproductions.co are US companies on a short
+    domain; ledwave.com.co is the form a Colombian company actually registers."""
+    assert screening.detect_country({"domain": "pureav.co"}) is None
+    assert screening.detect_country({"domain": "ledwave.com.co"}) == "Colombia"

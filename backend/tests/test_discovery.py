@@ -84,3 +84,31 @@ def test_live_discovery_uses_a_shorter_per_page_timeout(monkeypatch):
                         lambda url, timeout: seen.update(url=url, timeout=timeout) or "ok")
     assert discovery._bounded_fetch("https://example.com") == "ok"
     assert seen["timeout"] == discovery.DISCOVERY_FETCH_TIMEOUT
+
+
+def test_detected_country_beats_the_searched_market(conn):
+    """Regression: searching the Korean market imported a Fullerton, CA integrator as
+    a South Korean lead. The company's own address decides; the search does not."""
+    def fake_enrich(domain):
+        return {"email": "hello@eidim.com", "country": "USA", "icp_type": "integrator",
+                "fit_score": 90, "brief": "AV integrator", "hook": "school AV"}
+
+    found = discovery.run_discovery(
+        conn, "LED display Korea", search_fn=lambda q, lim: [{"domain": "eidim.com",
+                                                              "title": "EIDIM"}],
+        enrich_fn=fake_enrich)
+    assert found[0]["country"] == "USA"
+    accepted, rejected = discovery.qualify_for_auto_import(
+        found, minimum_fit=50, target_country="South Korea")
+    assert accepted == []
+    assert "目标市场不符" in rejected[0]["reason"]
+
+
+def test_import_keeps_the_detected_country(conn):
+    result = discovery.import_candidates(
+        conn, [{"domain": "eidim.com", "website": "eidim.com", "company_en": "Eidim",
+                "country": "USA", "email": "hello@eidim.com"}],
+        default_country="South Korea")
+    row = conn.execute("SELECT country FROM leads WHERE no=?",
+                       (result["imported_lead_nos"][0],)).fetchone()
+    assert row["country"] == "USA"

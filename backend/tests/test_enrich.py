@@ -186,3 +186,11 @@ def test_enrich_reports_how_many_pages_answered():
         raise OSError("unreachable")
 
     assert enrich.enrich_domain("dead.com", fetch=dead)["pages"] == 0
+
+
+def test_contact_prefix_is_not_part_of_the_company_name():
+    """Regression: eight companies are filed as 'Contact PixelFLEX', 'Contact Impact
+    LED' — the contact page's title, not the company."""
+    assert enrich.extract_company_name("# Contact PixelFLEX") == "PixelFLEX"
+    assert enrich.extract_company_name("Title: Contact Us - Impact LED") == "Impact LED"
+    assert enrich.extract_company_name("# Contact Us") is None
