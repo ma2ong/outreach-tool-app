@@ -45,8 +45,14 @@ def _best_signal_summary(sales: dict) -> dict | None:
     }
 
 
-def evaluate_account(conn, lead_no: int, *, sales: dict | None = None) -> dict:
-    """Account/timing readiness before a template is chosen."""
+def evaluate_account(conn, lead_no: int, *, sales: dict | None = None,
+                     allow_active_sequence: bool = False) -> dict:
+    """Account/timing readiness before a template is chosen.
+
+    `allow_active_sequence` exists only for sequence step zero: the enrollment itself
+    must not disqualify the very first message, while every other first-touch caller
+    keeps the original active-sequence blocker.
+    """
     sales_intelligence.ensure_schema(conn)
     lead = _one(conn, "SELECT * FROM leads WHERE no=?", (lead_no,))
     if lead is None:
@@ -95,7 +101,7 @@ def evaluate_account(conn, lead_no: int, *, sales: dict | None = None) -> dict:
             "SELECT 1 FROM opportunities WHERE lead_no=? AND stage NOT IN ('won','lost')"
             " LIMIT 1", (lead_no,)):
         blockers.append("已有开放商机，下一步应由商机流程而不是冷触达负责")
-    if _one(conn,
+    if not allow_active_sequence and _one(conn,
             "SELECT 1 FROM sequence_enrollments WHERE lead_no=? AND status='active' LIMIT 1",
             (lead_no,)):
         blockers.append("已经在进行中的跟进序列里")
@@ -164,9 +170,10 @@ def _template_evidence(conn, subject: str, body: str) -> tuple[list[str], list[s
 
 
 def evaluate(conn, lead_no: int, *, subject: str, body: str,
-             sales: dict | None = None) -> dict:
+             sales: dict | None = None, allow_active_sequence: bool = False) -> dict:
     """Full account + template + exact rendered-message decision."""
-    base = evaluate_account(conn, lead_no, sales=sales)
+    base = evaluate_account(conn, lead_no, sales=sales,
+                            allow_active_sequence=allow_active_sequence)
     blockers = list(base["blockers"])
     positives = list(base["positives"])
 
