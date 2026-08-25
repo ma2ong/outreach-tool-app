@@ -10,6 +10,10 @@ triggers it. WA/IG/FB stay strictly manual.
 Mechanics: a background thread wakes every few minutes; the first wake-up inside the
 send window (09:00–20:00 local) on a day that hasn't run yet sends the due email
 steps within today's budget. PC off all day -> it simply runs on next boot.
+
+A due date is not itself permission to send. Automatic sequence steps pass the
+follow-up decision layer immediately before the sender is called; manual sends retain
+human timing judgment while using the same delivery/message safety guards.
 """
 import datetime as _dt
 import json
@@ -98,11 +102,18 @@ def preview(conn) -> dict:
         " JOIN sequences s ON s.id=e.sequence_id"
         " WHERE e.status='active' AND s.channel='email' AND e.next_due_date <= date('now')"
     ).fetchone()["oldest"]
+    quality = {"continue": 0, "delay": 0, "change_angle": 0, "stop": 0}
+    if sendable:
+        from app.agent import followup_decision
+        assessment = followup_decision.evaluate_due(
+            conn, [d["enrollment_id"] for d in sendable])
+        quality = {key: assessment[key] for key in quality}
     return {
         "due": len(due),
         "sendable": len(sendable),
-        "will_send": min(len(sendable), outreach.remaining_today(conn), outreach.MAX_BATCH),
+        "will_send": min(quality["continue"], outreach.remaining_today(conn), outreach.MAX_BATCH),
         "oldest_due": oldest,
+        "followup_quality": quality,
     }
 
 
@@ -126,7 +137,7 @@ def should_run(conn, now: _dt.datetime | None = None) -> bool:
 
 def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None = None,
              email_delay=(16, 28)) -> dict:
-    """Send today's due EMAIL steps within budget and record the outcome."""
+    """Evaluate and send today's due EMAIL steps within budget; record the outcome."""
     from app import sequence_send, sequences
     now = now or _dt.datetime.now()
     settings.set_value(conn, _K_LAST_DATE, now.date().isoformat())
@@ -134,17 +145,25 @@ def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None =
         due_ids = [d["enrollment_id"] for d in sequences.due_queue(conn, "email")]
         if not due_ids:
             settings.set_value(conn, _K_LAST_RESULT, f"{now:%m-%d %H:%M} 无到期邮件跟进")
-            return {"sent": 0, "failed": 0, "deferred": 0}
+            return {"sent": 0, "failed": 0, "deferred": 0,
+                    "delayed": 0, "quality_held": 0, "stopped": 0}
         res = sequence_send.send_due(
             conn, due_ids, sender=sender, image_default=image_default,
-            email_delay=email_delay,
+            email_delay=email_delay, autonomous_quality=True,
         )
     except Exception as exc:  # noqa: BLE001
         settings.set_value(conn, _K_LAST_RESULT, f"{now:%m-%d %H:%M} 运行失败：{str(exc)[:120]}")
-        return {"sent": 0, "failed": 0, "deferred": 0}
-    note = f"{now:%m-%d %H:%M} 自动发送：成功 {res['sent']}，失败 {res['failed']}"
+        return {"sent": 0, "failed": 0, "deferred": 0,
+                "delayed": 0, "quality_held": 0, "stopped": 0}
+    note = f"{now:%m-%d %H:%M} 自动跟进：发送 {res['sent']}，失败 {res['failed']}"
+    if res.get("delayed"):
+        note += f"，延后 {res['delayed']}"
+    if res.get("quality_held"):
+        note += f"，换角度暂停 {res['quality_held']}"
+    if res.get("stopped"):
+        note += f"，停止冷跟进 {res['stopped']}"
     if res.get("held"):
-        note += f"，安全拦下 {res['held']}"
+        note += f"，文本安全拦下 {res['held']}"
     if res.get("deferred"):
         note += f"，额度外延后 {res['deferred']}（明天继续）"
     settings.set_value(conn, _K_LAST_RESULT, note)
