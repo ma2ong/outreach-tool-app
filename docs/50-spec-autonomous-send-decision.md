@@ -9,10 +9,10 @@ spend reputation or attention on weak, stale, contradictory, or poorly evidenced
 
 ## Scope
 
-This spec applies to `send_outreach` actions created/executed autonomously by the Agent.
-Human-initiated Outreach-panel sends keep the existing controls and are not silently blocked by
-this quality policy. A human can therefore deliberately contact an unusual account while the
-Agent remains conservative.
+This spec applies to `send_outreach` actions executed with Agent autonomy set to `auto`.
+The planner may still surface a proposal in `propose` mode for human judgment, and human-initiated
+Outreach-panel sends keep the existing controls. A human can therefore deliberately contact an
+unusual account while the Agent's automatic execution remains conservative.
 
 ## Decision inputs
 
@@ -32,7 +32,7 @@ the local sales system:
    exists. If it makes a product/catalog claim, at least one Agent-approved product row must exist.
    The decision layer does not invent a case/product or infer approval from quote/order history.
 6. **Rendered message** — render the exact subject/body for that lead and run the existing
-   Rendered Message Guard. A held final message is never proposed for autonomous execution.
+   Rendered Message Guard. A held final message is never sent autonomously.
 
 ## Conservative thresholds
 
@@ -48,14 +48,17 @@ These thresholds affect Agent autonomy only. They do not change CRM stage or man
 ## Planner behavior
 
 `world.build()` exposes a compact `autonomous_send` assessment on each shortlisted untouched
-account so the planner sees why an account is ready or not ready.
+account so the planner sees why an account is ready or not ready and should prefer ready accounts
+when suggesting outreach.
 
-When validating `send_outreach`, the backend independently evaluates every proposed lead against
-this spec and the selected template. Unsafe/unready leads are removed from the batch. If no lead
-survives, the action is rejected with explicit reasons rather than creating an empty proposal.
-The validated payload stores a compact decision snapshot for auditability.
+When `send_outreach` autonomy is `auto`, backend validation independently evaluates every proposed
+lead against this spec and the selected template. Unsafe/unready leads are removed from the batch.
+If no lead survives, the action is rejected with explicit reasons rather than creating/executing an
+empty proposal. The validated payload stores a compact decision snapshot for auditability.
 
-The model cannot override this result by claiming an account is important.
+In `propose` mode the planner still sees the readiness assessment, but the deterministic threshold
+does not delete the human-review proposal. The model cannot override the hard gate once autonomy
+is switched to `auto`.
 
 ## Execution-time recheck
 
@@ -70,7 +73,8 @@ safety control.
 ## Audit / UI contract
 
 - `send_outreach` proposal reasoning remains the planner's explanation.
-- `payload.autonomous_decision` records the accepted lead decisions and rejected lead reasons.
+- Auto-mode `payload.autonomous_decision` records accepted decisions and rejected lead reasons.
+- Auto execution stores an `execution_recheck` snapshot before sending.
 - Execution results say how many accounts were removed by a late autonomous recheck, if any.
 - No new external send path is introduced.
 
