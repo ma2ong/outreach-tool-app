@@ -17,6 +17,8 @@ from app.agent import proposals, task_policy
 
 _SCHEMA_RETRIES = 6
 _SCHEMA_RETRY_SECONDS = 0.25
+_BACKFILL_RETRIES = 6
+_BACKFILL_RETRY_SECONDS = 0.35
 
 
 def _locked(exc: sqlite3.OperationalError) -> bool:
@@ -25,20 +27,10 @@ def _locked(exc: sqlite3.OperationalError) -> bool:
 
 
 def ensure_schema(conn) -> None:
-    """Own the additive owner migration and tolerate a concurrently busy live DB.
-
-    PR #9 can be deployed onto a database that already has the activities table. The
-    first API request must not become responsible for a one-shot ALTER TABLE that fails
-    just because the embedded Worker happens to be writing at the same instant. Retry a
-    bounded number of times, including the base activities schema setup, and tolerate
-    another connection winning the migration race between PRAGMA and ALTER.
-    """
+    """Own the additive owner migration and tolerate a concurrently busy live DB."""
     last_error: sqlite3.OperationalError | None = None
     for attempt in range(_SCHEMA_RETRIES):
         try:
-            # Base activity setup itself executes DDL/index statements, so keep it inside
-            # the retry loop as well; otherwise a busy production DB can fail before the
-            # work_owner migration even starts.
             activities.ensure_schema(conn)
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(activities)")}
             if "work_owner" not in columns:
@@ -47,8 +39,6 @@ def ensure_schema(conn) -> None:
                         "ALTER TABLE activities ADD COLUMN work_owner TEXT NOT NULL DEFAULT 'human'"
                     )
                 except sqlite3.OperationalError as exc:
-                    # A second process may have completed the same additive migration
-                    # after our PRAGMA read. Verify the actual table before failing.
                     columns = {row["name"] for row in conn.execute("PRAGMA table_info(activities)")}
                     if "work_owner" not in columns:
                         raise exc
@@ -72,19 +62,15 @@ def ensure_schema(conn) -> None:
 
 
 def _legacy_provenance(conn) -> int:
-    """Repair only rows whose exact activity id was recorded by the Agent executor.
-
-    Very old production databases may predate `execution_result`. CREATE TABLE IF NOT
-    EXISTS does not add missing columns, so absence of that optional historical evidence
-    must mean "cannot backfill", not a 500 for the entire Sales Tasks page.
-    """
+    """Repair only rows whose exact activity id was recorded by the Agent executor."""
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(agent_proposals)")}
     if "execution_result" not in columns:
         return 0
+    # Materialize the result set before issuing UPDATEs on the same connection.
     rows = conn.execute(
         "SELECT id,lead_no,execution_result FROM agent_proposals"
         " WHERE kind='create_task' AND status='executed'"
-        " AND execution_result LIKE '已建销售任务 #%'")
+        " AND execution_result LIKE '已建销售任务 #%'").fetchall()
     fixed = 0
     for row in rows:
         match = re.search(r"已建销售任务 #(\d+)", row["execution_result"] or "")
@@ -100,10 +86,7 @@ def _legacy_provenance(conn) -> int:
     return fixed
 
 
-def backfill(conn) -> dict:
-    """Classify exact Agent-created activities as human or machine work."""
-    ensure_schema(conn)
-    proposals.ensure_schema(conn)
+def _backfill_once(conn) -> dict:
     provenance = _legacy_provenance(conn)
     changed = 0
     rows = conn.execute(
@@ -129,6 +112,33 @@ def backfill(conn) -> dict:
     if provenance or changed:
         conn.commit()
     return {"provenance_backfilled": provenance, "owners_changed": changed}
+
+
+def backfill(conn) -> dict:
+    """Classify exact Agent-created activities as human or machine work.
+
+    This is a maintenance/write operation. It runs at startup and in the Worker, never
+    as part of a Sales Tasks GET request. A live SQLite writer may still overlap a Worker
+    pass, so retry the whole transaction on transient lock/busy errors.
+    """
+    ensure_schema(conn)
+    proposals.ensure_schema(conn)
+    last_error: sqlite3.OperationalError | None = None
+    for attempt in range(_BACKFILL_RETRIES):
+        try:
+            return _backfill_once(conn)
+        except sqlite3.OperationalError as exc:
+            last_error = exc
+            try:
+                conn.rollback()
+            except sqlite3.Error:
+                pass
+            if not _locked(exc) or attempt + 1 >= _BACKFILL_RETRIES:
+                raise
+            time.sleep(_BACKFILL_RETRY_SECONDS * (attempt + 1))
+    if last_error is not None:
+        raise last_error
+    return {"provenance_backfilled": 0, "owners_changed": 0}
 
 
 def set_owner(conn, activity_id: int, owner: str) -> None:
