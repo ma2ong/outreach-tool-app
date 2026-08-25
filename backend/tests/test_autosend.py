@@ -1,10 +1,10 @@
-"""Auto-send exists because 266 enrolled leads sat for 3 days with zero sends.
+"""Auto-send exists because 266 enrolled leads sat for three days with zero sends.
 It must: fire once per day inside the window, email only, respect budgets, and be
 trivially switchable off.
 
-These tests isolate scheduler/delivery mechanics. PR #21's commercial worth-now policy
-has its own tests; here it is fixed to a healthy account so a cadence test does not turn
-into an accidental sales-scoring test.
+These tests isolate scheduler/delivery mechanics. PR #21's worth-now policy has its own
+tests, so this fixture makes that policy deterministically return `continue`; transport
+quota/SMTP tests should not fail because a sales-scoring fixture changed.
 """
 import datetime as dt
 
@@ -32,11 +32,16 @@ def conn(tmp_path, monkeypatch):
     wa = sequences.create_sequence(c, "WA序列", "whatsapp", [{"day_offset": 0, "body": "hi"}])
     sequences.enroll_leads(c, wa, [40])
 
-    monkeypatch.setattr(
-        followup_decision.sales_intelligence, "score_lead",
-        lambda *a, **k: {"score": 80, "grade": "A", "best_signal": None,
-                         "data_incomplete": False, "missing_decision_maker": False},
-    )
+    def allow(conn, enrollment_id, **kwargs):
+        row = conn.execute(
+            "SELECT lead_no,sequence_id FROM sequence_enrollments WHERE id=?", (enrollment_id,)
+        ).fetchone()
+        return {"enrollment_id": enrollment_id, "lead_no": row["lead_no"],
+                "sequence_id": row["sequence_id"], "action": "continue",
+                "reason": "transport fixture", "score": 80, "touch_count": 0,
+                "signal_confidence": 0, "next_due_date": None}
+
+    monkeypatch.setattr(followup_decision, "evaluate", allow)
     return c
 
 
