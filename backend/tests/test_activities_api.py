@@ -60,3 +60,50 @@ def test_activity_api_validation_and_not_found(tmp_path):
     assert bad.status_code == 400
     assert client.patch("/api/activities/999", json={"title": "x"}).status_code == 404
     assert client.post("/api/activities/999/complete").status_code == 404
+
+
+def test_task_list_survives_a_busy_database(tmp_path):
+    """Regression: the Sales Worker writing in the background made every task list
+    request 500 with 'database is locked' — the ownership backfill is a write, and it
+    ran on the read path. A late ownership repair costs nothing; an unopenable task
+    list costs the day's work."""
+    from app.agent import proposals
+
+    db = str(tmp_path / "t.db")
+    conn = connect(db)
+    init_schema(conn)
+    conn.execute("INSERT INTO leads(no, company_en, country) VALUES (1,'Alpha AV','USA')")
+    conn.commit()
+
+    def fast_conn():
+        # The real DB waits 30s for the lock; the test only needs the failure, not the wait.
+        c = connect(db)
+        c.execute("PRAGMA busy_timeout = 100")
+        return c
+
+    main.app.dependency_overrides[main.get_conn] = fast_conn
+    client = TestClient(main.app)
+    created = client.post("/api/activities", json={"lead_no": 1, "title": "Call back"})
+    assert created.status_code == 200
+    # An Agent-created task whose provenance the backfill still wants to repair: this
+    # is what made the read path try to write on every request.
+    proposals.ensure_schema(conn)
+    conn.execute(
+        "INSERT INTO agent_proposals(kind, title, fingerprint, lead_no, status,"
+        " execution_result, created_at, updated_at)"
+        " VALUES ('create_task', '回电', 'fp-1', 1, 'executed', ?,"
+        " '2026-08-25', '2026-08-25')",
+        (f"已建销售任务 #{created.json()['id']}",))
+    conn.commit()
+
+    worker = connect(db)
+    worker.execute("BEGIN IMMEDIATE")  # what the embedded Sales Worker holds while writing
+    worker.execute("UPDATE leads SET city='Fullerton' WHERE no=1")
+    try:
+        listed = client.get("/api/activities?lead_no=1")
+        stats = client.get("/api/activities/stats")
+    finally:
+        worker.rollback()
+        worker.close()
+    assert listed.status_code == 200 and listed.json()[0]["title"] == "Call back"
+    assert stats.status_code == 200
