@@ -103,6 +103,7 @@ def test_schedule_followup_task_is_closed_after_sequence_ownership(conn):
 
 
 def test_safe_machine_task_materializes_even_when_generic_create_task_is_propose(conn, monkeypatch):
+    activities.ensure_schema(conn)
     proposal = _task(conn, 1, "refresh_icp", autonomy="propose", dedupe="safe-propose")
     assert proposal["status"] == "pending"
     assert conn.execute("SELECT COUNT(*) FROM activities").fetchone()[0] == 0
