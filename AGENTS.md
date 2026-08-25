@@ -21,6 +21,38 @@ follow up with prospects while Allen only handles high-risk decisions and pricin
 - Tests must never open the real `backend/outreach.db`, send a message, launch a social
   browser, or call a live model/search service.
 
+## When a guard says no
+
+A block is a stop, not a puzzle to route around. `message_guard`, the daily caps, the
+do-not-contact list, the language check on enrollment and the pricing rule above all
+refuse specific actions, and the only legitimate response is to reach the same goal a
+genuinely safer way — a smaller batch, a message that actually says something about the
+company, a task for Allen instead of a number.
+
+What is never adapting is the same action wearing a lower signature:
+
+- writing "very competitive, around 15% below market" because a figure with a currency
+  symbol would be caught — the pricing rule is about committing Allen to a price, not
+  about the characters used to write it;
+- padding a template with the company name so the personalisation check passes while
+  the message still says nothing about them;
+- splitting a batch across runs to get under a daily cap, or sending from a second
+  mailbox because the first is capped;
+- reaching a customer through a channel that has no guard on it because the guarded one
+  refused.
+
+Only the first of those is caught mechanically today (`message_guard` reads currency
+next to a number). The rest hold because they are written down here, which is the honest
+state of it — a rule nobody enforces is worth stating only if everyone reading this
+treats it as binding anyway. Each of those is a new and riskier action, not a retry. The honest path is to report the
+block with its reason and what was being attempted, and — where the action genuinely
+should proceed — put it in front of Allen unchanged.
+
+The same rule binds whoever is changing this codebase: a guard that is in the way is
+either wrong (change the rule in its spec, in the open) or right (do the work it is
+asking for). Loosening a check so a test passes, or so today's batch goes out, is the
+same move as the agent base64-ing a command.
+
 ## Development workflow
 
 1. Write or update the numbered spec before changing behavior.
