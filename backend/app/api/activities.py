@@ -37,9 +37,10 @@ def list_activities(status: str | None = "open", scope: str | None = None,
                     work_owner: str | None = None, limit: int = 500,
                     conn=Depends(get_conn)):
     try:
-        # Owner metadata is an additive migration and historic Agent provenance is
-        # repaired only from exact proposal/task IDs. Never infer ownership from titles.
-        task_ownership.backfill(conn)
+        # GET requests must stay read-only. Historic Agent provenance/ownership is
+        # migrated at application startup and refreshed by the autonomous Worker.
+        # Doing that UPDATE work here races the embedded Worker on SQLite and can turn
+        # a harmless page refresh into `database is locked` / HTTP 500.
         rows = activities.list_all(
             conn, status=status, scope=scope, lead_no=lead_no,
             opportunity_id=opportunity_id, limit=max(limit, 1000) if work_owner else limit)
@@ -52,7 +53,8 @@ def list_activities(status: str | None = "open", scope: str | None = None,
 def activity_stats(work_owner: str | None = "human", conn=Depends(get_conn)):
     """Sidebar/task counters mean work the user must do, not Agent background work."""
     try:
-        task_ownership.backfill(conn)
+        # Ownership backfill is intentionally not run inside this GET endpoint. The
+        # service startup migration and Worker own that write path.
         return task_ownership.stats(conn, work_owner)
     except activities.ActivityValidation as exc:
         _bad(exc)
