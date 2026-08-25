@@ -43,7 +43,6 @@ def test_email_send_rotates_across_mailboxes(tmp_path):
     jobs.clear()
     client, db = _client(tmp_path)
     send_api.DB_PATH = db
-    # two mailboxes, cap 1 each -> total capacity 2, so 1 of 3 leads is deferred
     client.post("/api/mailboxes", json={"email": "s1@x.com", "smtp_host": "smtp.x.com",
                 "username": "s1@x.com", "password": "p", "daily_cap": 1})
     client.post("/api/mailboxes", json={"email": "s2@x.com", "smtp_host": "smtp.x.com",
@@ -51,12 +50,13 @@ def test_email_send_rotates_across_mailboxes(tmp_path):
     used = []
     send_api.email_adapter.send_via = lambda mbx, to, s, b, a: used.append(mbx["email"])
     send_api.DELAY_RANGE = (0, 0)
-    r = client.post("/api/send/email", json={"lead_nos": [1, 2, 3], "subject": "Hi", "body": "yo"})
+    r = client.post("/api/send/email", json={
+        "lead_nos": [1, 2, 3], "subject": "Hi {company}", "body": "Hello {company}"})
     assert r.json()["will_send"] == 2
     job = client.get(f"/api/send/jobs/{r.json()['job_id']}").json()
     assert job["status"] == "done"
     assert job["result"]["sent"] == 2 and job["result"]["deferred"] == 1
-    assert set(used) == {"s1@x.com", "s2@x.com"}  # rotated across both
+    assert set(used) == {"s1@x.com", "s2@x.com"}
 
 
 def test_mailbox_test_endpoint_reports_bad_credentials(tmp_path, monkeypatch):
@@ -91,7 +91,6 @@ def test_mailbox_test_404(tmp_path):
 
 
 def test_send_only_mailbox_is_skipped_by_the_reply_poll(tmp_path):
-    """A mailbox whose plan withholds IMAP must not turn every sweep into an error."""
     from app import mailboxes as mb, replies
     _, db = _client(tmp_path)
     conn = connect(db)
@@ -110,7 +109,6 @@ def test_send_only_mailbox_is_skipped_by_the_reply_poll(tmp_path):
 
 
 def test_only_send_only_mailboxes_falls_back_to_the_legacy_gmail(tmp_path, monkeypatch):
-    """Otherwise configuring a send-only box would silently stop all reply detection."""
     from app import mailboxes as mb, replies
     from app.channels.email_adapter import GMAIL_USER
     _, db = _client(tmp_path)

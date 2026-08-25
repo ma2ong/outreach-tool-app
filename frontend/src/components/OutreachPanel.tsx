@@ -2,17 +2,17 @@ import { useEffect, useRef, useState } from "react";
 import { startEmailSend, startChannelSend, fetchJob, fetchQuota, fetchTemplates, createTemplate, loadSeeds } from "../api";
 import type { SendJob, Template } from "../types";
 
-// 与 backend/app/seeds.py 的首触模板保持一致：先给案例再谈需求，写真实点距，自然收尾。
-const DEFAULT_SUBJECT = "Recent LED Display Projects — Shenzhen Maxcolor Visual";
+// 与 backend/app/outreach_defaults.py 保持一致。首封至少明确这家公司；有 hook 时再叠加官网线索。
+const DEFAULT_SUBJECT = "{company} — LED display supply";
 const DEFAULT_BODY = `Hi {contact},
 
-I'd like to share some recent LED display projects we delivered in Korea.
+{hook}
 
-We have completed various indoor and outdoor projects including P1.86, P2.5, P3.91, and P10 LED displays.
+I came across {company} while looking at LED / AV companies in your market.
 
-If you have any upcoming projects, please feel free to contact me anytime. We would be happy to recommend suitable products and provide you with competitive pricing based on your project needs.
+We manufacture indoor and outdoor LED displays, including P1.86, P2.5, P3.91 and P10, and supply integrators and rental companies directly.
 
-Hope we can have a good opportunity to work together!
+If you have a current project, send me the screen size, viewing distance and indoor/outdoor use. I'll organize only the relevant specs and project references.
 
 Best regards,
 Allen Ma
@@ -21,7 +21,6 @@ WhatsApp/WeChat: +86 135-7087-1001`;
 
 const DM_BODY = `Hi {name}, this is Allen from an LED display factory in Shenzhen, China. We supply P0.7–P10 indoor and outdoor LED panels at factory-direct pricing. Happy to share recent project references if you have upcoming LED display needs.`;
 
-// 只发英语和韩语：韩国客户用韩语，其余市场一律英语。
 const KO_COUNTRIES = new Set(["Korea", "South Korea"]);
 const LANG_NAME: Record<string, string> = { ko: "韩语", en: "英语" };
 
@@ -110,6 +109,8 @@ export function OutreachPanel({ selected, countries = [], firstCompany = "", onD
   }
 
   const CH_NAME: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook" };
+  const previewSubject = firstCompany ? subject.replaceAll("{name}", firstCompany).replaceAll("{company}", firstCompany) : subject;
+  const previewBody = firstCompany ? body.replaceAll("{name}", firstCompany).replaceAll("{company}", firstCompany).replaceAll("{hook}", "") : body;
 
   return (
     <div>
@@ -138,7 +139,7 @@ export function OutreachPanel({ selected, countries = [], firstCompany = "", onD
         </select>
         <button className="btn btn-sm" onClick={saveTemplate}>另存为模板</button>
         {templates.length === 0 && (
-          <button className="btn btn-sm btn-primary" title="一键载入英/西/葡三语现成话术（首次触达+跟进+DM）"
+          <button className="btn btn-sm btn-primary" title="一键载入英语/韩语现成话术（首次触达+跟进+DM）"
             onClick={async () => {
               try {
                 const r = await loadSeeds();
@@ -165,11 +166,11 @@ export function OutreachPanel({ selected, countries = [], firstCompany = "", onD
           <textarea className="input" style={{ height: 150 }} value={body} onChange={(e) => setBody(e.target.value)} />
           {firstCompany && (
             <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-              预览（发给 {firstCompany} 时）：{subject.replaceAll("{name}", firstCompany)} — {body.replaceAll("{name}", firstCompany).slice(0, 120)}…
+              预览（发给 {firstCompany} 时）：{previewSubject} — {previewBody.slice(0, 120)}…
             </div>
           )}
           <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-            可用变量：{"{name}"}=公司名 · {"{contact}"}=联系人（没有就只留 "Hi,"）· {"{country}"} · {"{city}"} · {"{hook}"}=按官网写的开场白（没有就自动省掉这句）
+            可用变量：{"{name}"}/{"{company}"}=公司名 · {"{contact}"}=联系人（没有就只留 "Hi,"）· {"{country}"} · {"{city}"} · {"{hook}"}=按官网写的开场白（没有就自动省掉这句）。首封若最终文本没有客户特征或出现明确价格，会在发送前自动拦下。
           </div>
         </>
       ) : (
@@ -202,7 +203,14 @@ export function OutreachPanel({ selected, countries = [], firstCompany = "", onD
         </span>
         {job && <span className="muted">进度 {job.done}/{job.total}
           {job.status === "done" && job.result && "sent" in job.result &&
-            ` — 成功 ${job.result.sent}，失败 ${job.result.failed}，跳过 ${job.result.skipped}${job.result.deferred ? `，延后 ${job.result.deferred}` : ""}`}
+            ` — 成功 ${job.result.sent}，失败 ${job.result.failed}，跳过 ${job.result.skipped}${job.result.deferred ? `，延后 ${job.result.deferred}` : ""}${job.result.held ? `，安全拦下 ${job.result.held}` : ""}`}
+          {job.status === "done" && job.result && (job.result.holds ?? []).length > 0 && (
+            <div className="muted" style={{ marginTop: 6 }}>
+              以下没有发出去：
+              {(job.result.holds ?? []).slice(0, 5).map((h: any) => <div key={h.no}>· #{h.no} {h.detail}</div>)}
+              {(job.result.holds ?? []).length > 5 && <div>· 还有 {(job.result.holds ?? []).length - 5} 家同样问题</div>}
+            </div>
+          )}
           {job.status === "error" && job.result && "error" in job.result && ` — 错误：${job.result.error}`}
         </span>}
       </div>

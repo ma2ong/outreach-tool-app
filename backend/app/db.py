@@ -278,6 +278,11 @@ def connect(path: str) -> sqlite3.Connection:
     )
     conn.row_factory = sqlite3.Row
     _configure_connection(conn)
+    # Versioned content migrations live outside schema creation because production DBs
+    # already have these tables when the first post-upgrade connection opens. The
+    # migration itself is exact-match + settings-gated, so normal connections stay read-only.
+    from app import outreach_defaults
+    outreach_defaults.upgrade_legacy_defaults(conn)
     return conn
 
 

@@ -18,8 +18,8 @@ import time
 
 from app import settings
 
-WINDOW = (9, 20)          # local hours within which the daily run may fire
-CHECK_SECONDS = 300       # scheduler wake-up interval
+WINDOW = (9, 20)
+CHECK_SECONDS = 300
 
 _K_ENABLED = "autosend_enabled"
 _K_LAST_DATE = "autosend_last_date"
@@ -27,9 +27,6 @@ _K_LAST_RESULT = "autosend_last_result"
 _K_SAFETY_PAUSE = "autosend_safety_pause"
 _K_RISK_ACK = "autosend_risk_ack"
 
-# How much the bounce rate may drift above what Allen accepted before the safety gate
-# asks him again. Sending continues, bounces keep arriving, and the rate wobbles on the
-# same list; a sustained climb is a different fact than that wobble.
 ACK_TOLERANCE_PCT = 1.0
 
 
@@ -40,21 +37,12 @@ def enabled(conn) -> bool:
 def set_enabled(conn, on: bool) -> None:
     settings.set_value(conn, _K_ENABLED, "1" if on else "0")
     if on:
-        # Re-enabling is an explicit human decision. Clear the old circuit-breaker flag
-        # so the UI does not claim the engine is still paused after Allen resumed it.
         settings.set_value(conn, _K_SAFETY_PAUSE, "")
     else:
-        # Stopping by hand withdraws the standing acceptance: whatever he agreed to
-        # before, he should see the current numbers again before sending resumes.
         clear_risk_ack(conn)
 
 
 def acknowledge(conn, pause: dict) -> dict:
-    """Record that Allen read this specific evidence and chose to keep sending.
-
-    The snapshot is the point: he accepts a risk level, not a permanently open gate.
-    `oversight.evaluate` honours it until the numbers move past what he agreed to.
-    """
     evidence = pause.get("evidence") or pause.get("deliverability") or {}
     data = {"code": pause.get("code"),
             "bounce_rate": float(evidence.get("bounce_rate") or 0.0),
@@ -76,9 +64,8 @@ def clear_risk_ack(conn) -> None:
 
 
 def ack_covers(ack: dict | None, code: str, bounce_rate: float) -> bool:
-    """True while the acknowledged decision still describes what is happening."""
     if not ack or ack.get("code") != code:
-        return False        # he accepted a different failure than the one now firing
+        return False
     return bounce_rate <= float(ack.get("bounce_rate") or 0.0) + ACK_TOLERANCE_PCT
 
 
@@ -129,7 +116,6 @@ def status(conn) -> dict:
 
 
 def should_run(conn, now: _dt.datetime | None = None) -> bool:
-    """Once per day, inside the window, only when enabled."""
     now = now or _dt.datetime.now()
     if not enabled(conn):
         return False
@@ -140,17 +126,7 @@ def should_run(conn, now: _dt.datetime | None = None) -> bool:
 
 def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None = None,
              email_delay=(16, 28)) -> dict:
-    """Send today's due EMAIL steps within budget and record the outcome.
-
-    Marks the day as done even on failure — retrying a failing send path every five
-    minutes all day would hammer the SMTP account, which is its own red flag.
-
-    Because of that, the run must ALWAYS leave a result behind. Reading the due queue
-    used to sit outside the try: on 2026-08-20 the scheduler woke while the DB was
-    mid-migration, the read raised, the day was already marked done, and the failure was
-    swallowed by the scheduler's catch-all. The readiness centre kept showing a green
-    tick next to a follow-up engine that had not sent since 08-05.
-    """
+    """Send today's due EMAIL steps within budget and record the outcome."""
     from app import sequence_send, sequences
     now = now or _dt.datetime.now()
     settings.set_value(conn, _K_LAST_DATE, now.date().isoformat())
@@ -167,6 +143,8 @@ def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None =
         settings.set_value(conn, _K_LAST_RESULT, f"{now:%m-%d %H:%M} 运行失败：{str(exc)[:120]}")
         return {"sent": 0, "failed": 0, "deferred": 0}
     note = f"{now:%m-%d %H:%M} 自动发送：成功 {res['sent']}，失败 {res['failed']}"
+    if res.get("held"):
+        note += f"，安全拦下 {res['held']}"
     if res.get("deferred"):
         note += f"，额度外延后 {res['deferred']}（明天继续）"
     settings.set_value(conn, _K_LAST_RESULT, note)
@@ -174,7 +152,6 @@ def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None =
 
 
 def scheduler_loop(db_path: str) -> None:
-    """Daemon thread: check every CHECK_SECONDS whether today's run is owed."""
     from app.db import connect
     from app.api import send as send_api
     while True:
@@ -185,7 +162,7 @@ def scheduler_loop(db_path: str) -> None:
                     run_once(conn, send_api.pick_sender(conn), send_api.DEFAULT_ATTACHMENT)
             finally:
                 conn.close()
-        except Exception:  # noqa: BLE001 — the scheduler must survive anything
+        except Exception:  # noqa: BLE001
             pass
         time.sleep(CHECK_SECONDS)
 
