@@ -46,6 +46,18 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
     holds: list[dict] = []
     decisions: list[dict] = []
 
+    # Prepare optional evidence modules once per batch. This matters on SQLite: schema
+    # migration checks and weak-campaign aggregation repeated 30 times add lock pressure
+    # without changing any decision.
+    followup_decision = None
+    weak_sequence_ids: set[int] = set()
+    if autonomous_quality and any(d["channel"] == "email" for d in items):
+        from app.agent import followup_decision as _followup_decision
+        from app.agent import oversight
+        followup_decision = _followup_decision
+        followup_decision.ensure_schema(conn)
+        weak_sequence_ids = oversight.weak_sequence_ids(conn)
+
     # Every channel is capped per day and per batch — email included (a 266-lead due
     # queue sent in one go from one Gmail is a spam-folder event).
     remaining = {ch: max(0, co.DAILY_CAP[ch] - co.sent_today(conn, ch)) for ch in co.DAILY_CAP}
@@ -62,10 +74,12 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
             deferred += 1
             continue
 
-        if autonomous_quality and ch == "email":
-            from app.agent import followup_decision
-            decision = followup_decision.apply(
-                conn, followup_decision.evaluate(conn, d["enrollment_id"]))
+        if autonomous_quality and ch == "email" and followup_decision is not None:
+            decision = followup_decision.evaluate(
+                conn, d["enrollment_id"], _ensure=False,
+                weak_sequence_ids=weak_sequence_ids,
+            )
+            decision = followup_decision.apply(conn, decision, _ensure=False)
             decisions.append({
                 "enrollment_id": d["enrollment_id"], "lead_no": no,
                 "action": decision["action"], "reason": decision["reason"],
