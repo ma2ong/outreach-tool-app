@@ -1,5 +1,8 @@
 import sqlite3
 
+DB_BUSY_TIMEOUT_MS = 30_000
+WAL_AUTOCHECKPOINT_PAGES = 1_000
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS leads (
     no INTEGER PRIMARY KEY,
@@ -240,14 +243,41 @@ _TABLE_COLUMNS = {
 }
 
 
+def _configure_connection(conn: sqlite3.Connection) -> None:
+    """Apply the same concurrency profile to every API/Worker connection.
+
+    WAL is persistent on a normal file DB, but some older databases may still be in
+    DELETE mode when the first post-upgrade connection opens. Switch only when needed;
+    if a special in-memory/read-only connection cannot change the journal, keep serving
+    it rather than turning a connection preference into an outage.
+    """
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute(f"PRAGMA busy_timeout = {DB_BUSY_TIMEOUT_MS}")
+    mode_row = conn.execute("PRAGMA journal_mode").fetchone()
+    mode = str(mode_row[0] if mode_row else "").lower()
+    if mode not in ("wal", "memory"):
+        try:
+            mode_row = conn.execute("PRAGMA journal_mode = WAL").fetchone()
+            mode = str(mode_row[0] if mode_row else mode).lower()
+        except sqlite3.OperationalError:
+            # Another process may currently own the brief journal-mode transition lock.
+            # The 30s busy timeout still protects normal writes; init_schema will retry
+            # WAL convergence at process startup.
+            pass
+    conn.execute("PRAGMA synchronous = NORMAL")
+    if mode == "wal":
+        conn.execute(f"PRAGMA wal_autocheckpoint = {WAL_AUTOCHECKPOINT_PAGES}")
+
+
 def connect(path: str) -> sqlite3.Connection:
     # Reply polling, automatic follow-ups and API requests can write concurrently.
     # Waiting is safer than immediately failing a real sales action with
     # "database is locked" while a background task holds the short write lock.
-    conn = sqlite3.connect(path, check_same_thread=False, timeout=30)
+    conn = sqlite3.connect(
+        path, check_same_thread=False, timeout=DB_BUSY_TIMEOUT_MS / 1000,
+    )
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA busy_timeout = 30000")
+    _configure_connection(conn)
     return conn
 
 
@@ -270,6 +300,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
     # trade-off sensible and daily backups remain the recovery boundary.
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute(f"PRAGMA wal_autocheckpoint = {WAL_AUTOCHECKPOINT_PAGES}")
     conn.executescript(SCHEMA)
     _migrate_columns(conn)
     conn.executescript(INDEXES)

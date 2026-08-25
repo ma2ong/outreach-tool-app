@@ -36,6 +36,21 @@ export type ControlCenterNextAction = {
   action: string;
 };
 
+export type AgentQueueHealth = {
+  open: number;
+  due: number;
+  stale: number;
+  repeated_failures: number;
+  last_sweep: null | {
+    at?: string;
+    processed?: number;
+    done?: number;
+    rescheduled?: number;
+    failed?: number;
+    materialized?: Record<string, number>;
+  };
+};
+
 export type ControlCenterSnapshot = {
   generated_at: string;
   state: "healthy" | "attention" | "critical";
@@ -50,7 +65,12 @@ export type ControlCenterSnapshot = {
     due_accounts: number;
     unhealthy_opportunities: number;
     unclassified_replies: number;
+    agent_work_open: number;
+    agent_work_due: number;
+    agent_work_stale: number;
+    agent_work_repeated_failures: number;
   };
+  agent_queue: AgentQueueHealth;
   autonomy: {
     by_kind: Record<string, string>;
     counts: Record<string, number>;

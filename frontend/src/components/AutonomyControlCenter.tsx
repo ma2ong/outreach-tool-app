@@ -117,6 +117,8 @@ export function AutonomyControlCenter() {
   if (!available) return null;
 
   const c = data?.counters;
+  const queue = data?.agent_queue;
+  const sweep = queue?.last_sweep;
   const state = data?.state ?? "attention";
   const stateText = state === "healthy" ? "自主销售正常" : state === "critical" ? "自主销售有严重阻塞" : "自主销售需要关注";
   const dot = state === "healthy" ? "●" : state === "critical" ? "●" : "●";
@@ -143,12 +145,25 @@ export function AutonomyControlCenter() {
           {c && (
             <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 12 }}>
               <Stat label="等你确认" value={c.awaiting_approval} hint={`高风险 ${c.high_risk_approval}`} />
+              <Stat label="Agent待处理" value={c.agent_work_open} hint={`到期 ${c.agent_work_due}`} />
+              <Stat label="Agent长期积压" value={c.agent_work_stale} />
+              <Stat label="Agent反复失败" value={c.agent_work_repeated_failures} />
               <Stat label="今日自动完成" value={c.auto_executed_today} />
               <Stat label="今日你确认后" value={c.approved_executed_today} />
               <Stat label="近7天失败" value={c.failed_7d} />
               <Stat label="你接管会话" value={c.human_takeovers} />
               <Stat label="到期客户" value={c.due_accounts} />
               <Stat label="高风险商机" value={c.unhealthy_opportunities} />
+            </div>
+          )}
+
+          {sweep && (
+            <div style={{ marginTop: 10, padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 8 }}>
+              <div className="stat-label">最近一次 Agent 队列消化</div>
+              <div style={{ fontSize: 11, marginTop: 3 }}>
+                处理 {sweep.processed ?? 0} · 完成 {sweep.done ?? 0} · 延后复查 {sweep.rescheduled ?? 0} · 失败重试 {sweep.failed ?? 0}
+              </div>
+              {sweep.at && <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>{new Date(sweep.at).toLocaleString()}</div>}
             </div>
           )}
 
