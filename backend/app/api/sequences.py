@@ -79,8 +79,12 @@ def due(channel: str | None = None, conn=Depends(get_conn)):
 def enroll(sid: int, req: EnrollRequest, conn=Depends(get_conn)):
     if seq.get_sequence(conn, sid) is None:
         raise HTTPException(status_code=404, detail="sequence not found")
+    # Report the language refusals separately: "3 fewer than selected" reads as a
+    # duplicate skip, and the user would try again instead of picking the right sequence.
+    wrong_language = seq.language_blocked(conn, sid, req.lead_nos)
     enrolled = seq.enroll_leads(conn, sid, req.lead_nos)
-    return {"enrolled": enrolled, "selected": len(req.lead_nos)}
+    return {"enrolled": enrolled, "selected": len(req.lead_nos),
+            "wrong_language": len(wrong_language)}
 
 
 @router.post("/advance")

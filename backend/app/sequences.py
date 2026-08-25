@@ -9,6 +9,18 @@ Enrollment drives eligibility (not the outreach 'messaged' exclusion), so step 2
 can reach a lead that step 1 already messaged. Replies stop the enrollment.
 """
 import datetime as _dt
+import re
+
+# A sequence written in Korean can only go to Korean companies. The reverse is not
+# restricted: English is the working language of the trade, and a Korean buyer reading
+# an English cold email is ordinary.
+#
+# This exists because enrolling is two clicks and the lead selection survives the first
+# one: on 2026-08-13 the same fifty Brazilian and Chilean leads were added to the English
+# sequence and then to the Korean one, and stayed queued for Korean cold email for
+# twelve days. A rule the send path enforces is worth more than remembering to unselect.
+_KOREAN_TEXT = re.compile(r"[가-힣]")
+_KOREAN_COUNTRIES = {"south korea", "korea", "republic of korea", "대한민국", "한국"}
 
 
 def _today() -> str:
@@ -66,9 +78,31 @@ def get_sequence(conn, sid: int) -> dict | None:
     return d
 
 
+def is_korean_sequence(conn, sid: int) -> bool:
+    """Written in Korean — judged from the copy itself, not from the sequence name."""
+    row = conn.execute("SELECT name FROM sequences WHERE id=?", (sid,)).fetchone()
+    if row is None:
+        return False
+    text = row["name"] + " " + " ".join(
+        f"{s.get('subject') or ''} {s.get('body') or ''}" for s in _steps(conn, sid))
+    return bool(_KOREAN_TEXT.search(text))
+
+
+def language_blocked(conn, sid: int, lead_nos: list[int]) -> list[int]:
+    """Leads this sequence must not be sent to because of its language."""
+    if not lead_nos or not is_korean_sequence(conn, sid):
+        return []
+    placeholders = ",".join("?" * len(lead_nos))
+    rows = conn.execute(
+        f"SELECT no, country FROM leads WHERE no IN ({placeholders})", lead_nos).fetchall()
+    return [r["no"] for r in rows
+            if str(r["country"] or "").strip().lower() not in _KOREAN_COUNTRIES]
+
+
 def enroll_leads(conn, sid: int, lead_nos: list[int]) -> int:
     """Enrol leads at step 0; due today (day_offset of step 0, usually 0).
-    Skips leads that already replied on this sequence's channel, and dup enrollments."""
+    Skips leads that already replied on this sequence's channel, leads the sequence's
+    language rules out, and dup enrollments."""
     steps = _steps(conn, sid)
     if not steps:
         return 0
@@ -78,8 +112,11 @@ def enroll_leads(conn, sid: int, lead_nos: list[int]) -> int:
     channel = seq["channel"]
     today = _today()
     first_due = _plus_days(today, steps[0]["day_offset"])
+    wrong_language = set(language_blocked(conn, sid, lead_nos))
     enrolled = 0
     for no in lead_nos:
+        if no in wrong_language:
+            continue
         replied = conn.execute(
             "SELECT 1 FROM outreach WHERE lead_no=? AND channel=? AND status='replied'",
             (no, channel)).fetchone()
