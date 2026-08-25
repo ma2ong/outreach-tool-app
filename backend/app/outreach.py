@@ -3,7 +3,7 @@ import random
 import time
 from typing import Callable
 
-from app import campaigns
+from app import campaigns, message_guard
 from app.personalize import render
 
 # Email needs the same anti-ban discipline as WhatsApp/Instagram. A single Gmail that
@@ -79,11 +79,20 @@ def send_campaign(conn, lead_nos: list[int], subject: str, body: str,
     budget = remaining_today(conn) if max_send is None else max_send
     targets = all_targets[:min(budget, MAX_BATCH)]
     deferred = len(all_targets) - len(targets)
-    sent = failed = 0
+    sent = failed = held = 0
     errors: list[dict] = []
+    holds: list[dict] = []
     for i, lead in enumerate(targets, 1):
         try:
-            sender(lead["email"], render(subject, lead), render(body, lead), attachment)
+            rendered_subject, rendered_body = render(subject, lead), render(body, lead)
+            # Judge the text that actually leaves, not the template someone reviewed.
+            verdict = message_guard.check(rendered_body, lead, subject=rendered_subject)
+            if verdict.blocked:
+                held += 1
+                holds.append({"no": lead["no"], "reason": verdict.reason,
+                              "detail": verdict.detail})
+                continue
+            sender(lead["email"], rendered_subject, rendered_body, attachment)
             _mark_messaged(conn, lead["no"], today)
             campaigns.log_send(conn, lead["no"], "email", label)
             sent += 1
@@ -97,4 +106,5 @@ def send_campaign(conn, lead_nos: list[int], subject: str, body: str,
             if hi > 0:
                 time.sleep(random.randint(lo, hi))
     return {"sent": sent, "failed": failed, "deferred": deferred,
-            "skipped": total_selected - len(all_targets), "errors": errors}
+            "skipped": total_selected - len(all_targets), "errors": errors,
+            "held": held, "holds": holds}

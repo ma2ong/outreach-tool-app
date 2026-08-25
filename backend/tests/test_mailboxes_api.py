@@ -51,7 +51,7 @@ def test_email_send_rotates_across_mailboxes(tmp_path):
     used = []
     send_api.email_adapter.send_via = lambda mbx, to, s, b, a: used.append(mbx["email"])
     send_api.DELAY_RANGE = (0, 0)
-    r = client.post("/api/send/email", json={"lead_nos": [1, 2, 3], "subject": "Hi", "body": "yo"})
+    r = client.post("/api/send/email", json={"lead_nos": [1, 2, 3], "subject": "Hi", "body": "Hi {company},"})
     assert r.json()["will_send"] == 2
     job = client.get(f"/api/send/jobs/{r.json()['job_id']}").json()
     assert job["status"] == "done"

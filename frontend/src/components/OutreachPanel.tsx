@@ -202,7 +202,16 @@ export function OutreachPanel({ selected, countries = [], firstCompany = "", onD
         </span>
         {job && <span className="muted">进度 {job.done}/{job.total}
           {job.status === "done" && job.result && "sent" in job.result &&
-            ` — 成功 ${job.result.sent}，失败 ${job.result.failed}，跳过 ${job.result.skipped}${job.result.deferred ? `，延后 ${job.result.deferred}` : ""}`}
+            ` — 成功 ${job.result.sent}，失败 ${job.result.failed}，跳过 ${job.result.skipped}${job.result.deferred ? `，延后 ${job.result.deferred}` : ""}${job.result.held ? `，拦下 ${job.result.held}` : ""}`}
+          {job.status === "done" && job.result && (job.result.holds ?? []).length > 0 && (
+            <div className="muted" style={{ marginTop: 6 }}>
+              以下没发出去，改好再发：
+              {(job.result.holds ?? []).slice(0, 5).map((h: any) => (
+                <div key={h.no}>· #{h.no} {h.detail}</div>
+              ))}
+              {(job.result.holds ?? []).length > 5 && <div>· 还有 {(job.result.holds ?? []).length - 5} 家同样问题</div>}
+            </div>
+          )}
           {job.status === "error" && job.result && "error" in job.result && ` — 错误：${job.result.error}`}
         </span>}
       </div>

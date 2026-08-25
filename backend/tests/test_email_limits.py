@@ -25,7 +25,7 @@ def _sender(sent):
 
 def test_blast_respects_batch_cap(conn):
     sent = []
-    res = outreach.send_campaign(conn, list(range(1, 61)), "s", "b", None,
+    res = outreach.send_campaign(conn, list(range(1, 61)), "s", "Hi {company},", None,
                                  sender=_sender(sent), delay_range=(0, 0),
                                  max_send=outreach.remaining_today(conn))
     assert len(sent) == outreach.MAX_BATCH
@@ -37,7 +37,7 @@ def test_daily_cap_across_runs(conn):
     sent = []
     total = 0
     for _ in range(4):  # keep sending until the day's budget is gone
-        res = outreach.send_campaign(conn, list(range(1, 61)), "s", "b", None,
+        res = outreach.send_campaign(conn, list(range(1, 61)), "s", "Hi {company},", None,
                                      sender=_sender(sent), delay_range=(0, 0),
                                      max_send=outreach.remaining_today(conn))
         total += res["sent"]
