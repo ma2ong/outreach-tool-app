@@ -33,11 +33,11 @@ def _eidim_shape(conn):
     body = "This message is auto-reply. Please DO NOT reply to this email."
     cur = conn.execute(
         "INSERT INTO inbox_messages(lead_no,channel,kind,from_addr,subject,body,received_at)"
-        " VALUES (1,'email','reply',?,?,?,?,?)", (sender, subject, body, now))
+        " VALUES (1,'email','reply',?,?,?,?)", (sender, subject, body, now))
     reply_id = cur.lastrowid
     conn.execute(
         "INSERT INTO inbox_messages(lead_no,channel,kind,from_addr,subject,body,received_at)"
-        " VALUES (1,'email','auto',?,?,?,?,?)", (sender, subject, body, now))
+        " VALUES (1,'email','auto',?,?,?,?)", (sender, subject, body, now))
     stamp = "2026-08-25T01:16:00+00:00"
     conn.execute(
         "INSERT INTO contacts(lead_no,name,email,role,is_primary,source,created_at,updated_at)"
