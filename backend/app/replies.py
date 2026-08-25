@@ -9,6 +9,10 @@ Each fetched message is classified:
   the address is still good, the server was just slow, so there is nothing to read or do.
 - unsubscribe (remove me / stop ...): set lead.do_not_contact=1 (suppressed everywhere)
   and also mark replied (it IS a human answer, and must stop sequences).
+- auto     : an autoresponder ("we have received your email"), not a person. Filed in
+  the inbox so it is visible, but it never marks the lead replied, never creates a
+  reply task and never adopts its sender as a contact. Treating one as a human answer
+  silently ends the follow-up sequence for a lead nobody has actually read.
 - reply    : store content, mark replied via repository.mark_replied, which stops any
   active sequence enrollment so the follow-up queue never chases someone who answered.
 
@@ -55,6 +59,38 @@ _UNSUB_RE = re.compile(
     r"보내지\s*마|그만\s*보내", re.I)
 
 _BODY_LIMIT = 4000
+
+# A mailbox that exists only to send. Sub-address forms count: eidim.com answers from
+# 'hello+noreply@eidim.com', which looks like an ordinary mailbox to any check on the
+# part before the '+'.
+_NO_REPLY_RE = re.compile(
+    r"(^|[.+_-])(no-?reply|do-?not-?reply|donotreply|noreply|auto-?reply|"
+    r"mailer-daemon|postmaster|bounce[sd]?)([.+_-]|@)", re.I)
+# RFC 3834 and the headers real autoresponders set alongside it.
+_AUTO_HEADERS = ("auto-submitted", "x-autoreply", "x-autorespond",
+                 "x-auto-response-suppress")
+_AUTO_PRECEDENCE = {"auto_reply", "bulk", "junk", "list"}
+
+
+def is_no_reply_address(addr: str | None) -> bool:
+    """True for a send-only mailbox — never a person worth keeping as a contact."""
+    return bool(_NO_REPLY_RE.search(_norm(addr)))
+
+
+def is_auto_reply_message(m: dict) -> bool:
+    """Autoresponder, by header first and wording second.
+
+    Headers are the reliable half: an autoresponder announces itself in
+    `Auto-Submitted` / `Precedence`, whatever language its body is written in. The
+    wording patterns (shared with the WhatsApp/Instagram path) catch the rest.
+    """
+    from app import inbound
+
+    if m.get("auto_submitted"):
+        return True
+    if is_no_reply_address(m.get("from_addr")):
+        return True
+    return inbound.is_auto_reply(f"{m.get('subject') or ''}\n{m.get('body') or ''}")
 
 _K_LAST_AT = "reply_sync_last_at"
 _K_LAST_SUCCESS = "reply_sync_last_success_at"
@@ -110,6 +146,15 @@ def _plain_body(msg) -> str:
     return fallback[:_BODY_LIMIT]
 
 
+def _declares_auto(msg) -> bool:
+    """Does the message itself say a machine sent it? (RFC 3834 and friends)"""
+    if str(msg.get("Auto-Submitted") or "").strip().lower() not in ("", "no"):
+        return True
+    if str(msg.get("Precedence") or "").strip().lower() in _AUTO_PRECEDENCE:
+        return True
+    return any(msg.get(header) for header in _AUTO_HEADERS)
+
+
 def fetch_mailbox_messages(mailbox: dict, since_days: int = 7) -> list[dict]:
     """Fetch full messages from one configured mailbox without changing read state."""
     host = mailbox.get("imap_host") or mailboxes.infer_imap_host(mailbox.get("smtp_host", ""))
@@ -142,6 +187,7 @@ def fetch_mailbox_messages(mailbox: dict, since_days: int = 7) -> list[dict]:
                 "subject": _decode(msg.get("Subject", "")),
                 "body": _plain_body(msg),
                 "received_at": received,
+                "auto_submitted": _declares_auto(msg),
             })
     return messages
 
@@ -222,7 +268,7 @@ def process_messages(conn, messages: list[dict]) -> dict:
     """Classify and store fetched messages against the lead base."""
     by_email = _lead_emails(conn)
     by_domain = _by_domain(by_email)
-    replies_n = bounces = delayed = unsubs = stored = 0
+    replies_n = bounces = delayed = unsubs = stored = auto = 0
     lead_nos: list[int] = []
     for m in messages:
         sender = _norm(m.get("from_addr"))
@@ -251,11 +297,19 @@ def process_messages(conn, messages: list[dict]) -> dict:
         matched = _resolve_sender(sender, by_email, by_domain)
         if not matched:
             continue
-        kind = "unsubscribe" if _UNSUB_RE.search(subject) or _UNSUB_RE.search(body) else "reply"
+        if _UNSUB_RE.search(subject) or _UNSUB_RE.search(body):
+            # An opt-out written by an autoresponder is still an opt-out, so this is
+            # read before the auto-reply check.
+            kind = "unsubscribe"
+        elif is_auto_reply_message(m):
+            kind = "auto"
+        else:
+            kind = "reply"
         # A reply/unsub from someone at the company applies to every lead we hold there:
         # store the message once (on the first), stop chasing all of them.
         exact_contact = contacts.find_email(conn, sender, lead_no=matched[0])
-        if exact_contact is None and kind == "reply" and len(matched) == 1:
+        if (exact_contact is None and kind == "reply" and len(matched) == 1
+                and not is_no_reply_address(sender)):
             # A person often replies from john@company.com after outreach went to
             # info@company.com. The unique company-domain match is strong enough to
             # adopt that person as a secondary contact, but never make them the send
@@ -277,6 +331,11 @@ def process_messages(conn, messages: list[dict]) -> dict:
             if kind == "reply":
                 from app import activities
                 activities.create_reply_task(conn, inbox_id)
+        if kind == "auto":
+            # Deliberately no mark_replied: the follow-up sequence keeps running,
+            # because no one at the company has answered yet.
+            auto += 1
+            continue
         for no in matched:
             if kind == "unsubscribe":
                 conn.execute("UPDATE leads SET do_not_contact=1 WHERE no=?", (no,))
@@ -288,7 +347,8 @@ def process_messages(conn, messages: list[dict]) -> dict:
             replies_n += 1
     conn.commit()
     return {"replies": replies_n, "bounces": bounces, "delayed": delayed,
-            "unsubscribes": unsubs, "stored": stored, "lead_nos": lead_nos}
+            "unsubscribes": unsubs, "auto": auto, "stored": stored,
+            "lead_nos": lead_nos}
 
 
 def backfill_bounced_at(conn) -> int:
