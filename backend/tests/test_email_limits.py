@@ -1,8 +1,4 @@
-"""Email had no send limits at all while WhatsApp/Instagram were strictly capped.
-With 266 leads enrolled, one 'select all -> send' would have blasted 266 cold emails
-from a single Gmail in one day — a guaranteed spam-folder/account-limit event.
-These tests hold the line.
-"""
+"""Email send-limit tests use valid personalized copy so they test quotas, not guard holds."""
 import pytest
 
 from app import outreach, sequences, sequence_send
@@ -25,19 +21,19 @@ def _sender(sent):
 
 def test_blast_respects_batch_cap(conn):
     sent = []
-    res = outreach.send_campaign(conn, list(range(1, 61)), "s", "b", None,
+    res = outreach.send_campaign(conn, list(range(1, 61)), "{company}", "Hello {company}", None,
                                  sender=_sender(sent), delay_range=(0, 0),
                                  max_send=outreach.remaining_today(conn))
     assert len(sent) == outreach.MAX_BATCH
     assert res["sent"] == outreach.MAX_BATCH
-    assert res["deferred"] == 60 - outreach.MAX_BATCH  # rest queued for later, not lost
+    assert res["deferred"] == 60 - outreach.MAX_BATCH
 
 
 def test_daily_cap_across_runs(conn):
     sent = []
     total = 0
-    for _ in range(4):  # keep sending until the day's budget is gone
-        res = outreach.send_campaign(conn, list(range(1, 61)), "s", "b", None,
+    for _ in range(4):
+        res = outreach.send_campaign(conn, list(range(1, 61)), "{company}", "Hello {company}", None,
                                      sender=_sender(sent), delay_range=(0, 0),
                                      max_send=outreach.remaining_today(conn))
         total += res["sent"]
@@ -49,11 +45,10 @@ def test_remaining_counts_only_today(conn):
     conn.execute("INSERT INTO outreach(lead_no, channel, status, message_sent_date)"
                  " VALUES (1, 'email', 'messaged', '2020-01-01')")
     conn.commit()
-    assert outreach.remaining_today(conn) == outreach.DAILY_CAP  # yesterday doesn't count
+    assert outreach.remaining_today(conn) == outreach.DAILY_CAP
 
 
 def test_mailbox_rotation_raises_the_ceiling(conn):
-    """Configured mailboxes are the way to send more: their caps sum up."""
     conn.execute("INSERT INTO mailboxes(email, smtp_host, port, username, password, daily_cap, active)"
                  " VALUES ('a@x.com','smtp',465,'a','p',50,1), ('b@x.com','smtp',465,'b','p',50,1)")
     conn.commit()
@@ -62,7 +57,6 @@ def test_mailbox_rotation_raises_the_ceiling(conn):
 
 
 def test_sequence_send_is_capped_too(conn):
-    """The due queue is the other door into email sending — it must be locked as well."""
     sid = sequences.create_sequence(conn, "S", "email", [{"day_offset": 0, "body": "hi {name}"}])
     sequences.enroll_leads(conn, sid, list(range(1, 61)))
     due = sequences.due_queue(conn)
@@ -71,17 +65,11 @@ def test_sequence_send_is_capped_too(conn):
                                  sender=_sender(sent), email_delay=(0, 0))
     assert len(sent) == outreach.MAX_BATCH
     assert res["deferred"] == 60 - outreach.MAX_BATCH
-    # deferred enrollments stay active so tomorrow's queue still has them
     still = {d["lead_no"] for d in sequences.due_queue(conn)}
     assert len(still) == 60 - outreach.MAX_BATCH
 
 
 def test_sequence_api_send_rotates_mailboxes(tmp_path, monkeypatch):
-    """Configuring mailboxes raises the daily budget to their sum. If the SEQUENCE send
-    path ignores rotation and keeps using the single fallback Gmail, that raised budget
-    gets blasted from ONE inbox — worse than not configuring mailboxes at all. This
-    drives the real API path, where the sender is chosen.
-    """
     import app.api.sequences as seq_api
     from app.api import send as send_api
     from app import jobs
@@ -111,8 +99,7 @@ def test_sequence_api_send_rotates_mailboxes(tmp_path, monkeypatch):
     seq_api._run_send(job, due_ids, None)
 
     assert jobs.get(job)["result"]["sent"] == 4
-    assert sorted(used) == ["a@x.com", "a@x.com", "b@x.com", "b@x.com"]  # rotated, not one inbox
-    # rotation usage is recorded, so tomorrow's budget is right
+    assert sorted(used) == ["a@x.com", "a@x.com", "b@x.com", "b@x.com"]
     c = connect(db)
     counts = {r["mailbox_id"]: r["count"] for r in c.execute("SELECT mailbox_id, count FROM mailbox_sends")}
     assert sorted(counts.values()) == [2, 2]
