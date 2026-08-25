@@ -1,6 +1,7 @@
 import re
 from typing import Callable
 
+from app import screening
 from app.brief import build as build_brief
 from app.icp import classify_text
 from app.jina import fetch as jina_fetch
@@ -14,7 +15,9 @@ _TITLE = re.compile(r'^\s*(?:#\s+|Title:\s*)(.+)$', re.I | re.M)
 _TITLE_SEP = re.compile(r'\s+[|\-–—]\s+')
 
 _WA = re.compile(r'(?:wa\.me/|api\.whatsapp\.com/send\?phone=)(?:%2B|\+)?(\d{8,15})', re.I)
-_TEL = re.compile(r'tel:\+?([\d\-().\s]{8,20})', re.I)
+# The '+' is captured, not skipped: it is the only thing separating a dialable
+# international number from a local one.
+_TEL = re.compile(r'tel:(\+?[\d\-().\s]{8,20})', re.I)
 _INTL = re.compile(r'\+\d[\d\-().\s]{7,18}\d')
 
 _IG = re.compile(r'instagram\.com/([A-Za-z0-9_.]{2,30})', re.I)
@@ -44,20 +47,32 @@ def _digits(raw: str) -> str:
 
 
 def extract_phones(text: str) -> list[str]:
-    """Normalized +digits, WhatsApp (wa.me) numbers first."""
+    """WhatsApp (wa.me) numbers first, then whatever the page prints.
+
+    Only a number that already carries a country code keeps the '+' form. A local
+    number written as 'tel:877.773.4346' has no country in it, and prefixing one
+    ('+8777734346') both invents a country code screening would then read back as
+    China and leaves a number nobody can dial. wa.me numbers are exempt: WhatsApp
+    links are international by definition. A conventional `00` international prefix
+    is normalized to `+` rather than being preserved as the fake country code `+00`.
+    """
     out, seen = [], set()
     groups = (
-        [m.group(1) for m in _WA.finditer(text)],
-        [m.group(1) for m in _TEL.finditer(text)],
-        [m.group(0) for m in _INTL.finditer(text)],
+        [(m.group(1), True) for m in _WA.finditer(text)],
+        [(m.group(1), False) for m in _TEL.finditer(text)],
+        [(m.group(0), True) for m in _INTL.finditer(text)],
     )
     for grp in groups:
-        for raw in grp:
+        for raw, international in grp:
+            cleaned = raw.strip()
             d = _digits(raw)
+            international = international or cleaned.startswith(("+", "00"))
+            if cleaned.startswith("00"):
+                d = d[2:]
             if not 8 <= len(d) <= 15 or d in seen:
                 continue
             seen.add(d)
-            out.append("+" + d)
+            out.append("+" + d if international else cleaned)
     return out
 
 
@@ -79,6 +94,11 @@ def extract_socials(text: str) -> dict:
     return {"instagram": ig, "facebook": fb, "linkedin": li}
 
 
+# "Contact PixelFLEX" is a page title, not a company — eight records in the book carry
+# one. Stripping the word costs us any prospect genuinely named "Contact <something>",
+# which in an LED/AV lead base is a trade worth making.
+_CONTACT_PREFIX = re.compile(r'^contact(?:\s+us)?\s*[-–—:|]\s*|^contact\s+(?!us\b)', re.I)
+
 _GENERIC_TITLES = {
     "contact", "contact us", "contacts", "contact-us", "contacto", "contáctanos",
     "contactanos", "contato", "contate-nos", "kontakt", "문의", "연락처",
@@ -94,10 +114,13 @@ def extract_company_name(text: str) -> str | None:
     m = _TITLE.search(text)
     if not m:
         return None
-    name = _TITLE_SEP.split(m.group(1).strip())[0].strip()
-    if not name or name.lower().strip(" -–—|") in _GENERIC_TITLES:
-        return None
-    return name
+    # "Contact Us | Impact LED" names the page first and the company second, so take
+    # the first part that is not just a page label.
+    for part in _TITLE_SEP.split(m.group(1).strip()):
+        name = _CONTACT_PREFIX.sub("", part.strip()).strip()
+        if name and name.lower().strip(" -–—|") not in _GENERIC_TITLES:
+            return name
+    return None
 
 
 _PATH_SOURCE = {"/contact": "site.contact-page", "/contact-us": "site.contact-page",
@@ -205,7 +228,13 @@ def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict
             break
     company = home_company or company
 
-    joined = "\n".join(page["text"] for page in pages)
+    # Country is an identity fact. Infer it only from the bounded contact/home pass,
+    # before following product, project, news or signal pages. Those later pages often
+    # mention customer markets and case-study countries that are not the company's own.
+    identity_text = "\n".join(page["text"] for page in pages)
+    country = screening.country_from_text(identity_text)
+
+    joined = identity_text
     seen = {page["url"] for page in pages}
     # Improve product/company evidence only when the contact pass did not already find a
     # specific pitch. This keeps the old bounded behavior.
@@ -230,7 +259,7 @@ def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict
     if best is None and emails:
         best = emails[0]
     written = build_brief(text, icp=icp)
-    return {"domain": domain, "pages": len(pages),
+    return {"domain": domain, "pages": len(pages), "country": country,
             "emails": emails, "email": best, "company": company,
             "email_source": email_sources.get(best.lower()) if best else None,
             "phone": phones[0] if phones else None, "phones": phones,

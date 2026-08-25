@@ -209,3 +209,67 @@ def test_an_ordinary_korean_reply_is_not_read_as_an_opt_out(conn):
         "received_at": "2026-08-13T00:00:00+00:00"}])
     row = conn.execute("SELECT do_not_contact FROM leads WHERE no=1").fetchone()
     assert row["do_not_contact"] == 0
+
+
+EIDIM_AUTO = (
+    "##################################\n"
+    "#####   This message is auto-reply   ######\n"
+    "##### Please DO NOT reply to this email ######\n"
+    "Dear Valued Customer,\n"
+    "Thank you so much for reaching out! We have received your email and a team "
+    "member will get back to you shortly.\n")
+
+
+def test_auto_reply_does_not_end_the_conversation(conn):
+    """Regression: eidim.com's autoresponder was filed as a human reply, which stopped
+    the follow-up sequence for a lead nobody had actually read."""
+    sid = sequences.create_sequence(conn, "S", "email", [{"day_offset": 0, "body": "hi"}])
+    sequences.enroll_leads(conn, sid, [1])
+    res = replies.process_messages(conn, [{
+        "from_addr": "hello+noreply@alpha.com", "from_name": "Hello - Website Queries",
+        "subject": "Re: LED", "body": EIDIM_AUTO, "received_at": ""}])
+    assert res["replies"] == 0 and res["auto"] == 1
+    assert conn.execute(
+        "SELECT status FROM outreach WHERE lead_no=1 AND channel='email'"
+    ).fetchone()["status"] == "messaged"
+    assert [d["lead_no"] for d in sequences.due_queue(conn)] == [1]
+
+
+def test_auto_reply_is_visible_but_creates_no_task(conn):
+    from app import activities
+    activities.ensure_schema(conn)
+    replies.process_messages(conn, [{
+        "from_addr": "sales@alpha.com", "subject": "Out of office",
+        "body": EIDIM_AUTO, "received_at": ""}])
+    row = conn.execute("SELECT kind FROM inbox_messages WHERE lead_no=1").fetchone()
+    assert row["kind"] == "auto"
+    assert conn.execute("SELECT COUNT(*) c FROM activities").fetchone()["c"] == 0
+
+
+def test_no_reply_address_never_becomes_a_contact(conn):
+    """'hello+noreply@' is not a person to sell to, however the mail is classified."""
+    replies.process_messages(conn, [{
+        "from_addr": "hello+noreply@alpha.com", "from_name": "Hello",
+        "subject": "Re: LED", "body": "sure, send pricing", "received_at": ""}])
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM contacts WHERE email LIKE '%noreply%'"
+    ).fetchone()["c"] == 0
+
+
+def test_auto_submitted_header_is_enough(conn):
+    res = replies.process_messages(conn, [{
+        "from_addr": "someone@alpha.com", "subject": "Re: LED",
+        "body": "안녕하세요, 자료 잘 받았습니다.", "auto_submitted": True,
+        "received_at": ""}])
+    assert res["auto"] == 1 and res["replies"] == 0
+
+
+def test_real_reply_still_becomes_a_contact_and_a_task(conn):
+    res = replies.process_messages(conn, [{
+        "from_addr": "john@alpha.com", "from_name": "John",
+        "subject": "Re: LED", "body": "please send pricing for P2.5", "received_at": ""}])
+    assert res["replies"] == 1 and res["auto"] == 0
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM contacts WHERE email='john@alpha.com'"
+    ).fetchone()["c"] == 1
+    assert conn.execute("SELECT COUNT(*) c FROM activities").fetchone()["c"] == 1

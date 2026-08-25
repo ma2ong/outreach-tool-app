@@ -187,7 +187,8 @@ def _enrich_candidates(conn, domains: list[dict], enrich_fn: Callable,
         }
         # Re-screen with the enriched phone/email: +86 in the contact details is the
         # strongest peer signal and only shows up after enrich.
-        post = pre if pre["excluded"] else screening.screen(cand, exclude_countries, exclude_peers)
+        post = pre if pre["excluded"] else screening.screen(
+            {**cand, "country": info.get("country")}, exclude_countries, exclude_peers)
         cand.update(post)
         cand["duplicate_of"] = repo.find_duplicate(conn, website=domain,
                                                    instagram=cand["instagram"])

@@ -199,3 +199,35 @@ def test_park_and_reopen_together_settle(conn):
         sequences.block_unsendable(conn)
         sequences.reopen_sendable(conn)
     assert {d["lead_no"] for d in sequences.due_queue(conn)} == {1, 3}
+
+
+def _korean_sequence(conn):
+    return sequences.create_sequence(conn, "冷邮件 3 步跟进（韩语）", "email", [
+        {"day_offset": 0, "subject": "한국 LED 디스플레이 납품 사례",
+         "body": "안녕하세요, 저희는 LED 디스플레이를 공급합니다."}])
+
+
+def test_korean_sequence_refuses_non_korean_leads(conn):
+    """Regression: on 2026-08-13 fifty Brazilian/Chilean leads were enrolled in the
+    Korean sequence right after the English one — the lead selection was never cleared
+    between the two clicks. A Brazilian integrator must not be sent Korean cold email."""
+    sid = _korean_sequence(conn)
+    assert sequences.enroll_leads(conn, sid, [1, 2, 3]) == 0
+    assert sequences.language_blocked(conn, sid, [1, 2, 3]) == [1, 2, 3]
+
+
+def test_korean_sequence_accepts_korean_leads(conn):
+    conn.execute("UPDATE leads SET country='South Korea' WHERE no=1")
+    sid = _korean_sequence(conn)
+    assert sequences.enroll_leads(conn, sid, [1, 2]) == 1
+    assert sequences.language_blocked(conn, sid, [1, 2]) == [2]
+
+
+def test_english_sequence_accepts_everyone(conn):
+    """English is the working language of the trade — a Korean buyer reading an English
+    email is normal, so only the Korean direction is restricted."""
+    conn.execute("UPDATE leads SET country='South Korea' WHERE no=1")
+    sid = sequences.create_sequence(conn, "冷邮件 3 步跟进（英语）", "email",
+                                    [{"day_offset": 0, "body": "Hi, we supply LED"}])
+    assert sequences.enroll_leads(conn, sid, [1, 2]) == 2
+    assert sequences.language_blocked(conn, sid, [1, 2]) == []

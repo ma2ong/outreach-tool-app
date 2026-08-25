@@ -157,7 +157,14 @@ export function App() {
   async function enroll(sid: number) {
     try {
       const r = await enrollLeads(sid, [...selected]);
-      setEnrollMsg(`已把 ${r.enrolled} 家加入序列（${r.selected - r.enrolled} 家已在其中或已回复被跳过）`);
+      const skipped = r.selected - r.enrolled - r.wrong_language;
+      const reasons = [skipped > 0 ? `${skipped} 家已在其中或已回复` : "",
+                       r.wrong_language > 0 ? `${r.wrong_language} 家国家与序列语言不符` : ""]
+        .filter(Boolean).join("，");
+      setEnrollMsg(`已把 ${r.enrolled} 家加入序列${reasons ? `（跳过：${reasons}）` : ""}`);
+      // Clear the selection: leaving it on is how the same fifty leads once landed in
+      // both the English and the Korean sequence, two clicks apart.
+      setSelected(new Set());
       fetchSequences().then(setSequences).catch((e) => setErr(String(e)));
     } catch (e) { setEnrollMsg("加入序列失败：" + String(e)); }
   }

@@ -283,7 +283,7 @@ export async function createSequence(s: {
   return r.json();
 }
 
-export async function enrollLeads(sid: number, lead_nos: number[]): Promise<{ enrolled: number; selected: number }> {
+export async function enrollLeads(sid: number, lead_nos: number[]): Promise<{ enrolled: number; selected: number; wrong_language: number }> {
   const r = await fetch(`/api/sequences/${sid}/enroll`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lead_nos }),
   });
