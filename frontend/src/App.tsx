@@ -6,6 +6,7 @@ import { LeadsTable } from "./components/LeadsTable";
 import { LeadDrawer } from "./components/LeadDrawer";
 import { OutreachPanel } from "./components/OutreachPanel";
 import { DiscoveryPanel } from "./components/DiscoveryPanel";
+import { SocialQueuePanel } from "./components/SocialQueuePanel";
 import { BlocklistPanel } from "./components/BlocklistPanel";
 import { ConnectionPanel } from "./components/ConnectionPanel";
 import { MailboxPanel } from "./components/MailboxPanel";
@@ -19,7 +20,7 @@ import { SalesDocumentsPanel } from "./components/SalesDocumentsPanel";
 import { SalesIntelligencePanel } from "./components/SalesIntelligencePanel";
 import { AgentPanel } from "./components/AgentPanel";
 
-type Page = "dashboard" | "agent" | "intelligence" | "activities" | "leads" | "opportunities" | "inbox" | "sequences" | "discovery" | "products" | "channels";
+type Page = "dashboard" | "agent" | "intelligence" | "activities" | "leads" | "opportunities" | "inbox" | "sequences" | "socialqueue" | "discovery" | "products" | "channels";
 
 function exportQuery(params: Record<string, string>): string {
   const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
@@ -35,6 +36,7 @@ const PAGES: { id: Page; label: string; ico: string }[] = [
   { id: "opportunities", label: "商机管道", ico: "◇" },
   { id: "inbox", label: "收件箱", ico: "✉" },
   { id: "sequences", label: "跟进序列", ico: "⇉" },
+  { id: "socialqueue", label: "社媒私信", ico: "◐" },
   { id: "discovery", label: "客户开发", ico: "⌕" },
   { id: "products", label: "报价订单", ico: "▤" },
   { id: "channels", label: "渠道连接", ico: "⇄" },
@@ -419,6 +421,7 @@ export function App() {
           {page === "activities" && <ActivitiesPanel onOpenLead={openLead} onChanged={refreshActivityStats} />}
           {page === "inbox" && <InboxPanel onOpenLead={openLead} onPendingChange={() => { refreshPending(); refreshActivityStats(); reload(); }} />}
           {page === "sequences" && <SequencesPanel onChanged={() => { reload(); refreshPending(); }} />}
+          {page === "socialqueue" && <SocialQueuePanel />}
           {page === "discovery" && <><DiscoveryPanel onImported={reload} /><BlocklistPanel /></>}
           {page === "products" && <><SalesDocumentsPanel /><ProductsPanel /></>}
           {page === "channels" && <><ConnectionPanel /><MailboxPanel /></>}

@@ -70,6 +70,48 @@ def _mark_messaged(conn, lead_no: int, channel: str, date: str) -> None:
     recheck.schedule_after_send(conn, lead_no)
 
 
+def send_prepared(conn, items: list[dict], engine, image: str | None = None,
+                  campaign: str | None = None,
+                  on_progress: Callable[[int, int], None] | None = None) -> dict:
+    """Send messages that were written one per company, on the same rails as a campaign.
+
+    `send_channel_campaign` sends one template to many leads. The daily social queue is
+    the other shape — a different sentence for each company — but it must keep the same
+    daily cap, the same pacing, the same bookkeeping and the same case image, so this
+    reuses all of it rather than opening a second way to reach a customer.
+
+    Items: {lead_no, channel, target, body}. Order is preserved, and the pacing delay is
+    taken per item's own channel, because a mixed batch alternates between them.
+    """
+    today = datetime.date.today().isoformat()
+    sent = failed = deferred = 0
+    errors: list[dict] = []
+    used = {c: sent_today(conn, c) for c in DAILY_CAP}
+    total = len(items)
+    for i, item in enumerate(items, 1):
+        channel = item["channel"]
+        if used.get(channel, 0) >= DAILY_CAP.get(channel, MAX_BATCH):
+            deferred += 1
+            continue
+        try:
+            engine.send_message(channel, item["target"], item["body"], image)
+            _mark_messaged(conn, item["lead_no"], channel, today)
+            campaigns.log_send(conn, item["lead_no"], channel,
+                               campaign or campaigns.default_label(channel))
+            used[channel] = used.get(channel, 0) + 1
+            sent += 1
+        except Exception as exc:  # noqa: BLE001
+            failed += 1
+            errors.append({"no": item["lead_no"], "error": str(exc)})
+        if on_progress:
+            on_progress(i, total)
+        if i < total:
+            lo, hi = DEFAULT_DELAY.get(channel, (60, 90))
+            if hi > 0:
+                time.sleep(random.randint(lo, hi))
+    return {"sent": sent, "failed": failed, "deferred": deferred, "errors": errors}
+
+
 def send_channel_campaign(conn, lead_nos: list[int], channel: str, message: str,
                           engine, delay_range: tuple[int, int] | None = None,
                           image: str | None = None, campaign: str | None = None,
