@@ -84,6 +84,11 @@ class Lead(BaseModel):
     follow_up_date: str | None = None
     next_action: str | None = None
     source_urls: list[str] = []
+    # Read-only, computed for the list view (docs/60): who we deal with there, and the
+    # type Allen filed them under rather than the one the classifier guessed.
+    primary_contact: str | None = None
+    primary_title: str | None = None
+    customer_types: list[str] = []
     outreach: list[OutreachStatus] = []
     notes: list[Note] = []
 

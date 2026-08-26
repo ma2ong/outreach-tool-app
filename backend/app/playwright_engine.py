@@ -198,8 +198,7 @@ class PlaywrightEngine:
             page.goto(f"https://www.instagram.com/{target}/", wait_until="domcontentloaded", timeout=60000)
             btn = page.get_by_role("button", name=re.compile("message|发消息|发送消息|信息", re.I)).first
             btn.click(timeout=20000)
-            box = page.locator("div[contenteditable='true'][role='textbox'], textarea[placeholder]").first
-            box.wait_for(state="visible", timeout=30000)
+            box = self._dm_composer(page, target)
             box.click()
             page.wait_for_timeout(400)
             page.keyboard.insert_text(message)  # Input.insertText: works with React contenteditable (Chrome 130+)
@@ -207,9 +206,7 @@ class PlaywrightEngine:
             page.keyboard.press("Enter")
             page.wait_for_timeout(2000)
             if image:
-                # DM thread keeps a hidden file input; selecting a photo sends it immediately
-                page.locator("input[type='file']").last.set_input_files(image)
-                page.wait_for_timeout(4000)
+                self._ig_attach_image(page, image)
             return True
         if channel == "facebook":
             # Page inbox lives on the page itself; the Message button opens the chat dock.
@@ -220,8 +217,7 @@ class PlaywrightEngine:
                 btn.click(timeout=20000)
             except Exception as exc:  # noqa: BLE001
                 raise RuntimeError("no Message button on this page (not a business page, or DMs off)") from exc
-            box = page.locator("div[contenteditable='true'][role='textbox'], div[aria-label*='Message'][contenteditable='true']").first
-            box.wait_for(state="visible", timeout=30000)
+            box = self._dm_composer(page, target)
             box.click()
             page.wait_for_timeout(400)
             page.keyboard.insert_text(message)
@@ -451,6 +447,95 @@ class PlaywrightEngine:
         if not opened:  # locale changed the tab labels — read the default view at least
             rows.extend(self._scroll_list(page, self._IG_ROW, collect, per_tab()))
         return rows
+
+    # Probed against a live page (docs/61): the comment box calls itself
+    # "以 Allen Ma 的身份评论" and the chat composer calls itself "发消息给Jaws Audio".
+    # Their ancestors are plain DIVs with no role at all, so container-scoping finds
+    # nothing — the label is the only thing that tells them apart.
+    _DM_LABELS = re.compile(r"messag|发消息|发送消息|메시지|mensaje", re.I)
+    _COMMENT_LABELS = re.compile(r"comment|评论|留言|댓글|reply|回复", re.I)
+
+    @classmethod
+    def _is_comment_box(cls, label: str) -> bool:
+        """A box that names itself a comment is never a private message box."""
+        return bool(cls._COMMENT_LABELS.search(label or ""))
+
+    @classmethod
+    def _is_dm_box(cls, label: str) -> bool:
+        return bool(cls._DM_LABELS.search(label or "")) and not cls._is_comment_box(label)
+
+    @staticmethod
+    def _slug(text: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", (text or "").lower())
+
+    @classmethod
+    def _addresses(cls, label: str, target: str) -> bool:
+        """True when this composer is aimed at the company we meant to write to.
+
+        The probe found two chat docks open at once — Jaws Audio and PRI Productions —
+        so "the last message box on the page" is not the same thing as "this customer's
+        message box". Sending into the wrong one writes a stranger's pitch to a company
+        that never heard from us.
+        """
+        return cls._slug(target) in cls._slug(label) if target else True
+
+    def _dm_composer(self, page, target: str = "", timeout=30000):
+        """This customer's private message box, or an error — never a fallback.
+
+        Refusing costs a day. Typing into the wrong box publishes a cold pitch as a
+        public comment, or delivers it to a different company entirely (docs/61 R1).
+        """
+        deadline = time.time() + timeout / 1000
+        seen: list[str] = []
+        while time.time() < deadline:
+            candidates = []
+            for box in page.locator(
+                    "div[contenteditable='true'][role='textbox'], textarea[placeholder]").all():
+                try:
+                    label = " ".join(filter(None, [
+                        box.get_attribute("aria-label") or "",
+                        box.get_attribute("placeholder") or "",
+                    ]))
+                    if not box.is_visible():
+                        continue
+                except Exception:  # noqa: BLE001 — element went away mid-scan
+                    continue
+                seen.append(label or "(无标签)")
+                if self._is_dm_box(label):
+                    candidates.append((label, box))
+            aimed = [b for label, b in candidates if self._addresses(label, target)]
+            if len(aimed) == 1:
+                return aimed[0]
+            if len(aimed) > 1:
+                raise RuntimeError(
+                    f"several message boxes match {target!r}: {seen} — refusing to guess")
+            if candidates and not target:
+                return candidates[-1][1]
+            page.wait_for_timeout(1000)
+        raise RuntimeError(
+            "could not confirm this customer's private message box — refusing to type,"
+            f" because the box on this page would post a public comment. saw: {seen[:6]}")
+
+    def _ig_attach_image(self, page, image):
+        """Attach and actually send. Instagram parks the photo in the composer.
+
+        The old code selected the file, waited four seconds and reported success, so the
+        text went out, the picture sat in the box, and the send log said both had gone
+        (docs/61 R2).
+        """
+        page.locator("input[type='file']").last.set_input_files(image)
+        send = page.locator(
+            "div[role='button'][aria-label*='Send'], div[role='button'][aria-label*='发送'],"
+            " button[type='submit'], svg[aria-label*='Send']").last
+        send.wait_for(state="visible", timeout=20000)
+        send.click(timeout=15000)
+        # Waiting is not confirmation: the preview leaving the composer is (docs/61 R2.1).
+        try:
+            page.locator("div[role='button'][aria-label*='Remove'],"
+                         " div[aria-label*='移除']").last.wait_for(state="hidden", timeout=20000)
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError("image stayed in the Instagram composer — not sent") from exc
+        page.wait_for_timeout(1500)
 
     def _wa_attach_image(self, page, image):
         page.locator("div[title='Attach'], button[aria-label*='Attach'], span[data-icon='plus'], span[data-icon='clip'], span[data-icon='plus-rounded']").first.click(timeout=15000)

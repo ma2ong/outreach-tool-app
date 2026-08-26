@@ -85,12 +85,50 @@ def _window(text: str, match: re.Match, radius: int = 240) -> str:
     return _clean(text[start:end])[:650]
 
 
-def _headline(label: str, excerpt: str) -> str:
-    """Use the evidence sentence in the title so changed public evidence can be distinct."""
+# A fragment that carries a markdown link, a bare URL, or a run of brackets came off a
+# navigation bar, not out of a sentence someone wrote about their company.
+_MARKUP = re.compile(r"\]\(|https?://|\*\s*\[|^#{1,6}\s|\|\s*\[")
+_WORDS = re.compile(r"[^\W\d_]{2,}", re.UNICODE)
+MIN_PROSE_WORDS = 4
+MIN_CJK_CHARS = 6
+
+
+def reads_as_prose(text: str) -> bool:
+    """True when this fragment is a sentence a person wrote, not page furniture.
+
+    An unreadable signal is worse than no signal: Allen has to open the source to find
+    out whether it was a false alarm, which costs more than the signal is worth.
+    """
+    text = _clean(text)
+    if not text or _MARKUP.search(text):
+        return False
+    if len(_WORDS.findall(text)) >= MIN_PROSE_WORDS:
+        return True
+    # CJK and Korean have no spaces to count, so length carries the same signal.
+    return sum(1 for ch in text if ord(ch) > 0x2E80) >= MIN_CJK_CHARS
+
+
+def _headline(label: str, excerpt: str, trigger: str = "") -> str | None:
+    """The evidence sentence, in the title, so changed public evidence stays distinct.
+
+    Quote the sentence that actually triggered the detection. Picking the shortest
+    readable piece instead gives headlines like "展会参展：Each installation was carefully
+    de" — readable, and no evidence of anything (docs/58 R2).
+
+    Returns None when nothing in the excerpt reads as a sentence, so the caller can drop
+    the candidate rather than store a headline nobody can act on.
+    """
     pieces = [p.strip(" -–—|:;") for p in _SENTENCE_BREAK.split(excerpt) if p.strip()]
-    detail = min(pieces, key=len) if pieces else excerpt
-    detail = _clean(detail)[:120]
-    return f"{label}：{detail}"[:240]
+    readable = [p for p in pieces if reads_as_prose(p)]
+    if not readable:
+        return None
+    key = _clean(trigger).lower()
+    quoted = next((p for p in readable if key and key in p.lower()), None)
+    if quoted is None:
+        # The trigger sat in a fragment we rejected; the shortest surviving sentence is
+        # the fallback, not the answer.
+        quoted = min(readable, key=len)
+    return f"{label}：{_clean(quoted)[:120]}"[:240]
 
 
 def _use_case(text: str) -> str | None:
@@ -115,10 +153,13 @@ def _use_case(text: str) -> str | None:
 
 
 def _candidate(signal_type: str, label: str, source_url: str, excerpt: str,
-               confidence: int, suggested_angle: str) -> dict:
+               confidence: int, suggested_angle: str, trigger: str = "") -> dict | None:
+    headline = _headline(label, excerpt, trigger)
+    if headline is None:
+        return None
     return {
         "signal_type": signal_type,
-        "headline": _headline(label, excerpt),
+        "headline": headline,
         "evidence": excerpt[:2000],
         "source_url": source_url,
         "occurred_at": None,
@@ -150,41 +191,48 @@ def detect_page(source_url: str, text: str) -> list[dict]:
         excerpt = _window(text, tender)
         out.append(_candidate(
             "tender", "公开采购 / RFQ", source_url, excerpt, 85,
-            "核实公开采购/RFQ是否包含 LED 显示、视频墙或数字标牌需求，并确认参与窗口。"))
+            "核实公开采购/RFQ是否包含 LED 显示、视频墙或数字标牌需求，并确认参与窗口。",
+            trigger=tender.group(0)))
 
     project = _nearby_pair(text, _PROJECT_ACTION, _PROJECT_PLACE)
     if project:
-        _, excerpt = project
+        project_match, excerpt = project
         out.append(_candidate(
             "project", "新建 / 扩建项目", source_url, excerpt, 70,
-            "围绕新建、扩建或翻新项目确认是否有 LED 显示、视频墙或数字标牌需求。"))
+            "围绕新建、扩建或翻新项目确认是否有 LED 显示、视频墙或数字标牌需求。",
+            trigger=project_match.group(0)))
 
     hiring = _nearby_pair(text, _HIRING, _HIRING_ROLE)
     if hiring:
-        _, excerpt = hiring
+        hiring_match, excerpt = hiring
         out.append(_candidate(
             "hiring", "AV / 技术岗位招聘", source_url, excerpt, 65,
-            "技术/AV 团队扩张可能对应项目量上升，可确认近期 LED 项目和供应商需求。"))
+            "技术/AV 团队扩张可能对应项目量上升，可确认近期 LED 项目和供应商需求。",
+            trigger=hiring_match.group(0)))
 
     expo = _nearby_pair(text, _EXPO, _EXPO_PARTICIPATION)
     if expo:
-        _, excerpt = expo
+        expo_match, excerpt = expo
         out.append(_candidate(
             "exhibition", "展会参展", source_url, excerpt, 65,
-            "结合展会节点确认展台 LED、活动显示、租赁库存或现场视频需求。"))
+            "结合展会节点确认展台 LED、活动显示、租赁库存或现场视频需求。",
+            trigger=expo_match.group(0)))
 
     distributor = _DISTRIBUTOR.search(text)
     if distributor:
         excerpt = _window(text, distributor)
         out.append(_candidate(
             "distributor", "渠道 / 经销商拓展", source_url, excerpt, 70,
-            "确认其渠道拓展计划，以及是否需要新的 LED 产品供应商、OEM/ODM 或项目支持。"))
+            "确认其渠道拓展计划，以及是否需要新的 LED 产品供应商、OEM/ODM 或项目支持。",
+            trigger=distributor.group(0)))
 
     # One page can legitimately contain two different signals; only collapse exact
     # type/headline repeats caused by repeated navigation/footer text.
     seen = set()
     unique = []
     for item in out:
+        if item is None:  # nothing in the excerpt read as a sentence
+            continue
         key = (item["signal_type"], item["headline"].lower(), item["source_url"].lower())
         if key not in seen:
             seen.add(key)

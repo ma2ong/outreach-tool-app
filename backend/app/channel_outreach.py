@@ -26,10 +26,90 @@ def sent_today(conn, channel: str) -> int:
     ).fetchone()[0]
 
 
+# WhatsApp says this when the number has no account. Anything else — a timeout, a dead
+# browser — is a fact about our run, not about the number (docs/59 R1).
+_NOT_ON_WHATSAPP = re.compile(r"not on whatsapp|number not on|invalid|不存在|无效", re.I)
+
+
+def _note_whatsapp_result(conn, lead_no: int, channel: str, error: str | None) -> None:
+    """Keep what the send just proved about this number, so it is not rediscovered daily."""
+    if channel != "whatsapp":
+        return
+    if error is None:
+        status = "active"      # it went through, so the number is on WhatsApp
+    elif _NOT_ON_WHATSAPP.search(error):
+        status = "none"
+    else:
+        return                 # our problem, not the number's
+    conn.execute("UPDATE leads SET whatsapp_status=? WHERE no=?", (status, lead_no))
+    conn.commit()
+
+
+# Calling codes for the countries actually in the book. A number we cannot make
+# international is a number we do not dial (docs/62 R3).
+_CALLING_CODES = {
+    "usa": "1", "united states": "1", "us": "1", "canada": "1", "ca": "1",
+    "south korea": "82", "korea": "82", "kr": "82",
+    "brazil": "55", "br": "55", "mexico": "52", "mx": "52",
+    "argentina": "54", "ar": "54", "colombia": "57", "co": "57",
+    "chile": "56", "cl": "56", "peru": "51", "pe": "51", "venezuela": "58", "ve": "58",
+    "spain": "34", "es": "34", "uk": "44", "united kingdom": "44", "gb": "44",
+    "france": "33", "fr": "33", "italy": "39", "it": "39", "germany": "49", "de": "49",
+    "austria": "43", "at": "43", "greece": "30", "gr": "30", "poland": "48", "pl": "48",
+    "sweden": "46", "se": "46", "finland": "358", "fi": "358",
+    "russia": "7", "ru": "7", "turkey": "90", "tr": "90",
+    "australia": "61", "au": "61", "new zealand": "64", "nz": "64",
+    "india": "91", "in": "91", "indonesia": "62", "id": "62", "malaysia": "60", "my": "60",
+}
+
+# US/Canada switchboard ranges. These never have a WhatsApp account, and finding that
+# out costs a browser round trip every single day.
+_TOLL_FREE = ("800", "833", "844", "855", "866", "877", "888")
+
+
+def _is_toll_free(digits: str) -> bool:
+    """North American switchboard ranges, with or without the leading 1."""
+    national = digits[1:] if len(digits) == 11 and digits.startswith("1") else digits
+    return len(national) == 10 and national[:3] in _TOLL_FREE
+
+
+def dialable_whatsapp(phone: str | None, country: str | None) -> str:
+    """A full international number, or "" when we cannot build one.
+
+    A bare national number is not a lesser attempt, it is a guaranteed failure — and
+    docs/59 would record that failure as "this number has no WhatsApp", burning a good
+    number permanently. So the two specs only work together (docs/62 R1).
+    """
+    raw = str(phone or "").split("/")[0].strip()
+    if not raw:
+        return ""
+    digits = re.sub(r"\D", "", raw)
+    if not digits:
+        return ""
+    if raw.lstrip().startswith("+"):
+        # A written +1 does not exempt a switchboard from being a switchboard.
+        if _is_toll_free(digits):
+            return ""
+        return digits if 8 <= len(digits) <= 15 else ""
+    code = _CALLING_CODES.get(str(country or "").strip().lower())
+    if not code:
+        return ""
+    if code == "1":
+        if len(digits) == 11 and digits.startswith("1"):
+            digits = digits[1:]
+        if len(digits) != 10:
+            return ""
+    national = digits[len(code):] if digits.startswith(code) and len(digits) > 10 else digits
+    full = code + national
+    if _is_toll_free(full):
+        return ""
+    return full if 8 <= len(full) <= 15 else ""
+
+
 def _target(channel: str, lead: dict) -> str:
     raw = lead[_CONTACT_COL[channel]]
     if channel == "whatsapp":
-        return re.sub(r"\D", "", raw or "")
+        return dialable_whatsapp(raw, lead.get("country"))
     return (raw or "").lstrip("@")
 
 
@@ -45,13 +125,14 @@ def eligible(conn, lead_nos: list[int], channel: str) -> list[dict]:
             WHERE l.no IN ({placeholders})
               AND l.{col} IS NOT NULL AND l.{col} != ''
               AND COALESCE(l.do_not_contact, 0) = 0
+              AND NOT (? = 'whatsapp' AND COALESCE(l.whatsapp_status, '') = 'none')
               AND l.no NOT IN (
                   SELECT lead_no FROM send_log
                   WHERE date(sent_at, 'localtime')=date('now', 'localtime'))
               AND l.no NOT IN (
                   SELECT lead_no FROM outreach WHERE channel=? AND status IN ('messaged','replied'))
             ORDER BY l.no""",
-        [*lead_nos, channel],
+        [*lead_nos, channel, channel],
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -100,9 +181,11 @@ def send_prepared(conn, items: list[dict], engine, image: str | None = None,
                                campaign or campaigns.default_label(channel),
                                body=item["body"])
             used[channel] = used.get(channel, 0) + 1
+            _note_whatsapp_result(conn, item["lead_no"], channel, None)
             sent += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1
+            _note_whatsapp_result(conn, item["lead_no"], channel, str(exc))
             errors.append({"no": item["lead_no"], "error": str(exc)})
         if on_progress:
             on_progress(i, total)
@@ -133,9 +216,11 @@ def send_channel_campaign(conn, lead_nos: list[int], channel: str, message: str,
             engine.send_message(channel, _target(channel, lead), rendered, image)
             _mark_messaged(conn, lead["no"], channel, today)
             campaigns.log_send(conn, lead["no"], channel, label, body=rendered)
+            _note_whatsapp_result(conn, lead["no"], channel, None)
             sent += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1
+            _note_whatsapp_result(conn, lead["no"], channel, str(exc))
             errors.append({"no": lead["no"], "error": str(exc)})
         if on_progress:
             on_progress(i, len(targets))

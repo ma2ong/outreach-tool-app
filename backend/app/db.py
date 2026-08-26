@@ -180,10 +180,15 @@ _TABLE_COLUMNS = {
         # resolves and still has MX (that is how the bounce reached us), so without
         # this the address is handed straight back to the send path.
         "bounced_at": "TEXT",
+        # NULL = never checked, 'active' = a message went through, 'none' = WhatsApp
+        # itself said the number is not registered. The old whatsapp_verified flag
+        # cannot tell "checked, absent" from "never checked" — see docs/59.
+        "whatsapp_status": "TEXT",
     },
     "templates": {
         "lang": "TEXT",
     },
+
     "send_log": {
         # What the customer actually read. The campaign label says which sequence step
         # went out; it cannot say what the letter said, because {hook} differs per lead

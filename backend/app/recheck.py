@@ -143,6 +143,20 @@ def _diff(lead: dict, info: dict) -> tuple[dict, list[str]]:
     return fills, notes
 
 
+def _is_boilerplate(conn: sqlite3.Connection, lead_no: int, candidate: dict) -> bool:
+    """True when this exact wording already came off a different company's site.
+
+    Navigation and footer text describes how a website is built, not what a company is
+    doing. The same sentence turning up under two domains is the tell (docs/58 R3).
+    """
+    headline = (candidate.get("headline") or "").strip()
+    if not headline:
+        return False
+    return conn.execute(
+        "SELECT 1 FROM buying_signals WHERE lower(headline)=lower(?) AND lead_no<>? LIMIT 1",
+        (headline, lead_no)).fetchone() is not None
+
+
 def _store_new_signals(conn: sqlite3.Connection, lead_no: int,
                        candidates: list[dict]) -> list[dict]:
     """Persist only genuinely new public evidence; repeated rechecks stay quiet."""
@@ -151,6 +165,7 @@ def _store_new_signals(conn: sqlite3.Connection, lead_no: int,
     from app import sales_intelligence
 
     sales_intelligence.ensure_schema(conn)
+    candidates = [c for c in candidates if not _is_boilerplate(conn, lead_no, c)]
     known = {row["id"] for row in conn.execute(
         "SELECT id FROM buying_signals WHERE lead_no=?", (lead_no,)).fetchall()}
     added = []

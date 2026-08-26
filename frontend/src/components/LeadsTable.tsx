@@ -1,6 +1,13 @@
+import { useEffect, useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
 import type { Lead } from "../types";
-import { STAGE_LABEL } from "../types";
+import { fetchCustomerTypes, updateLead } from "../api";
+import { CustomerTypePicker } from "./CustomerTypePicker";
+import { InlineStage } from "./InlineStage";
+
+// 只有韩语公司名值得占一行：他做的是韩国市场，韩语为主英语为辅。葡语、西语公司名和英文名
+// 几乎一样（"LedWave" / "LedWave"），显示出来只是重复。docs/60 R1
+const HANGUL = /[ᄀ-ᇿ㄰-㆏ꥠ-꥿가-힣]/;
 
 const CHANNELS = [
   { key: "email", label: "Email" },
@@ -35,13 +42,33 @@ function channelState(l: Lead, channel: string): "replied" | "messaged" | "untou
 
 const STATE_TEXT = { replied: "已回复", messaged: "已触达", untouched: "未触达" } as const;
 
-export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, onOpen, sort, order, onSort }: {
+export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, onOpen, sort, order, onSort, onChanged }: {
   leads: Lead[]; selected: Set<number>;
   onToggle: (no: number) => void; onToggleAll: (checked: boolean) => void;
   onReply: (no: number, channel: string) => void; onOpen: (l: Lead) => void;
   sort: string; order: string; onSort: (col: string) => void;
+  onChanged?: () => void;
 }) {
+  const [typeOptions, setTypeOptions] = useState<string[]>([]);
+  // 就地改过的值先记在本地：列表刷新是异步的，中间那一秒不该显示旧值
+  const [patched, setPatched] = useState<Record<number, Partial<Lead>>>({});
+  useEffect(() => {
+    fetchCustomerTypes().then((r) => setTypeOptions(r.options)).catch(() => setTypeOptions([]));
+  }, []);
+
+  async function save(no: number, fields: Partial<Lead>) {
+    setPatched((p) => ({ ...p, [no]: { ...p[no], ...fields } }));
+    try {
+      await updateLead(no, fields);
+      onChanged?.();
+    } catch {
+      // 存不上就把本地那份撤掉，不要让界面显示一个其实没保存的值
+      setPatched((p) => { const next = { ...p }; delete next[no]; return next; });
+    }
+  }
+
   const allChecked = leads.length > 0 && leads.every((l) => selected.has(l.no));
+  const row = (l: Lead): Lead => ({ ...l, ...(patched[l.no] ?? {}) });
   const stop = (e: MouseEvent) => e.stopPropagation();
   const arrow = (col: string) => (sort === col ? (order === "asc" ? " ▲" : " ▼") : "");
   const Sortable = ({ col, children }: { col: string; children: ReactNode }) => (
@@ -57,8 +84,8 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
           <Sortable col="no">#</Sortable><Sortable col="company_en">公司</Sortable>
           <Sortable col="stage">阶段</Sortable>
           <Sortable col="fit">客户类型</Sortable>
+          <th>客户名称</th>
           <Sortable col="country">国家</Sortable>
-          <Sortable col="city">城市</Sortable>
           <th>邮箱</th><th>电话 / WhatsApp</th><th>IG</th><th>FB</th><th>渠道状态</th>
         </tr></thead>
         <tbody>
@@ -68,13 +95,30 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
               <tr key={l.no} onClick={() => onOpen(l)} style={{ cursor: "pointer" }}>
                 <td onClick={stop}><input type="checkbox" checked={selected.has(l.no)} onChange={() => onToggle(l.no)} /></td>
                 <td className="num muted">{l.no}</td>
-                <td>{l.company_en}</td>
-                <td><span className={`stage-badge stage-${l.stage || "new"}`}>{STAGE_LABEL[l.stage] ?? l.stage}</span></td>
-                <td>{l.target_fit && l.target_fit !== "discovered"
-                  ? <span style={{ fontSize: 12 }}>{l.target_fit}</span>
+                <td>
+                  <div>{l.company_en}</div>
+                  {/* 韩语名与英文名同等字号：他读的是韩文那一行 */}
+                  {l.company_local && l.company_local !== l.company_en
+                    && HANGUL.test(l.company_local) &&
+                    <div>{l.company_local}</div>}
+                </td>
+                <td onClick={stop}>
+                  <InlineStage value={row(l).stage} onChange={(s) => save(l.no, { stage: s })} />
+                </td>
+                <td onClick={stop} style={{ minWidth: 150 }}>
+                  <CustomerTypePicker value={row(l).tags ?? ""} options={typeOptions}
+                    onChange={(next) => save(l.no, { tags: next })} />
+                  {/* 他没标类型时，才退回系统推断的那一个 */}
+                  {!row(l).tags && l.target_fit && l.target_fit !== "discovered" &&
+                    <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>系统推断：{l.target_fit}</div>}
+                </td>
+                <td>{l.primary_contact
+                  ? <>
+                      <div>{l.primary_contact}</div>
+                      {l.primary_title && <div className="muted" style={{ fontSize: 12 }}>{l.primary_title}</div>}
+                    </>
                   : <span className="muted">—</span>}</td>
                 <td>{l.country}</td>
-                <td>{l.city}</td>
                 <td onClick={stop}>{l.email
                   ? <>
                       <a href={`mailto:${l.email}`}>{l.email}</a>

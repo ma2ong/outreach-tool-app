@@ -392,7 +392,8 @@ export function App() {
               )}
               {verifyMsg && <div className="muted" style={{ marginBottom: 8 }}>{verifyMsg}</div>}
               <LeadsTable leads={shown} selected={selected} onToggle={toggle} onToggleAll={toggleAll}
-                onReply={reply} onOpen={setDetail} sort={sort} order={order} onSort={sortBy} />
+                onReply={reply} onOpen={setDetail} sort={sort} order={order} onSort={sortBy}
+                onChanged={reload} />
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
                 <button className="btn btn-sm" disabled={leadPage <= 0} onClick={() => setLeadPage(leadPage - 1)}>← 上一页</button>
                 <span className="muted">第 {leadPage + 1} / {pageCount} 页</span>

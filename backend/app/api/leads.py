@@ -67,6 +67,14 @@ def list_leads(response: Response, country: str | None = None, channel: str | No
     return repo.list_leads(conn, **filters, sort=sort, order=order, limit=limit, offset=offset)
 
 
+@router.get("/leads/customer-types")
+def list_customer_types(conn=Depends(get_conn)):
+    """The picker's choices: Allen's own vocabulary, plus anything he has added (docs/60)."""
+    from app import customer_types
+
+    return {"options": customer_types.options(conn), "known": list(customer_types.KNOWN)}
+
+
 @router.get("/leads/export")
 def export_leads(country: str | None = None, channel: str | None = None,
                  status: str | None = None, search: str | None = None,

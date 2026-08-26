@@ -125,6 +125,7 @@ def _candidates(conn, now: dt.datetime) -> list[dict]:
         """
         SELECT l.no, l.company_en, l.contact_name, l.country, l.city, l.website,
                l.hook, l.brief, l.phone, l.instagram, l.facebook, l.target_fit,
+               l.whatsapp_status,
                COALESCE(MAX(CASE WHEN b.status != 'dismissed' THEN b.confidence END), 0) signal,
                EXISTS(SELECT 1 FROM outreach o WHERE o.lead_no=l.no
                       AND o.status IN ('messaged','replied')) touched
@@ -158,6 +159,10 @@ def _channel_for(conn, lead: dict, taken: set[str]) -> tuple[str, str] | None:
         if channel in taken:
             continue
         if not str(lead.get(_CONTACT_COL[channel]) or "").strip():
+            continue
+        # WhatsApp already told us this number has no account; queueing it again spends
+        # a browser trip to rediscover the same thing (docs/59 R2).
+        if channel == "whatsapp" and (lead.get("whatsapp_status") or "") == "none":
             continue
         already = conn.execute(
             "SELECT 1 FROM outreach WHERE lead_no=? AND channel=?"

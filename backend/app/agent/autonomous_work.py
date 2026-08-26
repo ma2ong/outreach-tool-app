@@ -82,9 +82,16 @@ def _site_info(lead: dict) -> dict:
 
 
 def _refresh_common(conn, lead: dict, info: dict) -> dict:
-    """Reuse the normal conflict-safe website reread before applying special repairs."""
+    """Reuse the normal conflict-safe website reread before applying special repairs.
+
+    `first_read` is the historical-backfill exemption, and it belongs to leads nobody has
+    read yet — not to this path. Claiming it unconditionally, as this did, switched buying
+    signal detection off on the one path that reads hundreds of sites a week (docs/58 R1).
+    """
+    row = conn.execute("SELECT recheck_count FROM leads WHERE no=?", (lead["no"],)).fetchone()
+    never_read = not (row and (row["recheck_count"] or 0) > 0)
     return recheck.run(
-        conn, lead["no"], first_read=True,
+        conn, lead["no"], first_read=never_read,
         enrich_fn=lambda _website: info,
     )
 

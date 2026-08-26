@@ -3,6 +3,8 @@ import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead,
 import type { Activity, Contact, Lead, LeadIntelligence, Opportunity } from "../types";
 import { fetchLeadIntelligence } from "../salesIntelligenceApi";
 import { fetchLeadMemory, writeLeadMemory, forgetLeadMemory, type MemoryItem } from "../agentApi";
+import { CustomerTypePicker } from "./CustomerTypePicker";
+import { fetchCustomerTypes } from "../api";
 import { STAGES, STAGE_LABEL, OPPORTUNITY_STAGE_LABEL } from "../types";
 
 const CH_LABEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", instagram: "Instagram" };
@@ -113,6 +115,7 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
   const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
   const [memoryDraft, setMemoryDraft] = useState("");
   const [memoryKind, setMemoryKind] = useState<"profile" | "log">("profile");
+  const [typeOptions, setTypeOptions] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
   const [blockToo, setBlockToo] = useState(true);
   const [openTasks, setOpenTasks] = useState<Activity[]>([]);
@@ -173,6 +176,11 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
     fetchLeadMemory(lead.no).then((m) => setMemoryItems(m.items))
       .catch((e) => setErr("客户记忆加载失败：" + String(e)));
   }, [lead.no]);
+
+  // 客户类型选项跟着库走，不写死在前端：他新填一个类型，下次就出现在清单里
+  useEffect(() => {
+    fetchCustomerTypes().then((r) => setTypeOptions(r.options)).catch(() => setTypeOptions([]));
+  }, []);
 
   async function submitMemory() {
     const text = memoryDraft.trim();
@@ -293,7 +301,6 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
       <input className="input" type={type} value={(draft[k] as string) ?? ""} onChange={(e) => set(k, e.target.value)} />
     </div>
   );
-  const tags = (draft.tags ?? "").split(",").map((t) => t.trim()).filter(Boolean);
 
   return (
     <div className="drawer-overlay" onClick={onClose}>
@@ -411,9 +418,9 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
           </details>
         )}
         <div className="field">
-          <label>标签（逗号分隔，如 hot,distributor,大项目）</label>
-          <input className="input" value={draft.tags ?? ""} onChange={(e) => set("tags", e.target.value)} placeholder="hot, 经销商, 租赁" />
-          {tags.length > 0 && <div style={{ marginTop: 5 }}>{tags.map((t) => <span key={t} className="tag-chip">{t}</span>)}</div>}
+          <label>客户类型</label>
+          <CustomerTypePicker value={draft.tags ?? ""} options={typeOptions}
+            onChange={(next) => set("tags", next)} />
         </div>
 
         <div className="section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>

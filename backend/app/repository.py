@@ -1,9 +1,13 @@
 import json
 import sqlite3
 
+from app.customer_types import customer_types
 from app.models import Lead, Note, OutreachStatus, Stats, Template
 
 _LEAD_RELATIONS = ("outreach", "notes")
+# Filled after the row is read, from other tables (docs/60). Pulling them off the row
+# hands pydantic a None where it wants a list.
+_LEAD_COMPUTED = ("primary_contact", "primary_title", "customer_types")
 
 
 def _lead_from_row(row: sqlite3.Row, outreach: list[OutreachStatus],
@@ -13,8 +17,26 @@ def _lead_from_row(row: sqlite3.Row, outreach: list[OutreachStatus],
     d["stage"] = d.get("stage") or "new"
     raw = d.get("source_urls")
     d["source_urls"] = json.loads(raw) if raw else []
-    fields = {k: d.get(k) for k in Lead.model_fields if k not in _LEAD_RELATIONS}
+    fields = {k: d.get(k) for k in Lead.model_fields
+              if k not in _LEAD_RELATIONS and k not in _LEAD_COMPUTED}
     return Lead(**fields, outreach=outreach, notes=notes or [])
+
+
+def _primary_contacts(conn, lead_nos: list[int]) -> dict[int, tuple[str | None, str | None]]:
+    """The one person to show per company (docs/60 R4).
+
+    `is_primary` already exists and already means this; picking a different rule here
+    would give the list a different answer than the drawer.
+    """
+    if not lead_nos:
+        return {}
+    q = ("SELECT lead_no, name, title, is_primary FROM contacts WHERE lead_no IN (%s)"
+         " AND COALESCE(name,'') <> '' ORDER BY is_primary DESC, id ASC"
+         % ",".join("?" * len(lead_nos)))
+    found: dict[int, tuple[str | None, str | None]] = {}
+    for row in conn.execute(q, lead_nos):
+        found.setdefault(row["lead_no"], (row["name"], row["title"]))
+    return found
 
 
 def _outreach_for(conn: sqlite3.Connection, lead_nos: list[int]) -> dict[int, list[OutreachStatus]]:
@@ -131,8 +153,18 @@ def list_leads(conn, country=None, channel=None, status=None, search=None, has=N
         sql += " LIMIT ? OFFSET ?"
         params += [limit, offset]
     rows = list(conn.execute(sql, params))
-    om = _outreach_for(conn, [r["no"] for r in rows])
-    return [_lead_from_row(r, om.get(r["no"], [])) for r in rows]
+    nos = [r["no"] for r in rows]
+    om = _outreach_for(conn, nos)
+    pc = _primary_contacts(conn, nos)
+    out = []
+    for r in rows:
+        lead = _lead_from_row(r, om.get(r["no"], []))
+        name, title = pc.get(r["no"], (None, None))
+        lead.primary_contact = name or lead.contact_name
+        lead.primary_title = title or lead.title
+        lead.customer_types = customer_types(r["tags"] if "tags" in r.keys() else None)
+        out.append(lead)
+    return out
 
 
 def advance_stage(conn, no: int, target: str) -> None:
