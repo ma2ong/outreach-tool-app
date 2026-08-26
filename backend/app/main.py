@@ -35,6 +35,7 @@ from app.api import readiness as readiness_api
 from app.api import activities as activities_api
 from app.api import contacts as contacts_api
 from app.api import sales_documents as sales_documents_api
+from app.api import social_queue as social_queue_api
 from app.api import sales_intelligence as sales_intelligence_api
 from app.api import decision_makers as decision_makers_api
 from app.api import runtime as runtime_api
@@ -320,6 +321,7 @@ app.include_router(readiness_api.router)
 app.include_router(activities_api.router)
 app.include_router(contacts_api.router)
 app.include_router(sales_documents_api.router)
+app.include_router(social_queue_api.router)
 app.include_router(sales_intelligence_api.router)
 app.include_router(decision_makers_api.router)
 app.include_router(runtime_api.router)
