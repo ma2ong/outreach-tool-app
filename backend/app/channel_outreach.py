@@ -26,6 +26,25 @@ def sent_today(conn, channel: str) -> int:
     ).fetchone()[0]
 
 
+# WhatsApp says this when the number has no account. Anything else — a timeout, a dead
+# browser — is a fact about our run, not about the number (docs/59 R1).
+_NOT_ON_WHATSAPP = re.compile(r"not on whatsapp|number not on|invalid|不存在|无效", re.I)
+
+
+def _note_whatsapp_result(conn, lead_no: int, channel: str, error: str | None) -> None:
+    """Keep what the send just proved about this number, so it is not rediscovered daily."""
+    if channel != "whatsapp":
+        return
+    if error is None:
+        status = "active"      # it went through, so the number is on WhatsApp
+    elif _NOT_ON_WHATSAPP.search(error):
+        status = "none"
+    else:
+        return                 # our problem, not the number's
+    conn.execute("UPDATE leads SET whatsapp_status=? WHERE no=?", (status, lead_no))
+    conn.commit()
+
+
 def _target(channel: str, lead: dict) -> str:
     raw = lead[_CONTACT_COL[channel]]
     if channel == "whatsapp":
@@ -45,13 +64,14 @@ def eligible(conn, lead_nos: list[int], channel: str) -> list[dict]:
             WHERE l.no IN ({placeholders})
               AND l.{col} IS NOT NULL AND l.{col} != ''
               AND COALESCE(l.do_not_contact, 0) = 0
+              AND NOT (? = 'whatsapp' AND COALESCE(l.whatsapp_status, '') = 'none')
               AND l.no NOT IN (
                   SELECT lead_no FROM send_log
                   WHERE date(sent_at, 'localtime')=date('now', 'localtime'))
               AND l.no NOT IN (
                   SELECT lead_no FROM outreach WHERE channel=? AND status IN ('messaged','replied'))
             ORDER BY l.no""",
-        [*lead_nos, channel],
+        [*lead_nos, channel, channel],
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -100,9 +120,11 @@ def send_prepared(conn, items: list[dict], engine, image: str | None = None,
                                campaign or campaigns.default_label(channel),
                                body=item["body"])
             used[channel] = used.get(channel, 0) + 1
+            _note_whatsapp_result(conn, item["lead_no"], channel, None)
             sent += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1
+            _note_whatsapp_result(conn, item["lead_no"], channel, str(exc))
             errors.append({"no": item["lead_no"], "error": str(exc)})
         if on_progress:
             on_progress(i, total)
@@ -133,9 +155,11 @@ def send_channel_campaign(conn, lead_nos: list[int], channel: str, message: str,
             engine.send_message(channel, _target(channel, lead), rendered, image)
             _mark_messaged(conn, lead["no"], channel, today)
             campaigns.log_send(conn, lead["no"], channel, label, body=rendered)
+            _note_whatsapp_result(conn, lead["no"], channel, None)
             sent += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1
+            _note_whatsapp_result(conn, lead["no"], channel, str(exc))
             errors.append({"no": lead["no"], "error": str(exc)})
         if on_progress:
             on_progress(i, len(targets))
