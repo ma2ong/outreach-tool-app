@@ -130,3 +130,66 @@ def test_a_result_from_today_stays_green(conn):
     settings.set_value(conn, "autosend_last_result", "08-20 09:04 自动发送：成功 30，失败 0")
     check = next(c for c in readiness.build(conn)["checks"] if c["id"] == "autosend")
     assert check["status"] == "ok"
+
+
+# ------------------------------------------- crash mid-send must not burn the day
+
+def test_a_run_cut_short_does_not_count_as_today_being_done(conn, monkeypatch):
+    """`last_date` used to be written before the sending started. A send is 30 mails at
+    16-28s apart — 8 to 14 minutes — so one restart in that window (a sleeping laptop, a
+    service reload) left the day marked as run, with nothing sent and nothing recorded.
+    That is how the dashboard came to say "today already ran" while the last result was
+    five days old."""
+    from app import autosend
+
+    def die(*args, **kwargs):
+        raise KeyboardInterrupt("process going down mid-send")
+
+    autosend.set_enabled(conn, True)
+    monkeypatch.setattr("app.sequence_send.send_due", die)
+    try:
+        autosend.run_once(conn, lambda *a: None, None, _noon())
+    except KeyboardInterrupt:
+        pass
+    later = _noon() + dt.timedelta(minutes=autosend.RETRY_AFTER_MINUTES + 1)
+    assert autosend.should_run(conn, later) is True, "被打断的一天必须还能重跑"
+
+
+def test_an_interrupted_run_is_visible_afterwards(conn, monkeypatch):
+    from app import autosend, settings
+
+    autosend.set_enabled(conn, True)
+    monkeypatch.setattr("app.sequence_send.send_due",
+                        lambda *a, **k: (_ for _ in ()).throw(KeyboardInterrupt()))
+    try:
+        autosend.run_once(conn, lambda *a: None, None, _noon())
+    except KeyboardInterrupt:
+        pass
+    autosend.should_run(conn, _noon() + dt.timedelta(minutes=autosend.RETRY_AFTER_MINUTES + 1))
+    assert "中断" in (settings.get(conn, "autosend_last_result") or "")
+
+
+def test_a_completed_run_still_closes_the_day(conn, monkeypatch):
+    from app import autosend
+
+    autosend.set_enabled(conn, True)
+    monkeypatch.setattr("app.sequence_send.send_due",
+                        lambda *a, **k: {"sent": 3, "failed": 0, "deferred": 0})
+    autosend.run_once(conn, lambda *a: None, None, _noon())
+    assert autosend.should_run(conn, _noon()) is False
+
+
+def test_a_restart_storm_does_not_retry_instantly(conn, monkeypatch):
+    """Retrying is right; retrying every few seconds through a crash loop is not."""
+    from app import autosend
+
+    autosend.set_enabled(conn, True)
+    monkeypatch.setattr("app.sequence_send.send_due",
+                        lambda *a, **k: (_ for _ in ()).throw(KeyboardInterrupt()))
+    try:
+        autosend.run_once(conn, lambda *a: None, None, _noon())
+    except KeyboardInterrupt:
+        pass
+    assert autosend.should_run(conn, _noon() + dt.timedelta(minutes=1)) is False
+    assert autosend.should_run(
+        conn, _noon() + dt.timedelta(minutes=autosend.RETRY_AFTER_MINUTES + 1)) is True

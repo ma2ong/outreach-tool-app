@@ -6,6 +6,8 @@ import html
 import sqlite3
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
+from app import identity
+
 
 QUOTE_STATUSES = ("draft", "sent", "accepted", "rejected", "expired")
 ORDER_STATUSES = (
@@ -657,7 +659,7 @@ def print_quote_html(conn: sqlite3.Connection, quote_id: int) -> str | None:
 body{{font:14px Arial,sans-serif;color:#172033;margin:0;background:#eef2f7}}main{{max-width:980px;margin:24px auto;background:white;padding:42px;box-shadow:0 8px 30px #0002}}
 header{{display:flex;justify-content:space-between;border-bottom:3px solid #155eef;padding-bottom:18px}}h1{{margin:0;color:#155eef}}h2{{margin:4px 0 0;font-size:16px}}.meta{{text-align:right;line-height:1.7}}.parties{{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin:28px 0}}.label{{font-size:11px;color:#667085;text-transform:uppercase}}table{{width:100%;border-collapse:collapse}}th{{background:#f2f4f7;text-align:left}}th,td{{padding:11px;border-bottom:1px solid #d0d5dd}}td small{{display:block;color:#667085;margin-top:4px}}.totals{{width:360px;margin:18px 0 24px auto}}.totals div,.terms div{{display:flex;justify-content:space-between;padding:7px 0}}.grand{{font-size:19px;border-top:2px solid #172033}}.terms{{border-top:1px solid #d0d5dd;padding-top:12px}}footer{{margin-top:35px;color:#667085;font-size:12px}}button{{position:fixed;right:20px;top:20px;padding:10px 16px}}@media print{{body{{background:white}}main{{margin:0;box-shadow:none;max-width:none}}button{{display:none}}}}
 </style></head><body><button onclick="window.print()">Print / Save PDF</button><main>
-<header><div><h1>MCVISUAL</h1><h2>Shenzhen Maxcolor Visual Co., Ltd.</h2></div><div class="meta"><b>QUOTATION</b><br>{esc(quote['quote_no'])}<br>Status: {esc(quote['status']).upper()}<br>Date: {esc(str(quote['created_at'])[:10])}</div></header>
+<header><div><h1>{esc(identity.BRAND)}</h1><h2>{esc(identity.COMPANY)}</h2></div><div class="meta"><b>QUOTATION</b><br>{esc(quote['quote_no'])}<br>Status: {esc(quote['status']).upper()}<br>Date: {esc(str(quote['created_at'])[:10])}</div></header>
 <section class="parties"><div><div class="label">Quotation for</div><h2>{esc(quote['company_en'])}</h2>{esc(quote['country'])}<br>{esc(quote['website'])}</div><div><div class="label">Contact / Project</div><h2>{esc(quote['contact_name'])}</h2>{esc(quote['contact_title'])}<br>{esc(quote['contact_email'])}<br><b>{esc(quote['title'])}</b></div></section>
 <table><thead><tr><th>#</th><th>Description</th><th>Size</th><th>Qty</th><th>Price by</th><th>Unit price</th><th>Amount</th></tr></thead><tbody>{rows}</tbody></table>
 <section class="totals"><div><span>Subtotal</span><b>{amount(quote['subtotal'])}</b></div><div><span>Shipping</span><b>{amount(quote['shipping'])}</b></div><div><span>Discount</span><b>- {amount(quote['discount'])}</b></div><div class="grand"><span>Total</span><b>{amount(quote['total'])}</b></div></section>

@@ -27,6 +27,10 @@ CHECK_SECONDS = 300
 
 _K_ENABLED = "autosend_enabled"
 _K_LAST_DATE = "autosend_last_date"
+_K_LAST_ATTEMPT = "autosend_last_attempt_at"
+# A send is 30 mails at 16-28s apart, so a restart during one is ordinary on a desktop
+# that sleeps. Retrying is right; retrying every tick through a crash loop is not.
+RETRY_AFTER_MINUTES = 20
 _K_LAST_RESULT = "autosend_last_result"
 _K_SAFETY_PAUSE = "autosend_safety_pause"
 _K_RISK_ACK = "autosend_risk_ack"
@@ -127,13 +131,41 @@ def status(conn) -> dict:
             "preview": preview(conn)}
 
 
+def _last_attempt(conn) -> _dt.datetime | None:
+    raw = settings.get(conn, _K_LAST_ATTEMPT)
+    if not raw:
+        return None
+    try:
+        return _dt.datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
 def should_run(conn, now: _dt.datetime | None = None) -> bool:
+    """Whether today's send still needs doing.
+
+    The day is closed by a run that *finished*, not by one that started. `last_date` used
+    to be written before the first mail went out, so a restart mid-send left the day
+    marked done with nothing sent and nothing recorded — which is exactly how the
+    dashboard came to report "already ran today" beside a five-day-old result.
+    """
     now = now or _dt.datetime.now()
     if not enabled(conn):
         return False
     if not (WINDOW[0] <= now.hour < WINDOW[1]):
         return False
-    return settings.get(conn, _K_LAST_DATE) != now.date().isoformat()
+    if settings.get(conn, _K_LAST_DATE) == now.date().isoformat():
+        return False
+    started = _last_attempt(conn)
+    if started and now - started < _dt.timedelta(minutes=RETRY_AFTER_MINUTES):
+        # A previous attempt is either still running or died moments ago. Either way,
+        # starting a second one now would double-send.
+        return False
+    if started:
+        settings.set_value(
+            conn, _K_LAST_RESULT,
+            f"{started:%m-%d %H:%M} 上次自动发送中途中断（进程重启或休眠），现在重试")
+    return True
 
 
 def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None = None,
@@ -141,10 +173,13 @@ def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None =
     """Evaluate and send today's due EMAIL steps within budget; record the outcome."""
     from app import sequence_send, sequences
     now = now or _dt.datetime.now()
-    settings.set_value(conn, _K_LAST_DATE, now.date().isoformat())
+    # Mark the attempt, not the day. The day is closed below, once this actually
+    # finished — a run that dies halfway must come back, not silently skip to tomorrow.
+    settings.set_value(conn, _K_LAST_ATTEMPT, now.isoformat())
     try:
         due_ids = [d["enrollment_id"] for d in sequences.due_queue(conn, "email")]
         if not due_ids:
+            settings.set_value(conn, _K_LAST_DATE, now.date().isoformat())
             settings.set_value(conn, _K_LAST_RESULT, f"{now:%m-%d %H:%M} 无到期邮件跟进")
             return {"sent": 0, "failed": 0, "deferred": 0}
         res = sequence_send.send_due(
@@ -152,8 +187,13 @@ def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None =
             email_delay=email_delay, autonomous_quality=True,
         )
     except Exception as exc:  # noqa: BLE001
+        # A failure is a finished run: it is recorded and the day is closed, because
+        # retrying a broken send every 20 minutes would only repeat the failure.
+        settings.set_value(conn, _K_LAST_DATE, now.date().isoformat())
         settings.set_value(conn, _K_LAST_RESULT, f"{now:%m-%d %H:%M} 运行失败：{str(exc)[:120]}")
         return {"sent": 0, "failed": 0, "deferred": 0}
+    # The day is closed here, by a run that finished — not when it started.
+    settings.set_value(conn, _K_LAST_DATE, now.date().isoformat())
     # Keep the original prefix stable for readiness/UI/tests; quality outcomes append.
     note = f"{now:%m-%d %H:%M} 自动发送：成功 {res['sent']}，失败 {res['failed']}"
     if res.get("delayed"):

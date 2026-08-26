@@ -137,3 +137,103 @@ def test_test_endpoint_skips_imap_for_a_send_only_mailbox(tmp_path, monkeypatch)
                          "pw", imap_enabled=False)
     r = client.post(f"/api/mailboxes/{mid}/test")
     assert r.status_code == 200 and r.json() == {"ok": True, "smtp": True, "imap": False}
+
+
+def test_a_mailbox_password_can_be_changed_without_deleting_it(tmp_path):
+    """Until this existed the only way to fix a password was delete-and-re-add, so the
+    obvious move — type in the password box, press Test — was filling in the *new
+    mailbox* form while testing the old row."""
+    client, _ = _client(tmp_path)
+    created = client.post("/api/mailboxes", json={
+        "email": "allen@maxcolorvisual.com", "smtp_host": "smtp.qiye.163.com",
+        "username": "allen@maxcolorvisual.com", "password": "first", "daily_cap": 30})
+    mid = created.json()["id"]
+    assert client.put(f"/api/mailboxes/{mid}/password", json={"password": "second"}).status_code == 200
+    assert client.put(f"/api/mailboxes/{mid}/password", json={"password": "  "}).status_code == 400
+    assert client.put("/api/mailboxes/9999/password", json={"password": "x"}).status_code == 404
+
+
+def test_testing_a_mailbox_with_no_password_says_so(tmp_path):
+    """NetEase answers an empty credential by closing the socket, which surfaces as
+    'Connection unexpectedly closed' — indistinguishable from a network fault."""
+    from app.db import connect
+    client, db = _client(tmp_path)
+    created = client.post("/api/mailboxes", json={
+        "email": "allen@maxcolorvisual.com", "smtp_host": "smtp.qiye.163.com",
+        "username": "allen@maxcolorvisual.com", "password": "x", "daily_cap": 30})
+    mid = created.json()["id"]
+    conn = connect(db)
+    conn.execute("UPDATE mailboxes SET password='' WHERE id=?", (mid,))
+    conn.commit()
+    conn.close()
+    r = client.post(f"/api/mailboxes/{mid}/test")
+    assert r.status_code == 400 and "还没有密码" in r.json()["detail"]
+
+
+def _seed_first_touch(db: str) -> None:
+    from app.db import connect
+    conn = connect(db)
+    conn.execute("UPDATE leads SET hook='Saw the rental work on your site.',"
+                 " website='alpha.com', city='Houston, TX' WHERE no=1")
+    sid = conn.execute(
+        "INSERT INTO sequences(name, channel, active, created_at)"
+        " VALUES ('冷邮件 3 步跟进（英语）','email',1,'2026-08-01')").lastrowid
+    conn.execute(
+        "INSERT INTO sequence_steps(sequence_id, step_order, day_offset, subject, body)"
+        " VALUES (?,0,0,'{company} — LED display supply','Hi,\n\n{hook}\n\nAllen')", (sid,))
+    conn.commit()
+    conn.close()
+
+
+def test_the_test_mail_is_the_real_opening_email(tmp_path, monkeypatch):
+    """A deliverability score is only worth having on the message customers actually get.
+    A mail reading "test" scores differently on content and wording than the real first
+    touch, and it is the real one whose score we need."""
+    from app.channels import email_adapter
+
+    client, db = _client(tmp_path)
+    _seed_first_touch(db)
+    mid = client.post("/api/mailboxes", json={
+        "email": "allen@maxcolorvisual.com", "smtp_host": "smtp.qiye.163.com",
+        "username": "allen@maxcolorvisual.com", "password": "pw", "daily_cap": 30}).json()["id"]
+
+    sent = {}
+    monkeypatch.setattr(email_adapter, "send_via",
+                        lambda box, to, subject, body, att: sent.update(
+                            {"box": box["email"], "to": to, "subject": subject, "body": body}))
+    r = client.post(f"/api/mailboxes/{mid}/send-test", json={"to": "score@mail-tester.com"})
+    assert r.status_code == 200
+    assert sent["to"] == "score@mail-tester.com"
+    assert sent["box"] == "allen@maxcolorvisual.com"
+    # Rendered, not raw: placeholders must be gone before this measures anything.
+    assert "{company}" not in sent["subject"] and "{hook}" not in sent["body"]
+    assert "Saw the rental work" in sent["body"]
+    assert r.json()["guard_blocked"] is False
+
+
+def test_a_test_mail_is_not_counted_as_prospecting(tmp_path, monkeypatch):
+    """Nobody was prospected, so it must not spend the daily cap or land in send_log."""
+    from app.db import connect
+    from app.channels import email_adapter
+
+    client, db = _client(tmp_path)
+    _seed_first_touch(db)
+    mid = client.post("/api/mailboxes", json={
+        "email": "a@b.com", "smtp_host": "smtp.qiye.163.com", "username": "a@b.com",
+        "password": "pw", "daily_cap": 30}).json()["id"]
+    monkeypatch.setattr(email_adapter, "send_via", lambda *a, **k: None)
+    client.post(f"/api/mailboxes/{mid}/send-test", json={"to": "x@mail-tester.com"})
+    conn = connect(db)
+    assert conn.execute("SELECT COUNT(*) c FROM send_log").fetchone()["c"] == 0
+    assert conn.execute("SELECT COUNT(*) c FROM mailbox_sends").fetchone()["c"] == 0
+    conn.close()
+
+
+def test_a_test_mail_needs_a_password_and_a_real_address(tmp_path):
+    client, db = _client(tmp_path)
+    _seed_first_touch(db)
+    mid = client.post("/api/mailboxes", json={
+        "email": "a@b.com", "smtp_host": "smtp.qiye.163.com", "username": "a@b.com",
+        "password": "pw", "daily_cap": 30}).json()["id"]
+    assert client.post(f"/api/mailboxes/{mid}/send-test", json={"to": "nonsense"}).status_code == 400
+    assert client.post("/api/mailboxes/9999/send-test", json={"to": "x@y.com"}).status_code == 404

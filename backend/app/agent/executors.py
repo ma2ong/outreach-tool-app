@@ -110,6 +110,18 @@ def send_reply(conn, p: dict) -> str:
 
 def create_task(conn, p: dict) -> str:
     payload = p.get("payload") or {}
+    # One open agent task per customer. The planner dedupes within a day, so the same
+    # unfinished job came back as a fresh task every morning: 89 open items, the same
+    # sentence three times over. An agent that wakes itself up has nothing new to say
+    # about a customer until the last thing it asked for is done — and Allen's
+    # attention is the thing being spent. A task he created himself does not count:
+    # it is his note, not the agent's standing request.
+    activities.ensure_schema(conn)
+    standing = conn.execute(
+        "SELECT id, title FROM activities WHERE lead_no=? AND status='open'"
+        " AND source='agent' ORDER BY id LIMIT 1", (p["lead_no"],)).fetchone()
+    if standing:
+        return f"该客户已有未完成任务 #{standing['id']}：{standing['title']}，不重复建"
     task = activities.create(conn, p["lead_no"], {
         "title": payload.get("title") or p["title"],
         "type": payload.get("type") or "task",
@@ -117,6 +129,14 @@ def create_task(conn, p: dict) -> str:
         "priority": payload.get("priority") or "normal",
         "note": payload.get("note"),
     }, opportunity_id=p.get("opportunity_id"))
+    # Record where it came from now, at the moment it is created. Until this, an agent
+    # task was indistinguishable from one Allen typed, and ownership had to be inferred
+    # afterwards by parsing the executor's own result string back out of the proposal.
+    if p.get("id"):
+        conn.execute(
+            "UPDATE activities SET source='agent', source_ref=? WHERE id=?",
+            (f"proposal:{p['id']}", task["id"]))
+        conn.commit()
     return f"已建销售任务 #{task['id']}：{task['title']}"
 
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchMailboxes, createMailbox, setMailboxActive, deleteMailbox, testMailbox } from "../api";
+import { fetchMailboxes, createMailbox, setMailboxActive, setMailboxPassword, sendTestMail, deleteMailbox, testMailbox } from "../api";
 import type { Mailbox } from "../types";
 
 const BLANK = {
@@ -11,9 +11,39 @@ export function MailboxPanel() {
   const [boxes, setBoxes] = useState<Mailbox[]>([]);
   const [form, setForm] = useState({ ...BLANK });
   const [msg, setMsg] = useState("");
+  // 改密码就地进行：没有它，唯一的改法是删掉重加，而屏幕上那个密码框属于「新增」表单——
+  // 于是很自然会变成「在新增表单里填密码、点上面那行的测试」，用空密码登录。
+  const [editingPw, setEditingPw] = useState<number | null>(null);
+  const [pwDraft, setPwDraft] = useState("");
+  // 发测试信：发的是真实的第一封开发信，因为要测的就是它的得分。
+  const [testingTo, setTestingTo] = useState<number | null>(null);
+  const [toDraft, setToDraft] = useState("");
+  const [sendingTest, setSendingTest] = useState(false);
 
   function reload() { fetchMailboxes().then(setBoxes).catch((e) => setMsg(String(e))); }
   useEffect(reload, []);
+
+  async function savePassword(id: number) {
+    if (!pwDraft.trim()) { setMsg("密码不能为空"); return; }
+    try {
+      await setMailboxPassword(id, pwDraft.trim());
+      setEditingPw(null); setPwDraft(""); setMsg("密码已更新，点「测试」验证");
+      reload();
+    } catch (e) { setMsg("改密码失败：" + String(e)); }
+  }
+
+  async function sendTest(id: number) {
+    const to = toDraft.trim();
+    if (!to.includes("@")) { setMsg("填一个你能收到的地址，例如 mail-tester 给的临时地址"); return; }
+    setSendingTest(true); setMsg("");
+    try {
+      const r = await sendTestMail(id, to);
+      setTestingTo(null); setToDraft("");
+      setMsg(`已发出：${r.from} → ${r.to}，主题「${r.subject}」（用 ${r.sample_company} 的资料渲染）`
+        + (r.guard_blocked ? `。注意：这封信会被出门闸门拦下 —— ${r.guard_detail}` : ""));
+    } catch (e) { setMsg("测试信发送失败：" + String(e)); }
+    finally { setSendingTest(false); }
+  }
 
   async function add() {
     if (!form.email.trim() || !form.smtp_host.trim() || !form.password) { setMsg("邮箱、SMTP 服务器、密码必填"); return; }
@@ -75,7 +105,35 @@ export function MailboxPanel() {
                     title="只登录不发信：同时验证 SMTP 发信与 IMAP 回复同步，避免发送或拉取回复时才发现配错">
                     {testing === b.id ? "测试中…" : "测试"}
                   </button>
+                  <button className="btn btn-sm" style={{ marginRight: 6 }}
+                    onClick={() => { setEditingPw(editingPw === b.id ? null : b.id); setPwDraft(""); }}>
+                    改密码
+                  </button>
+                  <button className="btn btn-sm" style={{ marginRight: 6 }}
+                    onClick={() => { setTestingTo(testingTo === b.id ? null : b.id); setToDraft(""); }}
+                    title="用真实的第一封开发信发给你指定的地址，用来测送达率（不占今日额度，也不计入触达记录）">
+                    发测试信
+                  </button>
                   <button className="btn btn-sm" onClick={() => deleteMailbox(b.id).then(reload)}>删除</button>
+                  {testingTo === b.id && (
+                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                      <input className="input" autoFocus value={toDraft} style={{ width: 250 }}
+                        placeholder="收件地址，如 mail-tester 给的临时地址"
+                        onChange={(e) => setToDraft(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") sendTest(b.id); }} />
+                      <button className="btn btn-sm btn-primary" disabled={sendingTest}
+                        onClick={() => sendTest(b.id)}>{sendingTest ? "发送中…" : "发出"}</button>
+                    </div>
+                  )}
+                  {editingPw === b.id && (
+                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                      <input className="input" type="password" autoFocus value={pwDraft}
+                        placeholder="客户端授权码 / 邮箱密码" style={{ width: 210 }}
+                        onChange={(e) => setPwDraft(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") savePassword(b.id); }} />
+                      <button className="btn btn-sm btn-primary" onClick={() => savePassword(b.id)}>保存</button>
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}

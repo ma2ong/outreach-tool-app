@@ -18,6 +18,11 @@ def infer_imap_host(smtp_host: str) -> str | None:
         "smtp.office365.com": "outlook.office365.com",
         "smtp-mail.outlook.com": "outlook.office365.com",
         "smtp.zoho.com": "imap.zoho.com",
+        # NetEase enterprise mail. The generic smtp->imap swap below would land on the
+        # same host, but the paid (qiye) and free (ym) tiers are different services and
+        # naming both here keeps that visible.
+        "smtp.qiye.163.com": "imap.qiye.163.com",
+        "smtp.ym.163.com": "imap.ym.163.com",
     }
     if host in known:
         return known[host]
@@ -55,6 +60,29 @@ def list_mailboxes(conn, include_secrets: bool = False) -> list[dict]:
             d.pop("password", None)
         out.append(d)
     return out
+
+
+def set_password(conn, mailbox_id: int, password: str) -> bool:
+    """Replace the stored credential.
+
+    Without this the only way to fix a password was to delete the mailbox and add it
+    again, so the natural move — typing into the password box on screen and pressing
+    Test — was filling in the *new mailbox* form while testing the old row. The test then
+    logged in with an empty string, and NetEase answers that by closing the connection:
+    "Connection unexpectedly closed", which reads like a network fault rather than a
+    missing password.
+    """
+    if not password:
+        return False
+    cur = conn.execute("UPDATE mailboxes SET password=? WHERE id=?", (password, mailbox_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def has_password(conn, mailbox_id: int) -> bool:
+    row = conn.execute("SELECT COALESCE(password,'') p FROM mailboxes WHERE id=?",
+                       (mailbox_id,)).fetchone()
+    return bool(row and row["p"])
 
 
 def set_active(conn, mailbox_id: int, active: bool) -> bool:
