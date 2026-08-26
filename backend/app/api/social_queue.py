@@ -7,7 +7,7 @@ background job that reaches this table on its own — that boundary is the whole
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
-from app import channel_outreach, jobs, social_queue
+from app import channel_outreach, jobs, social_autonomy, social_queue
 from app.api import channels as channels_api
 from app.api import send as send_api
 from app.main_deps import get_conn
@@ -23,12 +23,39 @@ class SendRequest(BaseModel):
     ids: list[int]
 
 
+class ModeRequest(BaseModel):
+    channel: str
+    mode: str
+    confirm: str = ""
+
+
 @router.get("")
 def read_queue(conn=Depends(get_conn)):
     rows = social_queue.today(conn)
     return {"date": social_queue._today(), "items": rows,
             "per_channel": {c: sum(1 for r in rows if r["channel"] == c)
                             for c in social_queue.CHANNELS}}
+
+
+@router.get("/autonomy")
+def read_autonomy(conn=Depends(get_conn)):
+    """Per-channel mode, plus what today's automatic run did (if it ran)."""
+    return {"modes": social_autonomy.all_modes(conn),
+            "last_run": social_autonomy.last_run(conn),
+            "send_at": social_autonomy.send_at(social_queue.dt.date.today()).strftime("%H:%M")}
+
+
+@router.put("/autonomy")
+def set_autonomy(req: ModeRequest, conn=Depends(get_conn)):
+    """Raising a channel to `auto` costs typing its name — it spends an account that
+    cannot be recovered, and a yes/no dialog gets answered reflexively."""
+    try:
+        mode = social_autonomy.set_mode(conn, req.channel, req.mode, req.confirm)
+    except social_autonomy.ConfirmationRequired as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"channel": req.channel, "mode": mode}
 
 
 @router.post("/build")

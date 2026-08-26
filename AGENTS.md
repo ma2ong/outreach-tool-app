@@ -12,9 +12,13 @@ follow up with prospects while Allen only handles high-risk decisions and pricin
   summarize a quote request and create a task, but must never answer it with a number.
 - Every external message must use the existing send/reply paths so daily caps,
   do-not-contact, bounce suppression and per-company limits remain in force.
-- Never auto-start a new WhatsApp/Instagram/Facebook conversation. Platform risk stays
-  behind the existing manual cold-DM workflow. Replies in existing conversations may be
-  automated only through the Agent autonomy controls.
+- Do not auto-start a new WhatsApp/Instagram/Facebook conversation unless Allen has
+  explicitly switched that channel to `auto` (see `docs/53`), which costs a typed
+  confirmation and is per channel. Default is `manual`: the Agent prepares the day's
+  queue and a person presses send. Nothing may raise that setting on his behalf — not a
+  migration, not a seed, not a default. The risk did not change when the switch was
+  added: a banned Instagram account is gone, and the WhatsApp number carries WeChat and
+  every customer contact. What changed is who decides to spend it.
 - Unknown, low-confidence or weakly sourced data is a reason to stop or ask, not guess.
 - All autonomous actions must leave a durable proposal/run record with reasons and
   results. `auto` skips approval; it never skips audit.

@@ -149,7 +149,22 @@ def _pitch_phrase(pitches: list[str]) -> str:
     return f"{pitches[0]}–{pitches[-1]}" if len(pitches) >= _RANGE_FROM else _join(pitches)
 
 
-def build(text: str, icp: dict | None = None) -> dict:
+# A city field is free text and often a list of them ("São Paulo / Goiânia / Rio").
+# Only a single clean place name can go into a sentence after "around".
+_CITY_SPLIT = re.compile(r"\s*[/;|]\s*|\s+&\s+")
+
+
+def _place(city: str | None) -> str:
+    """One place name fit to drop into a sentence, or "" when the field is a list."""
+    raw = str(city or "").strip()
+    if not raw or _CITY_SPLIT.search(raw):
+        return ""
+    # "Houston, TX" reads better in a sentence as just "Houston".
+    place = raw.split(",")[0].strip()
+    return place if 1 < len(place) <= 28 else ""
+
+
+def build(text: str, icp: dict | None = None, city: str | None = None) -> dict:
     """Return {"brief", "hook"} for a fetched site. Either may be "" on its own terms —
     they answer to different readers and are gated separately."""
     pitches = _pitches(text or "")
@@ -169,9 +184,31 @@ def build(text: str, icp: dict | None = None) -> dict:
 
     # The hook has no such floor: the customer has not seen our record, so the thing
     # that is redundant on our screen is the thing worth opening with on theirs.
+    # Distinctiveness matters as much as accuracy here: 336 companies once shared
+    # "Saw the rental work on your site." because this took the first keyword and
+    # dropped the rest, while the brief beside it listed two. A hook every competitor
+    # also gets is, to a platform reading a batch of DMs, one identical message.
     if pitches:
         hook = f"Saw {_pitch_phrase(pitches)} panels listed on your site."
     else:
-        sendable = next((g for _, g in terms if g), None)
-        hook = f"Saw the {sendable} work on your site." if sendable else ""
+        # Up to two categories, not one — "rental and events" already separates most of
+        # the companies that "rental" alone lumped together. Overlapping pairs are not a
+        # second category though: "signage and digital signage" says one thing twice.
+        # Only glossed terms. A gloss of None is not missing data — it marks a phrase
+        # that must never be sent ("our church", "house of worship"), which is what
+        # keeps an end-user's own words out of a message addressed to them.
+        sendable: list[str] = []
+        for gloss in (g for _, g in terms if g):
+            if any(gloss in kept or kept in gloss for kept in sendable):
+                continue
+            sendable.append(gloss)
+            if len(sendable) == 2:
+                break
+        place = _place(city)
+        if sendable and place:
+            hook = f"Saw the {_join(sendable)} work you do around {place}."
+        elif sendable:
+            hook = f"Saw the {_join(sendable)} work on your site."
+        else:
+            hook = ""
     return {"brief": brief, "hook": hook}

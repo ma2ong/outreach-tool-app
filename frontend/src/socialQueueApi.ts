@@ -61,3 +61,23 @@ export async function sendSocialQueue(ids: number[]): Promise<{ job_id: string; 
     body: JSON.stringify({ ids }),
   }), "send queue");
 }
+
+// 自动挡按渠道分设。升到 auto 要照抄渠道名 —— 那个账号被封是不可恢复的。
+export type SocialMode = "off" | "manual" | "auto";
+
+export type SocialAutonomy = {
+  modes: Record<string, SocialMode>;
+  last_run: { at: string; channels: Record<string, number>; failed: number } | null;
+  send_at: string;
+};
+
+export async function fetchSocialAutonomy(): Promise<SocialAutonomy> {
+  return jsonOrThrow(await fetch("/api/social-queue/autonomy"), "social autonomy");
+}
+
+export async function setSocialMode(channel: string, mode: SocialMode, confirm = ""): Promise<void> {
+  await jsonOrThrow(await fetch("/api/social-queue/autonomy", {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ channel, mode, confirm }),
+  }), "set mode");
+}
