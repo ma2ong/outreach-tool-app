@@ -182,6 +182,28 @@ def auto_send_sequences() -> None:
             conn.close()
 
 
+def auto_social_queue() -> None:
+    """Prepare the day's social DMs, and send them only for channels set to `auto`.
+
+    Building the queue is always safe — it writes rows and reaches nobody. Sending is
+    gated per channel by a setting Allen had to type a confirmation to raise
+    (`docs/53`), so the default path here still ends with a queue waiting for a person.
+    """
+    if os.environ.get("OUTREACH_SOCIAL_QUEUE", "1") == "0":
+        return
+    from app import social_autonomy, social_queue
+    conn = None
+    try:
+        conn = connect(DB_PATH)
+        social_queue.build_today(conn)
+        social_autonomy.run_due(conn)
+    except Exception:  # noqa: BLE001 — never take the operating loop down with it
+        pass
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def auto_agent_run() -> None:
     """Run the autonomous sales operator against the current business state."""
     if os.environ.get("OUTREACH_AGENT", "1") == "0":
@@ -217,6 +239,7 @@ def background_cycle() -> bool:
     auto_recheck()
     auto_prune_sequences()
     auto_send_sequences()
+    auto_social_queue()
     auto_agent_run()
     return ok
 

@@ -95,3 +95,30 @@ def test_a_sent_line_cannot_be_edited_or_resent(tmp_path, monkeypatch):
 
     assert client.patch(f"/api/social-queue/{item['id']}", json={"body": "x"}).status_code == 404
     assert client.post("/api/social-queue/send", json={"ids": [item["id"]]}).status_code == 400
+
+
+def test_the_autonomy_switch_needs_the_channel_typed(tmp_path):
+    """A yes/no dialog gets answered reflexively; this spends an account that cannot be
+    recovered, so it asks for the name."""
+    client, _ = _client(tmp_path)
+    assert client.get("/api/social-queue/autonomy").json()["modes"] == {
+        "whatsapp": "manual", "instagram": "manual", "facebook": "manual"}
+
+    refused = client.put("/api/social-queue/autonomy",
+                         json={"channel": "instagram", "mode": "auto", "confirm": "yes"})
+    assert refused.status_code == 400 and "instagram" in refused.json()["detail"]
+
+    ok = client.put("/api/social-queue/autonomy",
+                    json={"channel": "instagram", "mode": "auto", "confirm": "instagram"})
+    assert ok.status_code == 200
+    modes = client.get("/api/social-queue/autonomy").json()["modes"]
+    assert modes["instagram"] == "auto" and modes["whatsapp"] == "manual"
+
+
+def test_turning_the_switch_back_down_is_free(tmp_path):
+    client, _ = _client(tmp_path)
+    client.put("/api/social-queue/autonomy",
+               json={"channel": "whatsapp", "mode": "auto", "confirm": "whatsapp"})
+    assert client.put("/api/social-queue/autonomy",
+                      json={"channel": "whatsapp", "mode": "manual"}).status_code == 200
+    assert client.get("/api/social-queue/autonomy").json()["modes"]["whatsapp"] == "manual"

@@ -195,7 +195,11 @@ def build_today(conn, now: dt.datetime | None = None) -> dict:
         "SELECT * FROM social_dm_queue WHERE queue_date=? AND edited=1", (today,))}
     conn.execute("DELETE FROM social_dm_queue WHERE queue_date=? AND edited=0", (today,))
 
-    allowance = {c: _allowance(c, now) for c in CHANNELS}
+    # A channel switched off (docs/53 R1) is not prepared at all: a queue nobody may
+    # send is just a list to scroll past.
+    from app import social_autonomy
+    allowance = {c: (0 if social_autonomy.get(conn, c) == "off" else _allowance(c, now))
+                 for c in CHANNELS}
     for row in kept.values():
         allowance[row["channel"]] = max(0, allowance[row["channel"]] - 1)
 
