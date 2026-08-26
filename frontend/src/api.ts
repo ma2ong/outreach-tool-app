@@ -630,6 +630,18 @@ export async function setMailboxPassword(id: number, password: string): Promise<
   if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail || `set password ${r.status}`);
 }
 
+export async function sendTestMail(id: number, to: string): Promise<{
+  to: string; from: string; subject: string; sample_company: string;
+  guard_blocked: boolean; guard_detail: string;
+}> {
+  const r = await fetch(`/api/mailboxes/${id}/send-test`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ to }),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail || `send test ${r.status}`);
+  return r.json();
+}
+
 export async function deleteMailbox(id: number): Promise<void> {
   const r = await fetch(`/api/mailboxes/${id}`, { method: "DELETE" });
   if (!r.ok) throw new Error(`mailbox ${r.status}`);

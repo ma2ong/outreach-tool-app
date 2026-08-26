@@ -28,6 +28,10 @@ class PasswordUpdate(BaseModel):
     password: str
 
 
+class TestSend(BaseModel):
+    to: str
+
+
 @router.get("")
 def list_mailboxes(conn=Depends(get_conn)):
     return mb.list_mailboxes(conn)
@@ -78,6 +82,63 @@ def set_active(mid: int, req: ActiveUpdate, conn=Depends(get_conn)):
     if not mb.set_active(conn, mid, req.active):
         raise HTTPException(status_code=404, detail="mailbox not found")
     return {"ok": True}
+
+
+def _real_first_touch(conn) -> tuple[str, str, dict]:
+    """The actual opening email, rendered against a real lead.
+
+    A deliverability score is only worth having on the message customers really get: a
+    mail reading "test" scores differently on content, wording and links than the first
+    touch does, and it is the first touch whose score we need.
+    """
+    from app.personalize import render
+
+    step = conn.execute(
+        "SELECT st.subject, st.body FROM sequence_steps st JOIN sequences s ON s.id=st.sequence_id"
+        " WHERE s.channel='email' AND s.active=1 AND st.step_order=0 ORDER BY s.id LIMIT 1"
+    ).fetchone()
+    if step is None:
+        raise HTTPException(status_code=400, detail="没有可用的邮件序列，取不到真实开发信内容")
+    row = conn.execute(
+        "SELECT no, company_en, country, city, website, hook, contact_name FROM leads"
+        " WHERE COALESCE(hook,'') != '' AND COALESCE(company_en,'') != ''"
+        " ORDER BY no LIMIT 1").fetchone()
+    lead = dict(row) if row else {"no": 0, "company_en": "Example AV", "country": "USA",
+                                  "city": "Houston, TX", "website": "example.com",
+                                  "hook": "Saw the rental work on your site."}
+    return render(step["subject"], lead), render(step["body"], lead), lead
+
+
+@router.post("/{mid}/send-test")
+def send_test(mid: int, req: TestSend, conn=Depends(get_conn)):
+    """Send one real opening email to an address you control, to measure deliverability.
+
+    Not counted against the daily cap and not written to send_log: nobody was prospected
+    here. It goes out through the same mailbox, renderer and SMTP path as a customer
+    mail, because anything else would be measuring a different message.
+    """
+    from app import message_guard
+
+    to = req.to.strip()
+    if "@" not in to or to.startswith("@") or to.endswith("@"):
+        raise HTTPException(status_code=400, detail="收件地址不正确")
+    row = conn.execute("SELECT * FROM mailboxes WHERE id=?", (mid,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="mailbox not found")
+    box = dict(row)
+    if not box.get("password"):
+        raise HTTPException(status_code=400, detail="这个邮箱还没有密码：点「改密码」填入后再发测试信")
+    subject, body, lead = _real_first_touch(conn)
+    try:
+        email_adapter.send_via(box, to, subject, body, None)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"发送失败：{exc}") from exc
+    # What our own outbound guard makes of this copy. It does not block the test — the
+    # recipient is not a customer — but a first touch it would hold is worth seeing here.
+    verdict = message_guard.check(body, lead, subject=subject)
+    return {"ok": True, "to": to, "from": box["email"], "subject": subject,
+            "sample_company": lead.get("company_en"),
+            "guard_blocked": verdict.blocked, "guard_detail": verdict.detail}
 
 
 @router.put("/{mid}/password")
