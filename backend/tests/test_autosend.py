@@ -71,14 +71,15 @@ def test_run_once_sends_email_only_within_budget(conn):
         conn, lambda to, s, b, att: sent.append(to), None, _noon(),
         email_delay=(0, 0),
     )
-    assert res["sent"] == outreach.MAX_BATCH        # 39 due, batch cap 30
-    assert res["deferred"] == 39 - outreach.MAX_BATCH
+    assert res["sent"] == min(39, outreach.DAILY_CAP, outreach.MAX_BATCH)
+    assert res["deferred"] == 39 - min(39, outreach.DAILY_CAP, outreach.MAX_BATCH)
     assert all("@x.com" in t for t in sent)
     # WA enrollment untouched: still due, step 0
     wa_due = sequences.due_queue(conn, "whatsapp")
     assert len(wa_due) == 1 and wa_due[0]["current_step"] == 0
     st = autosend.status(conn)
-    assert "成功 30" in st["last_result"] and st["last_date"] == "2026-07-20"
+    expected = min(39, outreach.DAILY_CAP, outreach.MAX_BATCH)
+    assert f"成功 {expected}" in st["last_result"] and st["last_date"] == "2026-07-20"
 
 
 def test_run_failure_recorded_and_day_not_retried(conn):
@@ -96,7 +97,7 @@ def test_status_defaults(conn):
     assert st["enabled"] is False
     assert st["last_date"] is None and st["last_result"] is None
     assert st["preview"]["due"] == 39
-    assert st["preview"]["will_send"] == outreach.MAX_BATCH
+    assert st["preview"]["will_send"] == min(39, outreach.DAILY_CAP, outreach.MAX_BATCH)
     assert st["preview"]["quality_gate"] == "evaluated_at_send"
 
 

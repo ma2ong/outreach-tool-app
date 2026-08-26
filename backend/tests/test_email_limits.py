@@ -24,9 +24,9 @@ def test_blast_respects_batch_cap(conn):
     res = outreach.send_campaign(conn, list(range(1, 61)), "{company}", "Hello {company}", None,
                                  sender=_sender(sent), delay_range=(0, 0),
                                  max_send=outreach.remaining_today(conn))
-    assert len(sent) == outreach.MAX_BATCH
-    assert res["sent"] == outreach.MAX_BATCH
-    assert res["deferred"] == 60 - outreach.MAX_BATCH
+    assert len(sent) == min(outreach.DAILY_CAP, outreach.MAX_BATCH)
+    assert res["sent"] == min(outreach.DAILY_CAP, outreach.MAX_BATCH)
+    assert res["deferred"] == 60 - min(outreach.DAILY_CAP, outreach.MAX_BATCH)
 
 
 def test_daily_cap_across_runs(conn):
@@ -63,10 +63,10 @@ def test_sequence_send_is_capped_too(conn):
     sent = []
     res = sequence_send.send_due(conn, [d["enrollment_id"] for d in due],
                                  sender=_sender(sent), email_delay=(0, 0))
-    assert len(sent) == outreach.MAX_BATCH
-    assert res["deferred"] == 60 - outreach.MAX_BATCH
+    assert len(sent) == min(outreach.DAILY_CAP, outreach.MAX_BATCH)
+    assert res["deferred"] == 60 - min(outreach.DAILY_CAP, outreach.MAX_BATCH)
     still = {d["lead_no"] for d in sequences.due_queue(conn)}
-    assert len(still) == 60 - outreach.MAX_BATCH
+    assert len(still) == 60 - min(outreach.DAILY_CAP, outreach.MAX_BATCH)
 
 
 def test_sequence_api_send_rotates_mailboxes(tmp_path, monkeypatch):
