@@ -39,7 +39,7 @@ def test_a_site_with_no_pitches_still_gets_a_hook_from_what_it_does():
     assert out["brief"] == \
         'The site mentions "signage", "digital sign" (digital signage) and ' \
         '"publicidad exterior" (outdoor advertising).'
-    assert out["hook"] == "Saw the signage work on your site."
+    assert out["hook"] == "Saw the signage and outdoor advertising work on your site."
 
 
 def test_a_full_product_line_reads_as_a_range():
@@ -77,7 +77,7 @@ def test_korean_matches_are_glossed_not_dropped():
     out = build(page, icp={"icp_type": "reseller", "hits": ["전광판", "대리점"]})
     assert out["brief"] == 'The site mentions "전광판" (LED signage) and "대리점" (dealership).'
     # The message goes out in English, so the hook uses the gloss alone.
-    assert out["hook"] == "Saw the LED signage work on your site."
+    assert out["hook"] == "Saw the LED signage and dealership work on your site."
 
 
 def test_a_single_keyword_still_earns_a_hook_but_not_a_brief():
@@ -137,3 +137,41 @@ def test_every_icp_keyword_has_an_english_gloss():
 
     missing = [k for _, keywords in _CATEGORIES.values() for k in keywords if k not in _TERM]
     assert missing == [], f"缺释义：{missing}"
+
+
+# ------------------------------------------- hooks that don't collide
+
+def test_a_hook_uses_every_thing_the_site_said_not_just_the_first():
+    """336 companies shared "Saw the rental work on your site." because the hook took
+    one keyword and dropped the rest — while the brief right beside it listed two."""
+    icp = {"hits": ["signage", "publicidad exterior"]}
+    hook = build("we do signage", icp=icp)["hook"]
+    assert "signage" in hook and "outdoor advertising" in hook
+
+
+def test_the_city_separates_two_companies_that_do_the_same_thing():
+    """Two rental houses read the same off their websites; what differs is where they are."""
+    icp = {"hits": ["rental"]}
+    houston = build("rental", icp=icp, city="Houston, TX")["hook"]
+    saopaulo = build("rental", icp=icp, city="São Paulo, SP")["hook"]
+    assert houston != saopaulo
+    assert "Houston" in houston and "São Paulo" in saopaulo
+
+
+def test_a_messy_city_field_is_not_pasted_into_a_sentence():
+    """`city` holds things like "São Paulo / Goiânia / Rio / Brasília" — a list, not a
+    place you can put after "around"."""
+    icp = {"hits": ["rental"]}
+    hook = build("rental", icp=icp, city="São Paulo / Goiânia / Rio / Brasília")["hook"]
+    assert "/" not in hook
+
+
+def test_published_pitches_still_win():
+    """A specific pitch is the most distinctive thing a site can give us."""
+    hook = build("LED panel P2.5 and LED panel P3.91 in stock", icp={"hits": ["rental"]},
+                 city="Houston, TX")["hook"]
+    assert "P2.5" in hook
+
+
+def test_no_material_still_means_no_hook():
+    assert build("nothing useful here", icp={"hits": []}, city="Houston")["hook"] == ""
