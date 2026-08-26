@@ -42,6 +42,9 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
   const [quality, setQuality] = useState<QualityStat[]>([]);
   const [deliver, setDeliver] = useState<Deliverability | null>(null);
   const [opportunityStats, setOpportunityStats] = useState<OpportunityStats | null>(null);
+  // 今天 Agent 做了什么：以前 18 点推到 WhatsApp，现在就摆在这里 —— 这是每天第一眼看的屏幕。
+  const [report, setReport] = useState<string>("");
+  const [reportOpen, setReportOpen] = useState(false);
   const [activityStats, setActivityStats] = useState<ActivityStats | null>(null);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const pollRef = useRef<number | null>(null);
@@ -113,8 +116,28 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
 
   const countries = Object.entries(stats.by_country).sort((a, b) => b[1] - a[1]).slice(0, 15);
   const maxC = countries[0]?.[1] ?? 1;
+  useEffect(() => {
+    fetchDailyReport().then((r) => setReport(r.text || "")).catch(() => setReport(""));
+  }, []);
+
   return (
     <>
+      {report && (
+        <div className="card">
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <h3 style={{ margin: 0, fontSize: 15 }}>今天做了什么</h3>
+            <span className="muted">Agent 今日报告</span>
+            <button className="btn btn-sm" style={{ marginLeft: "auto" }}
+              onClick={() => setReportOpen((v) => !v)}>
+              {reportOpen ? "收起" : "展开"}
+            </button>
+          </div>
+          <pre style={{
+            fontSize: 12, whiteSpace: "pre-wrap", margin: "8px 0 0",
+            maxHeight: reportOpen ? "none" : 132, overflow: "hidden",
+          }}>{report}</pre>
+        </div>
+      )}
       <TodayPlanCard onGoto={onGoto} />
       <ReadinessPanel onGoto={onGoto} />
       {loadErrors.length > 0 && (

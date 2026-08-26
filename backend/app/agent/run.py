@@ -377,7 +377,7 @@ def _maybe_report(conn, now: dt.datetime | None) -> None:
     """
     from app.agent import report
     now = now or dt.datetime.now()
-    if now.hour < REPORT_HOUR or not report.targets():
+    if now.hour < REPORT_HOUR or not report.push_enabled(conn) or not report.targets():
         return
     try:
         report.send_daily(conn, now.date())

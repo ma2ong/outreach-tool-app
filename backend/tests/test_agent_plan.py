@@ -346,6 +346,9 @@ def test_the_report_goes_out_once_a_day(conn, monkeypatch):
 
 
 def test_the_evening_report_only_auto_pushes_when_a_webhook_exists(conn, monkeypatch):
+    """A route is still necessary — it is just no longer sufficient. Push is opt-in now
+    that the report leads the dashboard, so this arranges both."""
+    report.set_push(conn, True)
     pushed = []
     monkeypatch.setattr(report, "push", lambda text: pushed.append(text) or "")
     monkeypatch.setattr(report, "targets", lambda: [])

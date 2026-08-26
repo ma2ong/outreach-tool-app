@@ -581,3 +581,44 @@ def test_a_task_allen_created_himself_does_not_silence_the_agent(conn):
     activities.create(conn, 1, {"title": "我自己记的：周五打电话"})
     assert "已建销售任务" in executors.create_task(
         conn, {"id": 31, "lead_no": 1, "title": "跟进 Alpha AV：先找到决策联系人", "payload": {}})
+
+
+# ------------------------------------------- the day's report lives on the screen
+
+def test_the_report_is_not_pushed_unless_it_was_asked_for(conn):
+    """Allen reads the day on the dashboard now. A daily WhatsApp to himself was one
+    more thing arriving on a phone he is already looking away from."""
+    from app.agent import report
+
+    assert report.push_enabled(conn) is False
+
+
+def test_push_can_still_be_turned_back_on(conn):
+    from app.agent import report
+
+    report.set_push(conn, True)
+    assert report.push_enabled(conn) is True
+
+
+def test_the_evening_hook_stays_quiet_while_push_is_off(conn, monkeypatch):
+    import datetime as dt
+
+    from app.agent import report, run as agent_run
+
+    monkeypatch.setattr(report, "targets", lambda: ["whatsapp"])
+    monkeypatch.setattr(report, "send_daily",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("关掉了还推送")))
+    agent_run._maybe_report(conn, dt.datetime(2026, 8, 26, 19, 0))
+
+
+def test_the_evening_hook_still_pushes_once_turned_on(conn, monkeypatch):
+    import datetime as dt
+
+    from app.agent import report, run as agent_run
+
+    report.set_push(conn, True)
+    monkeypatch.setattr(report, "targets", lambda: ["whatsapp"])
+    pushed = []
+    monkeypatch.setattr(report, "send_daily", lambda c, d: pushed.append(d))
+    agent_run._maybe_report(conn, dt.datetime(2026, 8, 26, 19, 0))
+    assert pushed
