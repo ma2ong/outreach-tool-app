@@ -5,6 +5,10 @@ messaged (that is the whole point of a follow-up step), so it does NOT use the
 'messaged' exclusion. It still honours the browser-channel rate limits and daily
 caps, and each item carries its own step message. After a successful send the
 enrollment advances to its next step (or completes).
+
+Automatic email sends additionally pass the autonomous follow-up decision layer. Manual
+sequence sends keep human timing judgment and therefore do not silently inherit this
+worth-now policy; both paths still pass all original delivery and message guards.
 """
 import datetime
 import random
@@ -28,14 +32,31 @@ def _contact(conn, lead_no: int) -> dict:
 
 def send_due(conn, enrollment_ids, *, sender=None, engine=None,
              email_delay=(16, 28), channel_delay=None, image_default=None,
-             on_progress=None) -> dict:
-    """Send the current step for the given enrollments (must be in today's due queue)."""
+             on_progress=None, autonomous_quality: bool = False) -> dict:
+    """Send current steps that are in today's safe due queue.
+
+    `autonomous_quality=True` is reserved for the automatic email scheduler. It may
+    delay/park/stop machine-owned enrollment state before anything reaches the sender.
+    """
     due = {d["enrollment_id"]: d for d in sequences.due_queue(conn)}
     items = [due[i] for i in enrollment_ids if i in due]
     today = datetime.date.today().isoformat()
-    sent = failed = deferred = held = 0
+    sent = failed = deferred = held = delayed = quality_held = stopped = 0
     errors: list[dict] = []
     holds: list[dict] = []
+    decisions: list[dict] = []
+
+    # Prepare optional evidence modules once per batch. This matters on SQLite: schema
+    # migration checks and weak-campaign aggregation repeated 30 times add lock pressure
+    # without changing any decision.
+    followup_decision = None
+    weak_sequence_ids: set[int] = set()
+    if autonomous_quality and any(d["channel"] == "email" for d in items):
+        from app.agent import followup_decision as _followup_decision
+        from app.agent import oversight
+        followup_decision = _followup_decision
+        followup_decision.ensure_schema(conn)
+        weak_sequence_ids = oversight.weak_sequence_ids(conn)
 
     # Every channel is capped per day and per batch — email included (a 266-lead due
     # queue sent in one go from one Gmail is a spam-folder event).
@@ -52,6 +73,34 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
         if remaining.get(ch, 0) <= 0 or batch_used.get(ch, 0) >= max_batch.get(ch, 0):
             deferred += 1
             continue
+
+        if autonomous_quality and ch == "email" and followup_decision is not None:
+            decision = followup_decision.evaluate(
+                conn, d["enrollment_id"], _ensure=False,
+                weak_sequence_ids=weak_sequence_ids,
+            )
+            decision = followup_decision.apply(conn, decision, _ensure=False)
+            decisions.append({
+                "enrollment_id": d["enrollment_id"], "lead_no": no,
+                "action": decision["action"], "reason": decision["reason"],
+                "next_due_date": decision.get("next_due_date"),
+            })
+            if decision["action"] == "delay":
+                delayed += 1
+                if on_progress:
+                    on_progress(idx, total)
+                continue
+            if decision["action"] == "change_angle":
+                quality_held += 1
+                if on_progress:
+                    on_progress(idx, total)
+                continue
+            if decision["action"] == "stop":
+                stopped += 1
+                if on_progress:
+                    on_progress(idx, total)
+                continue
+
         attempted_send = False
         sent_this_item = False
         try:
@@ -104,4 +153,6 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
             if hi > 0:
                 time.sleep(random.randint(lo, hi))
     return {"sent": sent, "failed": failed, "deferred": deferred,
-            "errors": errors, "held": held, "holds": holds}
+            "errors": errors, "held": held, "holds": holds,
+            "delayed": delayed, "quality_held": quality_held, "stopped": stopped,
+            "followup_decisions": decisions}

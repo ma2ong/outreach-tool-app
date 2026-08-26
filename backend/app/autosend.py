@@ -10,6 +10,10 @@ triggers it. WA/IG/FB stay strictly manual.
 Mechanics: a background thread wakes every few minutes; the first wake-up inside the
 send window (09:00–20:00 local) on a day that hasn't run yet sends the due email
 steps within today's budget. PC off all day -> it simply runs on next boot.
+
+A due date is not itself permission to send. Automatic sequence steps pass the
+follow-up decision layer immediately before the sender is called; manual sends retain
+human timing judgment while using the same delivery/message safety guards.
 """
 import datetime as _dt
 import json
@@ -86,6 +90,13 @@ def pause(conn, code: str, reason: str, evidence: dict) -> dict:
 
 
 def preview(conn) -> dict:
+    """Cheap queue/capacity preview; Worth-Now is evaluated only at the send boundary.
+
+    This endpoint is polled by health/UI surfaces. Running Sales Truth, memory and weak-
+    sequence analysis across the whole due queue on every refresh creates needless SQLite
+    work and lock pressure. The actual scheduler still evaluates each chosen enrollment
+    immediately before sender invocation.
+    """
     from app import outreach, sequences
     due = sequences.due_queue(conn, "email")
     sendable = [d for d in due if conn.execute(
@@ -103,6 +114,7 @@ def preview(conn) -> dict:
         "sendable": len(sendable),
         "will_send": min(len(sendable), outreach.remaining_today(conn), outreach.MAX_BATCH),
         "oldest_due": oldest,
+        "quality_gate": "evaluated_at_send",
     }
 
 
@@ -126,7 +138,7 @@ def should_run(conn, now: _dt.datetime | None = None) -> bool:
 
 def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None = None,
              email_delay=(16, 28)) -> dict:
-    """Send today's due EMAIL steps within budget and record the outcome."""
+    """Evaluate and send today's due EMAIL steps within budget; record the outcome."""
     from app import sequence_send, sequences
     now = now or _dt.datetime.now()
     settings.set_value(conn, _K_LAST_DATE, now.date().isoformat())
@@ -137,12 +149,19 @@ def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None =
             return {"sent": 0, "failed": 0, "deferred": 0}
         res = sequence_send.send_due(
             conn, due_ids, sender=sender, image_default=image_default,
-            email_delay=email_delay,
+            email_delay=email_delay, autonomous_quality=True,
         )
     except Exception as exc:  # noqa: BLE001
         settings.set_value(conn, _K_LAST_RESULT, f"{now:%m-%d %H:%M} 运行失败：{str(exc)[:120]}")
         return {"sent": 0, "failed": 0, "deferred": 0}
+    # Keep the original prefix stable for readiness/UI/tests; quality outcomes append.
     note = f"{now:%m-%d %H:%M} 自动发送：成功 {res['sent']}，失败 {res['failed']}"
+    if res.get("delayed"):
+        note += f"，质量延后 {res['delayed']}"
+    if res.get("quality_held"):
+        note += f"，换角度暂停 {res['quality_held']}"
+    if res.get("stopped"):
+        note += f"，停止冷跟进 {res['stopped']}"
     if res.get("held"):
         note += f"，安全拦下 {res['held']}"
     if res.get("deferred"):

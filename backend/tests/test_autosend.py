@@ -1,6 +1,11 @@
-"""Auto-send exists because 266 enrolled leads sat for 3 days with zero sends.
+"""Auto-send exists because 266 enrolled leads sat for three days with zero sends.
 It must: fire once per day inside the window, email only, respect budgets, and be
-trivially switchable off."""
+trivially switchable off.
+
+These tests isolate scheduler/delivery mechanics. PR #21's worth-now policy has its own
+tests, so this fixture makes that policy deterministically return `continue`; transport
+quota/SMTP tests should not fail because a sales-scoring fixture changed.
+"""
 import datetime as dt
 
 import pytest
@@ -10,11 +15,14 @@ from app.db import connect, init_schema
 
 
 @pytest.fixture
-def conn(tmp_path):
+def conn(tmp_path, monkeypatch):
+    from app.agent import followup_decision
+
     c = connect(str(tmp_path / "t.db"))
     init_schema(c)
     rows = ", ".join(f"({i}, 'Co{i}', 'USA', 'c{i}@x.com')" for i in range(1, 41))
     c.executescript(f"INSERT INTO leads(no, company_en, country, email) VALUES {rows};")
+    c.execute("UPDATE leads SET email_status='valid'")
     # one lead with phone in a WA sequence — must NOT be auto-sent
     c.execute("UPDATE leads SET phone='+15550001' WHERE no=40")
     c.commit()
@@ -23,6 +31,17 @@ def conn(tmp_path):
     sequences.enroll_leads(c, sid, list(range(1, 40)))
     wa = sequences.create_sequence(c, "WA序列", "whatsapp", [{"day_offset": 0, "body": "hi"}])
     sequences.enroll_leads(c, wa, [40])
+
+    def allow(conn, enrollment_id, **kwargs):
+        row = conn.execute(
+            "SELECT lead_no,sequence_id FROM sequence_enrollments WHERE id=?", (enrollment_id,)
+        ).fetchone()
+        return {"enrollment_id": enrollment_id, "lead_no": row["lead_no"],
+                "sequence_id": row["sequence_id"], "action": "continue",
+                "reason": "transport fixture", "score": 80, "touch_count": 0,
+                "signal_confidence": 0, "next_due_date": None}
+
+    monkeypatch.setattr(followup_decision, "evaluate", allow)
     return c
 
 
@@ -78,6 +97,7 @@ def test_status_defaults(conn):
     assert st["last_date"] is None and st["last_result"] is None
     assert st["preview"]["due"] == 39
     assert st["preview"]["will_send"] == outreach.MAX_BATCH
+    assert st["preview"]["quality_gate"] == "evaluated_at_send"
 
 
 def test_a_run_that_cannot_read_the_queue_still_says_so(conn, monkeypatch):
