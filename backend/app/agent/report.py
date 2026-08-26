@@ -26,6 +26,7 @@ import urllib.request
 from app import settings
 
 _K_LAST_SENT = "agent_report_last_date"
+_K_PUSH = "agent_report_push"
 WEBHOOK_FILE = "lark_webhook.txt"
 WECOM_FILE = "wecom_webhook.txt"
 WHATSAPP_FILE = "report_whatsapp.txt"
@@ -52,6 +53,22 @@ def wecom_url() -> str:
 
 def whatsapp_number() -> str:
     return "".join(ch for ch in _read(WHATSAPP_FILE) if ch.isdigit())
+
+
+def push_enabled(conn) -> bool:
+    """Whether the day's note is pushed to a phone as well as shown on the dashboard.
+
+    Off by default. The report exists because Allen does not sit in this tool all day —
+    but it now leads the dashboard, which is the screen he opens first, and a daily
+    message to himself on WhatsApp was one more thing arriving on a phone he is already
+    looking away from. A configured number no longer means "send it".
+    """
+    return settings.get(conn, _K_PUSH, "0") == "1"
+
+
+def set_push(conn, enabled: bool) -> bool:
+    settings.set_value(conn, _K_PUSH, "1" if enabled else "0")
+    return enabled
 
 
 def targets() -> list[str]:
