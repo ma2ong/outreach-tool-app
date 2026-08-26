@@ -41,3 +41,6 @@ backend/_rerun_discovery.py
 backend/xiaoman_raw/
 backend/xiaoman_probe.json
 backend/xiaoman_survey.json
+
+# 只读探测的产物：含主页名和账号名，属于一次性诊断数据
+backend/fb_dock.json
