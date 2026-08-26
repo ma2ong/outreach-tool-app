@@ -6,12 +6,18 @@ from typing import Callable
 from app import campaigns, message_guard
 from app.personalize import render
 
-# Email needs the same anti-ban discipline as WhatsApp/Instagram. A single Gmail that
+# Email needs the same anti-ban discipline as WhatsApp/Instagram. A single mailbox that
 # suddenly sends hundreds of cold emails in a day lands in spam and can get limited —
-# which would waste every lead we found. Configure sender mailboxes to raise the
-# ceiling (their daily_cap values sum up); these numbers apply to the fallback Gmail.
+# which would waste every lead we found. Configure sender mailboxes to raise the daily
+# ceiling (their daily_cap values sum up); DAILY_CAP applies to the fallback mailbox only.
 DAILY_CAP = 40
-MAX_BATCH = 30
+# The per-run ceiling applies to every path, so it — not daily_cap — is what actually
+# decided the day's volume: a 40-a-day mailbox was sending 30, because autosend makes one
+# run. Raised to 60 on a company domain with real sending history behind it; at 16-28
+# seconds a message that is a ~20 minute run, which is a person working through a list
+# rather than a burst. Watch the bounce rate rather than this number: the readiness panel
+# flags it, and the last domain was lost at 11.4%.
+MAX_BATCH = 60
 
 
 def sent_today(conn) -> int:
