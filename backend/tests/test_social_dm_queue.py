@@ -189,3 +189,13 @@ def test_two_identical_dms_never_go_out_the_same_day(conn):
     # says which lead needs a better opening line.
     assert result["held"] > 0
     assert any(h["reason"] == "duplicate" for h in result["holds"])
+
+
+def test_the_sentence_shape_varies_too(conn):
+    """The first real run produced 31 messages differing only in the hook: same opening,
+    same clause order, same closing. A platform reads the pattern, not the nouns."""
+    social_queue.build_today(conn, now=_monday())
+    bodies = [r["body"] for r in conn.execute("SELECT body FROM social_dm_queue")]
+    assert len(bodies) >= 5
+    openings = {b.split(".")[-2][-30:] for b in bodies if b.count(".") >= 2}
+    assert len(openings) > 1, "所有私信的句式一模一样，只换了名词"

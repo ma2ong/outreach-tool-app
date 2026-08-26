@@ -61,8 +61,21 @@ CREATE INDEX IF NOT EXISTS idx_social_queue_day ON social_dm_queue(queue_date, r
 
 # What goes out. Short, because a DM is one sentence — there is no subject line to carry
 # any of the weight, so the whole message has to be about them.
-_TEMPLATE = ("Hi{contact_comma} {hook} We manufacture the LED panels behind that kind of "
-             "work — happy to send specs if something is coming up.")
+#
+# Several shapes, not one. The first real run produced 31 messages whose wording differed
+# only in the hook: same opening, same clause order, same closing. A platform reads the
+# pattern, not the nouns, so the sentence structure varies too. Chosen by lead number so
+# a company's message does not change under Allen every time he refreshes.
+_TEMPLATES = (
+    "Hi{contact_comma} {hook} We manufacture the LED panels behind that kind of work — "
+    "happy to send specs if something is coming up.",
+    "Hi{contact_comma} {hook} We supply the panels for exactly this — if you have a job "
+    "coming up, tell me the pitch and size and I'll send specs.",
+    "Hi{contact_comma} {hook} We're an LED display manufacturer and work with rental and "
+    "AV companies directly. Worth a conversation if anything is in the pipeline?",
+    "Hi{contact_comma} {hook} That's the sort of work our panels go into. Happy to be a "
+    "spec-and-pricing contact whenever a project needs one.",
+)
 
 
 def ensure_schema(conn) -> None:
@@ -162,8 +175,9 @@ def _channel_for(conn, lead: dict, taken: set[str]) -> tuple[str, str] | None:
 
 def _compose(lead: dict) -> str:
     contact = str(lead.get("contact_name") or "").strip()
+    template = _TEMPLATES[int(lead.get("no") or 0) % len(_TEMPLATES)]
     # replace(), not format(): the template still carries {hook} for the renderer.
-    text = _TEMPLATE.replace("{contact_comma}", f" {contact}," if contact else ",")
+    text = template.replace("{contact_comma}", f" {contact}," if contact else ",")
     return render(text, lead).strip()
 
 
