@@ -141,7 +141,7 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
         {job && <div className="muted" style={{ marginTop: 8 }}>进度 {job.done}/{job.total}
           {job.status === "done" && job.result && "sent" in job.result &&
             ` — 成功 ${job.result.sent}，失败 ${job.result.failed}${job.result.deferred ? `，延后 ${job.result.deferred}（日上限）` : ""}${job.result.held ? `，安全拦下 ${job.result.held}` : ""}`}
-          {job.status === "done" && job.result && (job.result.holds ?? []).length > 0 && (
+          {job.status === "done" && job.result && "holds" in job.result && (job.result.holds ?? []).length > 0 && (
             <div className="muted" style={{ marginTop: 6 }}>
               以下没有发出去，仍留在跟进队列：
               {(job.result.holds ?? []).slice(0, 5).map((h: any) => (

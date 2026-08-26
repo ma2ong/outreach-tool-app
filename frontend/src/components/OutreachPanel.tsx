@@ -204,7 +204,7 @@ export function OutreachPanel({ selected, countries = [], firstCompany = "", onD
         {job && <span className="muted">进度 {job.done}/{job.total}
           {job.status === "done" && job.result && "sent" in job.result &&
             ` — 成功 ${job.result.sent}，失败 ${job.result.failed}，跳过 ${job.result.skipped}${job.result.deferred ? `，延后 ${job.result.deferred}` : ""}${job.result.held ? `，安全拦下 ${job.result.held}` : ""}`}
-          {job.status === "done" && job.result && (job.result.holds ?? []).length > 0 && (
+          {job.status === "done" && job.result && "holds" in job.result && (job.result.holds ?? []).length > 0 && (
             <div className="muted" style={{ marginTop: 6 }}>
               以下没有发出去：
               {(job.result.holds ?? []).slice(0, 5).map((h: any) => <div key={h.no}>· #{h.no} {h.detail}</div>)}

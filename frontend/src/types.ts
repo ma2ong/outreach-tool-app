@@ -122,7 +122,11 @@ export interface SendJob {
   done: number;
   total: number;
   result:
-    | { sent: number; failed: number; skipped: number; deferred?: number; errors: { no: number; error: string }[] }
+    // held/holds 是 message_guard 拦下的那批：信没发出去，但也不是失败。
+    // 后端一直在返回，界面一直在读，只有这里漏了声明。
+    | { sent: number; failed: number; skipped: number; deferred?: number;
+        held?: number; holds?: { no: number; reason: string; detail?: string }[];
+        errors: { no: number; error: string }[] }
     | { error: string }
     | null;
 }

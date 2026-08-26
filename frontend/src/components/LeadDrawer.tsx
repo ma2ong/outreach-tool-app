@@ -34,9 +34,6 @@ function ContactCard({ contact, onRefresh, onError }: {
   const [draft, setDraft] = useState(contact);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
-  const [memoryDraft, setMemoryDraft] = useState("");
-  const [memoryKind, setMemoryKind] = useState<"profile" | "log">("profile");
   useEffect(() => setDraft(contact), [contact]);
   const set = (key: keyof Contact, value: string | null) =>
     setDraft((old) => ({ ...old, [key]: value }));
