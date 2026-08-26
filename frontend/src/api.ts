@@ -223,11 +223,15 @@ export async function quickAddLead(body: { url: string; country?: string; compan
   return r.json();
 }
 
-export async function startPageDiscover(url: string, limit = 40, screen: ScreenOpts = {}): Promise<{ job_id: string }> {
+// show/year 一填，这一页就当展会名录处理：每家写上「看到你们在 X 年的展位」。docs/57
+export async function startPageDiscover(
+  url: string, limit = 40, screen: ScreenOpts = {},
+  show?: string, year?: number,
+): Promise<{ job_id: string }> {
   const r = await fetch("/api/discover/page", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, limit, ...screen }),
+    body: JSON.stringify({ url, limit, ...screen, show: show || null, year: year || null }),
   });
   if (!r.ok) throw new Error(`discover ${r.status}`);
   return r.json();
