@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchQuota, fetchCampaignStats, fetchQualityStats, fetchDue, sendDue, fetchJob, fetchOpportunityStats, fetchActivityStats, type CampaignStat, type CountryStat, type QualityStat, type Deliverability } from "../api";
 import type { Stats, ChannelReach, DueItem, SendJob, OpportunityStats, ActivityStats } from "../types";
+import { fetchDailyReport } from "../agentApi";
 import { StatCards } from "./StatCards";
 import { ReadinessPanel } from "./ReadinessPanel";
 import { TodayPlanCard } from "./TodayPlanCard";
