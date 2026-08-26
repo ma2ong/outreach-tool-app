@@ -224,6 +224,13 @@ export async function quickAddLead(body: { url: string; country?: string; compan
 }
 
 // show/year 一填，这一页就当展会名录处理：每家写上「看到你们在 X 年的展位」。docs/57
+// 客户类型的可选项：Allen 自己的分类，加上他后来填过的。docs/60
+export async function fetchCustomerTypes(): Promise<{ options: string[]; known: string[] }> {
+  const r = await fetch("/api/leads/customer-types");
+  if (!r.ok) throw new Error(`customer types ${r.status}`);
+  return r.json();
+}
+
 export async function startPageDiscover(
   url: string, limit = 40, screen: ScreenOpts = {},
   show?: string, year?: number,

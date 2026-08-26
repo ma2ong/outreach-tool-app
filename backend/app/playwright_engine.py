@@ -198,8 +198,7 @@ class PlaywrightEngine:
             page.goto(f"https://www.instagram.com/{target}/", wait_until="domcontentloaded", timeout=60000)
             btn = page.get_by_role("button", name=re.compile("message|发消息|发送消息|信息", re.I)).first
             btn.click(timeout=20000)
-            box = page.locator("div[contenteditable='true'][role='textbox'], textarea[placeholder]").first
-            box.wait_for(state="visible", timeout=30000)
+            box = self._dm_composer(page)
             box.click()
             page.wait_for_timeout(400)
             page.keyboard.insert_text(message)  # Input.insertText: works with React contenteditable (Chrome 130+)
@@ -207,9 +206,7 @@ class PlaywrightEngine:
             page.keyboard.press("Enter")
             page.wait_for_timeout(2000)
             if image:
-                # DM thread keeps a hidden file input; selecting a photo sends it immediately
-                page.locator("input[type='file']").last.set_input_files(image)
-                page.wait_for_timeout(4000)
+                self._ig_attach_image(page, image)
             return True
         if channel == "facebook":
             # Page inbox lives on the page itself; the Message button opens the chat dock.
@@ -220,8 +217,7 @@ class PlaywrightEngine:
                 btn.click(timeout=20000)
             except Exception as exc:  # noqa: BLE001
                 raise RuntimeError("no Message button on this page (not a business page, or DMs off)") from exc
-            box = page.locator("div[contenteditable='true'][role='textbox'], div[aria-label*='Message'][contenteditable='true']").first
-            box.wait_for(state="visible", timeout=30000)
+            box = self._dm_composer(page)
             box.click()
             page.wait_for_timeout(400)
             page.keyboard.insert_text(message)
@@ -451,6 +447,76 @@ class PlaywrightEngine:
         if not opened:  # locale changed the tab labels — read the default view at least
             rows.extend(self._scroll_list(page, self._IG_ROW, collect, per_tab()))
         return rows
+
+    # A page's comment box is also a contenteditable role=textbox, and it comes first in
+    # the DOM. Both the chat dock and the comment box can be open at once — that is how a
+    # cold pitch ended up as a public comment while the photo went to the right place.
+    _DM_CONTAINERS = ("div[role='dialog']", "div[role='complementary']",
+                      "div[aria-label*='Messag']", "div[aria-label*='Chat']",
+                      "div[aria-label*='对话']", "div[aria-label*='消息']")
+    # What the private composer calls itself, and what the comment box calls itself.
+    _DM_LABELS = re.compile(r"messag|发消息|发送消息|消息|메시지", re.I)
+    _COMMENT_LABELS = re.compile(r"comment|评论|留言|댓글|reply|回复", re.I)
+
+    @classmethod
+    def _is_comment_box(cls, label: str) -> bool:
+        """A box that names itself a comment is never a private message box."""
+        return bool(cls._COMMENT_LABELS.search(label or ""))
+
+    @classmethod
+    def _is_dm_box(cls, label: str) -> bool:
+        return bool(cls._DM_LABELS.search(label or "")) and not cls._is_comment_box(label)
+
+    def _dm_composer(self, page, timeout=30000):
+        """The private-message input, or an error — never a best-effort fallback.
+
+        Two independent ways to be sure, because Facebook's chat dock is not reliably a
+        role=dialog: the box sits inside a chat surface, or the box names itself a
+        message composer. Anything calling itself a comment is rejected outright, and
+        when neither holds we refuse to type at all (docs/61 R1).
+        """
+        scoped = ", ".join(
+            f"{c} div[contenteditable='true'][role='textbox']" for c in self._DM_CONTAINERS)
+        box = page.locator(scoped).last
+        try:
+            box.wait_for(state="visible", timeout=timeout)
+            return box
+        except Exception:  # noqa: BLE001 — fall through to identifying the box itself
+            pass
+
+        for candidate in page.locator(
+                "div[contenteditable='true'][role='textbox'], textarea[placeholder]").all():
+            label = " ".join(filter(None, [
+                candidate.get_attribute("aria-label") or "",
+                candidate.get_attribute("placeholder") or "",
+                candidate.get_attribute("data-testid") or "",
+            ]))
+            if self._is_dm_box(label) and candidate.is_visible():
+                return candidate
+        raise RuntimeError(
+            "could not confirm a private message box — refusing to type, because the box"
+            " on this page would post a public comment")
+
+    def _ig_attach_image(self, page, image):
+        """Attach and actually send. Instagram parks the photo in the composer.
+
+        The old code selected the file, waited four seconds and reported success, so the
+        text went out, the picture sat in the box, and the send log said both had gone
+        (docs/61 R2).
+        """
+        page.locator("input[type='file']").last.set_input_files(image)
+        send = page.locator(
+            "div[role='button'][aria-label*='Send'], div[role='button'][aria-label*='发送'],"
+            " button[type='submit'], svg[aria-label*='Send']").last
+        send.wait_for(state="visible", timeout=20000)
+        send.click(timeout=15000)
+        # Waiting is not confirmation: the preview leaving the composer is (docs/61 R2.1).
+        try:
+            page.locator("div[role='button'][aria-label*='Remove'],"
+                         " div[aria-label*='移除']").last.wait_for(state="hidden", timeout=20000)
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError("image stayed in the Instagram composer — not sent") from exc
+        page.wait_for_timeout(1500)
 
     def _wa_attach_image(self, page, image):
         page.locator("div[title='Attach'], button[aria-label*='Attach'], span[data-icon='plus'], span[data-icon='clip'], span[data-icon='plus-rounded']").first.click(timeout=15000)

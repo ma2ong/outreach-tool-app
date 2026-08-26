@@ -133,10 +133,11 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
               {reportOpen ? "收起" : "展开"}
             </button>
           </div>
-          <pre style={{
-            fontSize: 12, whiteSpace: "pre-wrap", margin: "8px 0 0",
-            maxHeight: reportOpen ? "none" : 132, overflow: "hidden",
-          }}>{report}</pre>
+          {/* 报告靠换行和缩进排版，所以要 pre-wrap；但字体跟随全站，不用 pre 的等宽体 */}
+          <div style={{
+            fontFamily: "inherit", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap",
+            margin: "8px 0 0", maxHeight: reportOpen ? "none" : 132, overflow: "hidden",
+          }}>{report}</div>
         </div>
       )}
       <TodayPlanCard onGoto={onGoto} />

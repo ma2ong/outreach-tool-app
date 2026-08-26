@@ -37,6 +37,10 @@ export interface Lead {
   recheck_due: string | null;
   stage: string;
   tags: string | null;
+  // 列表用的只读字段：主要联系人和 Allen 自己标的客户类型（docs/60）
+  primary_contact?: string | null;
+  primary_title?: string | null;
+  customer_types?: string[];
   follow_up_date: string | null;
   next_action: string | null;
   outreach: OutreachStatus[];
