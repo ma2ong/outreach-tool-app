@@ -281,7 +281,7 @@ def test_a_failing_planner_waits_for_the_bounded_retry_window(conn, monkeypatch)
 def test_the_report_says_what_happened_and_what_is_waiting(conn):
     proposals.create(conn, "create_task", lead_no=1, title="等你确认的事", payload={})
     text = report.compose(conn)
-    assert "客户开发日报" in text and "1 条等你确认" in text
+    assert "客户开发日报" in text and "1 条提议等你确认" in text
 
 
 def _no_routes(monkeypatch):
@@ -370,7 +370,7 @@ def test_no_report_before_the_day_is_over(conn, monkeypatch):
 def test_the_report_names_who_is_waiting_on_a_price(conn):
     proposals.create(conn, "create_task", lead_no=1,
                      title="Alpha AV 要报价——你来定价（200sqm P4）", payload={})
-    assert "1 家在等你报价" in report.compose(conn)
+    assert "1 家在等报价" in report.compose(conn)
 
 
 def test_the_planner_is_told_pricing_is_not_its_job():

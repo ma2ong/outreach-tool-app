@@ -78,53 +78,188 @@ def targets() -> list[str]:
                                      ("wecom", wecom_url())) if value]
 
 
+CH_LABEL = {"email": "邮件", "whatsapp": "WhatsApp",
+            "instagram": "Instagram", "facebook": "Facebook"}
+# Enough names to recognise the batch, not so many that the report becomes a list.
+NAMED = 3
+
+
+def _names(rows: list, total: int) -> str:
+    """"A、B、C 等 12 家" — recognisable without turning into a wall of names."""
+    shown = "、".join(r["company_en"] or f"#{r['lead_no']}" for r in rows[:NAMED])
+    if total <= NAMED:
+        return f"{shown}（共 {total} 家）"
+    return f"{shown} 等 {total} 家"
+
+
+def _campaign_label(campaign: str) -> str:
+    """"序列:冷邮件 3 步跟进（英语）" -> "冷邮件 3 步跟进（英语）"."""
+    return (campaign or "").split(":", 1)[-1].strip() or "手动发送"
+
+
+def _sent_section(conn, day: str) -> list[str]:
+    """What went out today, by channel and by campaign, with the companies named."""
+    rows = conn.execute(
+        "SELECT s.channel, s.campaign, s.lead_no, l.company_en"
+        " FROM send_log s LEFT JOIN leads l ON l.no = s.lead_no"
+        " WHERE date(s.sent_at, 'localtime')=? ORDER BY s.channel, s.id", (day,)).fetchall()
+    if not rows:
+        return ["■ 今天发出去的", "  没有发出任何触达"]
+    lines = ["■ 今天发出去的"]
+    by_channel: dict[str, list] = {}
+    for row in rows:
+        by_channel.setdefault(row["channel"], []).append(row)
+    for channel, sent in by_channel.items():
+        lines.append(f"  {CH_LABEL.get(channel, channel)} {len(sent)} 条")
+        by_campaign: dict[str, list] = {}
+        for row in sent:
+            by_campaign.setdefault(_campaign_label(row["campaign"]), []).append(row)
+        for campaign, group in by_campaign.items():
+            lines.append(f"    · {campaign}：{_names(group, len(group))}")
+    return lines
+
+
+def _inbound_section(conn, day: str) -> list[str]:
+    """What came back. A real reply is named; the machines are counted.
+
+    Kept apart on purpose: reading an autoresponder as a human answer is what silently
+    stopped a live follow-up sequence in August.
+    """
+    rows = conn.execute(
+        "SELECT m.kind, m.lead_no, l.company_en FROM inbox_messages m"
+        " LEFT JOIN leads l ON l.no = m.lead_no"
+        " WHERE date(m.received_at)=?", (day,)).fetchall()
+    replies = [r for r in rows if r["kind"] == "reply"]
+    autos = [r for r in rows if r["kind"] == "auto"]
+    bounces = [r for r in rows if r["kind"] == "bounce"]
+    unsubs = [r for r in rows if r["kind"] == "unsubscribe"]
+    lines = ["■ 客户那边的动静"]
+    if replies:
+        lines.append(f"  真人回复 {len(replies)} 条：{_names(replies, len(replies))}")
+    else:
+        lines.append("  没有真人回复")
+    machine = []
+    if autos:
+        machine.append(f"自动回复 {len(autos)}")
+    if bounces:
+        machine.append(f"退信 {len(bounces)}（这些地址已停发）")
+    if unsubs:
+        machine.append(f"退订 {len(unsubs)}")
+    if machine:
+        lines.append("  " + "，".join(machine))
+    return lines
+
+
+def _pipeline_section(conn, day: str) -> list[str]:
+    from app.opportunities import ensure_schema as ensure_opportunity_schema
+
+    ensure_opportunity_schema(conn)
+    lines = []
+    new_leads = conn.execute(
+        "SELECT country, COUNT(*) c FROM leads WHERE date(created_at)=?"
+        " GROUP BY country ORDER BY c DESC", (day,)).fetchall()
+    if new_leads:
+        detail = "、".join(f"{r['country'] or '未知'} {r['c']}" for r in new_leads[:4])
+        total = sum(r["c"] for r in new_leads)
+        lines.append(f"  新进客户 {total} 家（{detail}）")
+    won = conn.execute(
+        "SELECT COUNT(*) c, COALESCE(SUM(amount),0) amt FROM opportunities"
+        " WHERE date(updated_at)=? AND stage='won'", (day,)).fetchone()
+    if won and won["c"]:
+        lines.append(f"  成交 {won['c']} 个项目，金额 {won['amt']:.0f}")
+    return ["■ 管道变化", *lines] if lines else []
+
+
+def _next_section(conn) -> list[str]:
+    """What is queued for tomorrow. A report about a finished day still owes this."""
+    from app import social_queue
+
+    lines = []
+    due = conn.execute(
+        "SELECT COUNT(*) c FROM sequence_enrollments e JOIN sequences s ON s.id=e.sequence_id"
+        " WHERE e.status='active' AND s.channel='email' AND e.next_due_date <= date('now')"
+    ).fetchone()["c"]
+    if due:
+        lines.append(f"  邮件跟进到期 {due} 条")
+    try:
+        social_queue.ensure_schema(conn)
+        ready = conn.execute(
+            "SELECT channel, COUNT(*) c FROM social_dm_queue"
+            " WHERE queue_date=date('now') AND status='ready' GROUP BY channel").fetchall()
+        if ready:
+            detail = "、".join(f"{CH_LABEL.get(r['channel'], r['channel'])} {r['c']}"
+                              for r in ready)
+            lines.append(f"  社媒私信备好 {sum(r['c'] for r in ready)} 条待你确认（{detail}）")
+    except Exception:  # noqa: BLE001 — an old DB without the table simply has none
+        pass
+    return ["■ 接下来", *lines] if lines else []
+
+
 def compose(conn, today: dt.date | None = None) -> str:
-    """What happened today, in the order Allen cares about."""
+    """What happened today, written the way an assistant reports to the person in charge.
+
+    Order is what Allen has to act on first, not what is easiest to count: decisions
+    waiting on him, then what went out and to whom, then what came back, then the
+    pipeline, then tomorrow. The old version was six numbers with no nouns in them —
+    "发出 40 条" says nothing about which channel, which customers, or what to do next,
+    and a report nobody can act on is one they stop opening.
+    """
     from app.agent import oversight, proposals
     from app.agent import run as agent_run
     today = today or dt.date.today()
     proposals.ensure_schema(conn)
     day = today.isoformat()
-    counts = {r["status"]: r["c"] for r in conn.execute(
-        "SELECT status, COUNT(*) c FROM agent_proposals"
-        " WHERE date(created_at)=? GROUP BY status", (day,))}
-    executed = conn.execute(
-        "SELECT COUNT(*) c FROM agent_proposals WHERE date(executed_at)=?"
-        " AND status='executed'", (day,)).fetchone()["c"]
-    replies = conn.execute(
-        "SELECT COUNT(*) c FROM inbox_messages WHERE kind='reply'"
-        " AND date(received_at)=?", (day,)).fetchone()["c"]
-    sent = conn.execute(
-        "SELECT COUNT(*) c FROM send_log WHERE date(sent_at, 'localtime')=?",
-        (day,)).fetchone()["c"]
-    pending = proposals.summary(conn)["pending"]
 
+    pending = proposals.summary(conn)["pending"]
     waiting_quotes = conn.execute(
         "SELECT COUNT(*) c FROM agent_proposals"
         " WHERE status='pending' AND kind='create_task'"
-        "   AND (title LIKE '%你来定价%')").fetchone()["c"]
+        "   AND (title LIKE '%你来定价%' OR title LIKE '%报价%')").fetchone()["c"]
 
-    lines = [f"【{day} 客户开发日报】"]
-    lines.append(f"发出 {sent} 条，收到 {replies} 条客户回复")
-    outcome = oversight.daily_outcome(conn)
-    lines.append(
-        f"合格新客 {outcome['achieved']}/{outcome['target']}（完成 {outcome['completion_pct']}%）")
-    if not outcome["met"] and outcome["blockers"]:
-        lines.append("未达标原因：" + "；".join(b["message"] for b in outcome["blockers"][:3]))
-    # The one thing Allen asked to be told about directly: pricing is his.
+    lines = [f"【{day} 客户开发日报】", ""]
+
+    # Anything that cannot move without him goes first.
+    lines.append("■ 等你定的事")
     if waiting_quotes:
-        lines.append(f"⚠ {waiting_quotes} 家在等你报价（Agent 不代报，需求已整理好）")
-    if executed:
-        lines.append(f"已执行 {executed} 条你确认过的提议")
-    made = sum(counts.values())
-    if made:
-        lines.append(f"今天新提了 {made} 条建议"
-                     + (f"，其中 {counts.get('rejected', 0)} 条被你驳回"
-                        if counts.get("rejected") else ""))
-    lines.append(f"还有 {pending} 条等你确认" if pending else "没有等你确认的事")
+        lines.append(f"  ⚠ {waiting_quotes} 家在等报价 —— 只有你能给数字，需求已整理好")
+    if pending:
+        lines.append(f"  {pending} 条提议等你确认")
+    if not waiting_quotes and not pending:
+        lines.append("  没有")
+    lines.append("")
+
+    lines.extend(_sent_section(conn, day))
+    lines.append("")
+    lines.extend(_inbound_section(conn, day))
+
+    pipeline = _pipeline_section(conn, day)
+    if pipeline:
+        lines.extend(["", *pipeline])
+
+    outcome = oversight.daily_outcome(conn)
+    lines.extend(["", "■ 今日目标",
+                  f"  合格新客 {outcome['achieved']}/{outcome['target']}"
+                  f"（完成 {outcome['completion_pct']}%）"])
+    if not outcome["met"] and outcome["blockers"]:
+        for blocker in outcome["blockers"][:2]:
+            lines.append(f"  未达标：{blocker['message']}")
+
+    nxt = _next_section(conn)
+    if nxt:
+        lines.extend(["", *nxt])
+
+    executed = conn.execute(
+        "SELECT COUNT(*) c FROM agent_proposals WHERE date(executed_at)=?"
+        " AND status='executed'", (day,)).fetchone()["c"]
+    made = conn.execute(
+        "SELECT COUNT(*) c FROM agent_proposals WHERE date(created_at)=?",
+        (day,)).fetchone()["c"]
+    if executed or made:
+        lines.extend(["", "■ Agent 今天做的",
+                      f"  执行了 {executed} 条已确认的提议，新提了 {made} 条建议"])
     last = agent_run.status(conn).get("last_result")
     if last:
-        lines.append(f"最近一次运行：{last}")
+        lines.append(f"  最近一次运行：{last}")
     return "\n".join(lines)
 
 
