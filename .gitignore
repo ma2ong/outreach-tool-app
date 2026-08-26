@@ -36,3 +36,8 @@ backend/uvicorn.log
 backend/_send_today.py
 backend/_batch_ids.json
 backend/_rerun_discovery.py
+
+# Customer data pulled from Xiaoman — never commit
+backend/xiaoman_raw/
+backend/xiaoman_probe.json
+backend/xiaoman_survey.json
