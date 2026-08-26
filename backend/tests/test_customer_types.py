@@ -57,7 +57,7 @@ def test_the_machine_note_is_dropped_but_the_real_tag_survives():
 
 
 def test_the_picker_offers_his_vocabulary(conn):
-    assert ct.options(conn)[:5] == list(ct.KNOWN)
+    assert ct.options(conn)[:len(ct.KNOWN)] == list(ct.KNOWN)
 
 
 def test_the_picker_never_offers_a_joined_pair_as_one_type(conn):

@@ -51,6 +51,33 @@ def test_an_unlabelled_box_is_not_assumed_to_be_private(label):
     assert E._is_dm_box(label or "") is False
 
 
+# --- probed against a live Facebook page ---
+
+def test_the_real_facebook_comment_box_is_recognised():
+    # Exactly what the probe read off the page.
+    assert E._is_dm_box("以 Allen Ma 的身份评论") is False
+
+
+def test_the_real_facebook_dm_composer_is_recognised():
+    assert E._is_dm_box("发消息给Jaws Audio") is True
+
+
+def test_a_composer_aimed_at_another_company_is_rejected():
+    # The probe found two docks open at once: Jaws Audio and PRI Productions. "The last
+    # message box" would have written this customer's pitch to a different company.
+    assert E._addresses("发消息给Jaws Audio", "jawsaudio") is True
+    assert E._addresses("发消息给PRI Productions", "jawsaudio") is False
+
+
+@pytest.mark.parametrize("label,target", [
+    ("发消息给Rocky Mountain Roll", "rockymountainroll"),
+    ("Message Jaws Audio", "JawsAudio"),
+    ("发消息给LED 10", "led10"),
+])
+def test_name_matching_ignores_spacing_and_case(label, target):
+    assert E._addresses(label, target) is True
+
+
 def test_refusing_is_the_documented_outcome():
     # The failure mode is asymmetric: a skipped send costs a day, a public comment under
     # Allen's name on a prospect's page is not ours to delete.

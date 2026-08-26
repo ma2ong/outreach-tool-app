@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
 import type { Lead } from "../types";
-import { STAGE_LABEL } from "../types";
 import { fetchCustomerTypes, updateLead } from "../api";
 import { CustomerTypePicker } from "./CustomerTypePicker";
+import { InlineStage } from "./InlineStage";
+
+// 只有韩语公司名值得占一行：他做的是韩国市场，韩语为主英语为辅。葡语、西语公司名和英文名
+// 几乎一样（"LedWave" / "LedWave"），显示出来只是重复。docs/60 R1
+const HANGUL = /[ᄀ-ᇿ㄰-㆏ꥠ-꥿가-힣]/;
 
 const CHANNELS = [
   { key: "email", label: "Email" },
@@ -93,15 +97,13 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
                 <td className="num muted">{l.no}</td>
                 <td>
                   <div>{l.company_en}</div>
-                  {/* 韩国客户韩语为主：本地名紧跟英文名下方。两个名字一样时只显示一个 */}
-                  {l.company_local && l.company_local !== l.company_en &&
-                    <div className="muted" style={{ fontSize: 12 }}>{l.company_local}</div>}
+                  {/* 韩语名与英文名同等字号：他读的是韩文那一行 */}
+                  {l.company_local && l.company_local !== l.company_en
+                    && HANGUL.test(l.company_local) &&
+                    <div>{l.company_local}</div>}
                 </td>
                 <td onClick={stop}>
-                  <select className="input" style={{ fontSize: 12, padding: "2px 4px" }}
-                    value={row(l).stage || "new"} onChange={(e) => save(l.no, { stage: e.target.value })}>
-                    {Object.entries(STAGE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </select>
+                  <InlineStage value={row(l).stage} onChange={(s) => save(l.no, { stage: s })} />
                 </td>
                 <td onClick={stop} style={{ minWidth: 150 }}>
                   <CustomerTypePicker value={row(l).tags ?? ""} options={typeOptions}

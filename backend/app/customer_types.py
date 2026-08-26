@@ -9,8 +9,10 @@ him — so the two have to be told apart before either is shown as a customer ty
 """
 from __future__ import annotations
 
-# Ordered by how much of his book each one covers.
-KNOWN = ("工程商", "租赁客户", "批发商", "广告商", "透明屏")
+# Ordered by how much of his book each one covers. 租赁商 and 租赁客户 both appear in
+# his own usage; both stay, because collapsing them would rewrite tags he already set.
+KNOWN = ("工程商", "租赁客户", "租赁商", "批发商", "广告商", "透明屏",
+         "系统集成商", "代理商", "终端用户")
 
 # The classifier writes its own tags into the same column; they are working notes.
 MACHINE_PREFIXES = ("icp:", "auto:", "sys:")

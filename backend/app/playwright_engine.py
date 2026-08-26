@@ -198,7 +198,7 @@ class PlaywrightEngine:
             page.goto(f"https://www.instagram.com/{target}/", wait_until="domcontentloaded", timeout=60000)
             btn = page.get_by_role("button", name=re.compile("message|发消息|发送消息|信息", re.I)).first
             btn.click(timeout=20000)
-            box = self._dm_composer(page)
+            box = self._dm_composer(page, target)
             box.click()
             page.wait_for_timeout(400)
             page.keyboard.insert_text(message)  # Input.insertText: works with React contenteditable (Chrome 130+)
@@ -217,7 +217,7 @@ class PlaywrightEngine:
                 btn.click(timeout=20000)
             except Exception as exc:  # noqa: BLE001
                 raise RuntimeError("no Message button on this page (not a business page, or DMs off)") from exc
-            box = self._dm_composer(page)
+            box = self._dm_composer(page, target)
             box.click()
             page.wait_for_timeout(400)
             page.keyboard.insert_text(message)
@@ -448,14 +448,11 @@ class PlaywrightEngine:
             rows.extend(self._scroll_list(page, self._IG_ROW, collect, per_tab()))
         return rows
 
-    # A page's comment box is also a contenteditable role=textbox, and it comes first in
-    # the DOM. Both the chat dock and the comment box can be open at once — that is how a
-    # cold pitch ended up as a public comment while the photo went to the right place.
-    _DM_CONTAINERS = ("div[role='dialog']", "div[role='complementary']",
-                      "div[aria-label*='Messag']", "div[aria-label*='Chat']",
-                      "div[aria-label*='对话']", "div[aria-label*='消息']")
-    # What the private composer calls itself, and what the comment box calls itself.
-    _DM_LABELS = re.compile(r"messag|发消息|发送消息|消息|메시지", re.I)
+    # Probed against a live page (docs/61): the comment box calls itself
+    # "以 Allen Ma 的身份评论" and the chat composer calls itself "发消息给Jaws Audio".
+    # Their ancestors are plain DIVs with no role at all, so container-scoping finds
+    # nothing — the label is the only thing that tells them apart.
+    _DM_LABELS = re.compile(r"messag|发消息|发送消息|메시지|mensaje", re.I)
     _COMMENT_LABELS = re.compile(r"comment|评论|留言|댓글|reply|回复", re.I)
 
     @classmethod
@@ -467,35 +464,57 @@ class PlaywrightEngine:
     def _is_dm_box(cls, label: str) -> bool:
         return bool(cls._DM_LABELS.search(label or "")) and not cls._is_comment_box(label)
 
-    def _dm_composer(self, page, timeout=30000):
-        """The private-message input, or an error — never a best-effort fallback.
+    @staticmethod
+    def _slug(text: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", (text or "").lower())
 
-        Two independent ways to be sure, because Facebook's chat dock is not reliably a
-        role=dialog: the box sits inside a chat surface, or the box names itself a
-        message composer. Anything calling itself a comment is rejected outright, and
-        when neither holds we refuse to type at all (docs/61 R1).
+    @classmethod
+    def _addresses(cls, label: str, target: str) -> bool:
+        """True when this composer is aimed at the company we meant to write to.
+
+        The probe found two chat docks open at once — Jaws Audio and PRI Productions —
+        so "the last message box on the page" is not the same thing as "this customer's
+        message box". Sending into the wrong one writes a stranger's pitch to a company
+        that never heard from us.
         """
-        scoped = ", ".join(
-            f"{c} div[contenteditable='true'][role='textbox']" for c in self._DM_CONTAINERS)
-        box = page.locator(scoped).last
-        try:
-            box.wait_for(state="visible", timeout=timeout)
-            return box
-        except Exception:  # noqa: BLE001 — fall through to identifying the box itself
-            pass
+        return cls._slug(target) in cls._slug(label) if target else True
 
-        for candidate in page.locator(
-                "div[contenteditable='true'][role='textbox'], textarea[placeholder]").all():
-            label = " ".join(filter(None, [
-                candidate.get_attribute("aria-label") or "",
-                candidate.get_attribute("placeholder") or "",
-                candidate.get_attribute("data-testid") or "",
-            ]))
-            if self._is_dm_box(label) and candidate.is_visible():
-                return candidate
+    def _dm_composer(self, page, target: str = "", timeout=30000):
+        """This customer's private message box, or an error — never a fallback.
+
+        Refusing costs a day. Typing into the wrong box publishes a cold pitch as a
+        public comment, or delivers it to a different company entirely (docs/61 R1).
+        """
+        deadline = time.time() + timeout / 1000
+        seen: list[str] = []
+        while time.time() < deadline:
+            candidates = []
+            for box in page.locator(
+                    "div[contenteditable='true'][role='textbox'], textarea[placeholder]").all():
+                try:
+                    label = " ".join(filter(None, [
+                        box.get_attribute("aria-label") or "",
+                        box.get_attribute("placeholder") or "",
+                    ]))
+                    if not box.is_visible():
+                        continue
+                except Exception:  # noqa: BLE001 — element went away mid-scan
+                    continue
+                seen.append(label or "(无标签)")
+                if self._is_dm_box(label):
+                    candidates.append((label, box))
+            aimed = [b for label, b in candidates if self._addresses(label, target)]
+            if len(aimed) == 1:
+                return aimed[0]
+            if len(aimed) > 1:
+                raise RuntimeError(
+                    f"several message boxes match {target!r}: {seen} — refusing to guess")
+            if candidates and not target:
+                return candidates[-1][1]
+            page.wait_for_timeout(1000)
         raise RuntimeError(
-            "could not confirm a private message box — refusing to type, because the box"
-            " on this page would post a public comment")
+            "could not confirm this customer's private message box — refusing to type,"
+            f" because the box on this page would post a public comment. saw: {seen[:6]}")
 
     def _ig_attach_image(self, page, image):
         """Attach and actually send. Instagram parks the photo in the composer.
