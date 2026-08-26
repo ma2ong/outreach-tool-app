@@ -133,14 +133,18 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
                     deferred += 1
                     continue
                 attempted_send = True
-                engine.send_message(ch, target, render(d["body"], lead),
+                social_body = render(d["body"], lead)
+                engine.send_message(ch, target, social_body,
                                     d.get("image") or image_default)
                 co._mark_messaged(conn, no, ch, today)
                 remaining[ch] -= 1
                 batch_used[ch] += 1
                 sent_this_item = True
             if sent_this_item:
-                campaigns.log_send(conn, no, ch, f"序列:{d['sequence_name']}")
+                campaigns.log_send(
+                    conn, no, ch, f"序列:{d['sequence_name']}",
+                    subject=subject_text if ch == "email" else None,
+                    body=body_text if ch == "email" else social_body)
                 sequences.advance_enrollment(conn, d["enrollment_id"])
                 sent += 1
         except Exception as exc:  # noqa: BLE001

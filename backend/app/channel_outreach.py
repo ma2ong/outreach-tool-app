@@ -97,7 +97,8 @@ def send_prepared(conn, items: list[dict], engine, image: str | None = None,
             engine.send_message(channel, item["target"], item["body"], image)
             _mark_messaged(conn, item["lead_no"], channel, today)
             campaigns.log_send(conn, item["lead_no"], channel,
-                               campaign or campaigns.default_label(channel))
+                               campaign or campaigns.default_label(channel),
+                               body=item["body"])
             used[channel] = used.get(channel, 0) + 1
             sent += 1
         except Exception as exc:  # noqa: BLE001
@@ -128,9 +129,10 @@ def send_channel_campaign(conn, lead_nos: list[int], channel: str, message: str,
     errors: list[dict] = []
     for i, lead in enumerate(targets, 1):
         try:
-            engine.send_message(channel, _target(channel, lead), render(message, lead), image)
+            rendered = render(message, lead)
+            engine.send_message(channel, _target(channel, lead), rendered, image)
             _mark_messaged(conn, lead["no"], channel, today)
-            campaigns.log_send(conn, lead["no"], channel, label)
+            campaigns.log_send(conn, lead["no"], channel, label, body=rendered)
             sent += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1

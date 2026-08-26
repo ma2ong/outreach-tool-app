@@ -349,6 +349,8 @@ app.include_router(sales_intelligence_api.router)
 app.include_router(decision_makers_api.router)
 app.include_router(runtime_api.router)
 app.include_router(agent_api.router)
+from app.api import conversations as conversations_api  # noqa: E402
+app.include_router(conversations_api.router)
 from app.api import auth as auth_api  # noqa: E402
 from app.api import health as health_api  # noqa: E402
 app.include_router(auth_api.router)

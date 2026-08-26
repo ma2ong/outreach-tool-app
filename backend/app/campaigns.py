@@ -8,10 +8,19 @@ that channel. Country stats come straight from outreach x leads.
 import datetime as _dt
 
 
-def log_send(conn, lead_no: int, channel: str, campaign: str) -> None:
+def log_send(conn, lead_no: int, channel: str, campaign: str,
+             subject: str | None = None, body: str | None = None) -> None:
+    """Record a send, including the text the customer received.
+
+    `body` must be the rendered string that was handed to the sender, not the template
+    it came from: {hook} differs per lead and hooks get rewritten, so a template plus a
+    date cannot reconstruct the letter afterwards (docs/56 R1).
+    """
     conn.execute(
-        "INSERT INTO send_log(lead_no, channel, campaign, sent_at) VALUES (?, ?, ?, ?)",
-        (lead_no, channel, campaign, _dt.datetime.now(_dt.UTC).isoformat()))
+        "INSERT INTO send_log(lead_no, channel, campaign, sent_at, subject, body)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (lead_no, channel, campaign, _dt.datetime.now(_dt.UTC).isoformat(),
+         subject or None, body or None))
     conn.commit()
 
 

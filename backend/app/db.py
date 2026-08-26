@@ -118,7 +118,9 @@ CREATE TABLE IF NOT EXISTS send_log (
     lead_no INTEGER NOT NULL,
     channel TEXT NOT NULL,
     campaign TEXT NOT NULL,
-    sent_at TEXT
+    sent_at TEXT,
+    subject TEXT,
+    body TEXT
 );
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
@@ -181,6 +183,14 @@ _TABLE_COLUMNS = {
     },
     "templates": {
         "lang": "TEXT",
+    },
+    "send_log": {
+        # What the customer actually read. The campaign label says which sequence step
+        # went out; it cannot say what the letter said, because {hook} differs per lead
+        # and the hooks are rewritten over time. Rows written before this column exists
+        # stay NULL and are shown as 未留存 — see docs/56 R1.1.
+        "subject": "TEXT",
+        "body": "TEXT",
     },
     "mailboxes": {
         "imap_host": "TEXT",

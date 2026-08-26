@@ -103,7 +103,8 @@ def send_campaign(conn, lead_nos: list[int], subject: str, body: str,
                 # Send the exact strings that passed the guard; never render a second time.
                 sender(lead["email"], rendered_subject, rendered_body, attachment)
                 _mark_messaged(conn, lead["no"], today)
-                campaigns.log_send(conn, lead["no"], "email", label)
+                campaigns.log_send(conn, lead["no"], "email", label,
+                                   subject=rendered_subject, body=rendered_body)
                 sent += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1

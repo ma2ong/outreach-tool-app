@@ -13,6 +13,7 @@ import { MailboxPanel } from "./components/MailboxPanel";
 import { ProductsPanel } from "./components/ProductsPanel";
 import { SequencesPanel } from "./components/SequencesPanel";
 import { InboxPanel } from "./components/InboxPanel";
+import { ConversationPanel } from "./components/ConversationPanel";
 import { HealthPanel } from "./components/HealthPanel";
 import { OpportunityPipeline } from "./components/OpportunityPipeline";
 import { ActivitiesPanel } from "./components/ActivitiesPanel";
@@ -20,7 +21,7 @@ import { SalesDocumentsPanel } from "./components/SalesDocumentsPanel";
 import { SalesIntelligencePanel } from "./components/SalesIntelligencePanel";
 import { AgentPanel } from "./components/AgentPanel";
 
-type Page = "dashboard" | "agent" | "intelligence" | "activities" | "leads" | "opportunities" | "inbox" | "sequences" | "socialqueue" | "discovery" | "products" | "channels";
+type Page = "dashboard" | "agent" | "intelligence" | "activities" | "leads" | "opportunities" | "conversations" | "inbox" | "sequences" | "socialqueue" | "discovery" | "products" | "channels";
 
 function exportQuery(params: Record<string, string>): string {
   const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
@@ -34,6 +35,7 @@ const PAGES: { id: Page; label: string; ico: string }[] = [
   { id: "activities", label: "销售任务", ico: "✓" },
   { id: "leads", label: "客户库", ico: "☰" },
   { id: "opportunities", label: "商机管道", ico: "◇" },
+  { id: "conversations", label: "客户对话", ico: "◗" },
   { id: "inbox", label: "收件箱", ico: "✉" },
   { id: "sequences", label: "跟进序列", ico: "⇉" },
   { id: "socialqueue", label: "社媒私信", ico: "◐" },
@@ -419,6 +421,7 @@ export function App() {
           {page === "intelligence" && <SalesIntelligencePanel onOpenLead={openLead} onChanged={() => { refreshActivityStats(); reload(); }} />}
           {page === "opportunities" && <OpportunityPipeline onOpenLead={openLead} onChanged={refreshActivityStats} />}
           {page === "activities" && <ActivitiesPanel onOpenLead={openLead} onChanged={refreshActivityStats} />}
+          {page === "conversations" && <ConversationPanel onOpenLead={openLead} />}
           {page === "inbox" && <InboxPanel onOpenLead={openLead} onPendingChange={() => { refreshPending(); refreshActivityStats(); reload(); }} />}
           {page === "sequences" && <SequencesPanel onChanged={() => { reload(); refreshPending(); }} />}
           {page === "socialqueue" && <SocialQueuePanel />}
