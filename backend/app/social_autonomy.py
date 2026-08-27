@@ -22,6 +22,16 @@ from app import settings, social_queue
 MODES = ("off", "manual", "auto")
 DEFAULT_MODE = "manual"
 
+# How much autonomy each mode carries. A send takes the more conservative of the channel
+# setting and the country setting, so a country can hold back but never push forward
+# (docs/63 R1).
+_LEVEL = {"off": 0, "manual": 1, "auto": 2}
+
+# Korea is most of his existing book — 176 of those companies carry tags he wrote
+# himself, and some are marked 成交客户. An automatic opener to a stranger costs nothing
+# when ignored; the same opener to a customer of several years reads as bulk mail.
+MANUAL_COUNTRIES = {"south korea", "korea", "kr", "republic of korea"}
+
 _K_MODE = "social_autonomy_%s"
 _K_LAST_RUN_DATE = "social_autonomy_last_run_date"
 _K_LAST_RUN = "social_autonomy_last_run"
@@ -59,6 +69,24 @@ def set_mode(conn, channel: str, mode: str, confirm: str = "") -> str:
             f"打开自动发送要照抄一遍渠道名「{channel}」。这个账号被封是不可恢复的。")
     settings.set_value(conn, _K_MODE % channel, mode)
     return mode
+
+
+def country_mode(country: str | None) -> str | None:
+    """The ceiling this country puts on autonomy, or None when it sets none.
+
+    A missing country follows the channel rather than defaulting to manual: blanks in
+    his book are mostly unread pages, not Korea, and making him confirm a pile of
+    American leads turns the confirmation into reflex clicking — which stops nothing.
+    """
+    key = str(country or "").strip().lower()
+    return "manual" if key in MANUAL_COUNTRIES else None
+
+
+def effective_mode(channel_mode: str, country: str | None) -> str:
+    ceiling = country_mode(country)
+    if ceiling is None:
+        return channel_mode
+    return channel_mode if _LEVEL[channel_mode] <= _LEVEL[ceiling] else ceiling
 
 
 def send_at(day: dt.date) -> dt.datetime:
@@ -107,10 +135,14 @@ def run_due(conn, now: dt.datetime | None = None) -> dict:
     social_queue.ensure_schema(conn)
     placeholders = ",".join("?" * len(auto))
     rows = conn.execute(
-        f"SELECT id, lead_no, channel, target, body FROM social_dm_queue"
-        f" WHERE queue_date=? AND status='ready' AND channel IN ({placeholders})"
-        f" ORDER BY rank_order", [today, *auto]).fetchall()
-    items = [dict(r) for r in rows]
+        f"SELECT q.id, q.lead_no, q.channel, q.target, q.body, l.country"
+        f" FROM social_dm_queue q JOIN leads l ON l.no = q.lead_no"
+        f" WHERE q.queue_date=? AND q.status='ready' AND q.channel IN ({placeholders})"
+        f" ORDER BY q.rank_order", [today, *auto]).fetchall()
+    # A country set to manual stays in the queue and waits for Allen; it is held back
+    # here rather than filtered out of the list he sees (docs/63).
+    items = [{k: v for k, v in dict(r).items() if k != "country"} for r in rows
+             if effective_mode("auto", r["country"]) == "auto"]
     # Claim the day before sending, not after: a crash mid-send must not hand tomorrow's
     # scheduler a second run at the same queue. (The same lesson as autosend's last_date.)
     settings.set_value(conn, _K_LAST_RUN_DATE, today)
