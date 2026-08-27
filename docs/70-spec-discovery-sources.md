@@ -33,7 +33,7 @@ Naver 改版、Google 限流、Instagram 要重新登录——这些都会发生
 
 | 方式 | 用在哪 | 代价 |
 |---|---|---|
-| `api` | Naver 官方开放 API | 要密钥，但稳定、免费额度 25000/天 |
+| `api` | Naver API Hub（网页搜索 + 本地商户） | 要密钥，但稳定、免费额度 77.5 万/月 |
 | `page` | 公开网页（现有的 jina 抓取） | 免费，会被反爬 |
 | `browser` | Instagram / Facebook | 复用现有登录浏览器，最重，最容易被封 |
 
@@ -41,7 +41,7 @@ Naver 改版、Google 限流、Instagram 要重新登录——这些都会发生
 
 ## R4 密钥只从环境变量读
 
-`NAVER_CLIENT_ID` / `NAVER_CLIENT_SECRET` 从环境变量取，**不进代码、不进数据库、不进 Git**。
+`NAVER_API_KEY_ID` / `NAVER_API_KEY` 从环境变量取，**不进代码、不进数据库、不进 Git**。
 没配置的渠道自动禁用，不报错、不重试——一条没启用的渠道和一条坏掉的渠道，在日报里必须是
 两回事。
 
@@ -57,7 +57,8 @@ Naver 改版、Google 限流、Instagram 要重新登录——这些都会发生
 
 - 不引入 OpenCLI / AutoCLI 作为运行时依赖。它们是给交互式 AI 会话用的，复用**你正在用的
   那个浏览器**的登录态；这个系统在凌晨三点无人值守地跑，你关掉 Chrome 它就断了
-- 不做 Google Maps Places API（要绑卡按次计费），等 Allen 决定
+- 不做 Google Maps Places API（要绑卡按次计费），等 Allen 决定。韩国那半边已经由
+  Naver 지역검색 覆盖：它返回商家名、地址和电话，正是地图搜索的那部分价值，而且免费
 - 不做自动生成适配器。先手写四条能用的，再谈自动化
 
 ## 验收
@@ -67,3 +68,25 @@ Naver 改版、Google 限流、Instagram 要重新登录——这些都会发生
 3. 一条渠道抓取失败，其他渠道当天照常出结果
 4. 任何渠道找到的公司，同行照样被滤掉，老客户照样被补充
 5. 日报里能看到每条渠道今天出了多少
+
+
+---
+
+## 附：Naver 的入口在 2026 年变了
+
+第一次接的时候走的是开发者中心（`developers.naver.com`）申请 Client ID —— **那条路对新应用
+已经关闭**。注册时选 `검색` 会报「신규로 등록할 수 없는 API가 선택되었습니다」，用老 Client ID
+调用则报 `Scopes are Empty`。
+
+现在的路径是 **Naver Cloud Platform → API Hub**：
+
+| | 旧（已关闭） | 新 |
+|---|---|---|
+| 入口 | developers.naver.com | Naver Cloud Platform + API Hub 控制台 |
+| 密钥 | Client ID / Client Secret | `X-NCP-APIGW-API-KEY-ID` / `X-NCP-APIGW-API-KEY` |
+| 域名 | openapi.naver.com | naverapihub.apigw.ntruss.com |
+| 额度 | 25,000/天 | 775,000/月，目前免费 |
+
+购物、图书、专业文献搜索在 2026-07-31 彻底关闭且没有替代；**网页搜索和지역검색保留**。
+
+记在这里是因为下一个人会先找到那些旧教程——网上大部分文档还停在旧入口。
