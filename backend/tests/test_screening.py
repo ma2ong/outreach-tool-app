@@ -121,3 +121,29 @@ def test_dot_co_is_only_colombian_as_com_co():
     domain; ledwave.com.co is the form a Colombian company actually registers."""
     assert screening.detect_country({"domain": "pureav.co"}) is None
     assert screening.detect_country({"domain": "ledwave.com.co"}) == "Colombia"
+
+
+# --- a peer that arrived with no website at all -----------------------------------
+
+def test_a_peer_is_recognised_by_its_name_when_it_has_no_site():
+    """Long Run LED USA walked into the book because it had only an Instagram handle,
+    and the brand check only ever looked at the domain — so there was nothing to look
+    at. A company announces itself in its name too."""
+    assert screening.is_peer_brand(None, "Long Run LED USA") == "longrun"
+
+
+def test_a_peer_is_recognised_by_its_social_handle():
+    assert screening.is_peer_brand(None, None, ("longrunled_usa",)) == "longrun"
+
+
+def test_the_screen_stops_that_company_at_the_door():
+    verdict = screening.screen({"company_en": "Long Run LED USA",
+                                "instagram": "longrunled_usa", "country": "USA"})
+    assert verdict["excluded"] is True
+    assert "longrun" in verdict["exclude_reason"]
+
+
+def test_a_real_customer_with_a_handle_is_not_mistaken_for_one():
+    verdict = screening.screen({"company_en": "Verum AV", "domain": "verumav.com",
+                                "instagram": "verumav", "country": "USA"})
+    assert verdict["excluded"] is False
