@@ -26,10 +26,6 @@ class PageDiscoverRequest(BaseModel):
     limit: int = 40
     exclude_countries: list[str] = []
     exclude_peers: bool = True
-    # Naming the show turns a directory page into a trade-show source: every company on
-    # it gets an opener nobody else can write. See docs/57.
-    show: str | None = None
-    year: int | None = None
 
 
 class Candidate(BaseModel):
@@ -87,15 +83,7 @@ def _run_page(job_id: str, url: str, limit: int, req: "PageDiscoverRequest"):
             conn, url, limit, harvest_fn=HARVEST_FN, enrich_fn=ENRICH_FN,
             on_progress=lambda done, total: jobs.update(job_id, done),
             exclude_countries=req.exclude_countries, exclude_peers=req.exclude_peers)
-        note = None
-        if req.show:
-            from app import tradeshows
-            usable = [c for c in cands if not c.get("excluded")]
-            out = tradeshows.prepare(usable, show=req.show.strip(),
-                                     year=req.year or tradeshows.year_from(url), url=url)
-            note = out["skipped_reason"] or (
-                f"{out['hooked']} 家写上展位开场白：{tradeshows.hook_for(req.show.strip(), out['year'])}")
-        jobs.finish(job_id, {"candidates": cands, "note": note})
+        jobs.finish(job_id, {"candidates": cands})
     except Exception as exc:  # noqa: BLE001
         jobs.fail(job_id, str(exc))
     finally:

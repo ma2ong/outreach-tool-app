@@ -24,8 +24,11 @@ from app.personalize import render
 
 def _contact(conn, lead_no: int) -> dict:
     r = conn.execute(
+        # tags carries the customer type, which {fit} renders from. Without it the
+        # type-aware sentence silently rendered empty in every real send while the
+        # preview showed it — docs/67 R4.
         "SELECT no, company_en, contact_name, country, city, email, email_status,"
-        " phone, instagram, website, hook, brief"
+        " phone, instagram, website, hook, brief, tags"
         " FROM leads WHERE no=?", (lead_no,)).fetchone()
     return dict(r) if r else {}
 
@@ -141,10 +144,17 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
                 batch_used[ch] += 1
                 sent_this_item = True
             if sent_this_item:
+                # Which experiment this letter belonged to (docs/69). Everything here
+                # is already in hand; it was simply being discarded.
+                from app.customer_types import customer_types
+                types = customer_types(lead["tags"] if "tags" in lead.keys() else None)
                 campaigns.log_send(
                     conn, no, ch, f"序列:{d['sequence_name']}",
                     subject=subject_text if ch == "email" else None,
-                    body=body_text if ch == "email" else social_body)
+                    body=body_text if ch == "email" else social_body,
+                    variant=d["sequence_name"], step=int(d.get("step_order") or 0),
+                    audience=types[0] if types else None,
+                    market=lead["country"] if "country" in lead.keys() else None)
                 sequences.advance_enrollment(conn, d["enrollment_id"])
                 sent += 1
         except Exception as exc:  # noqa: BLE001

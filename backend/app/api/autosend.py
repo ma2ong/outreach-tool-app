@@ -34,8 +34,8 @@ def get_plan(conn=Depends(get_conn)):
     rows, held = [], []
     for item in sequences.due_queue(conn, "email"):
         lead = conn.execute(
-            "SELECT no, company_en, company_local, country, email, hook, contact_name"
-            " FROM leads WHERE no=?", (item["lead_no"],)).fetchone()
+            "SELECT no, company_en, company_local, country, email, hook, contact_name,"
+            " tags FROM leads WHERE no=?", (item["lead_no"],)).fetchone()
         if lead is None:
             continue
         allowed, why = local_time.may_email(item.get("_lead_country"), now)

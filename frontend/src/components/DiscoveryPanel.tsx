@@ -26,8 +26,6 @@ const EXCLUDABLE = ["India", "Pakistan", "Bangladesh", "Sri Lanka", "Nepal",
 
 export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
   const [mode, setMode] = useState<"search" | "page">("search");
-  const [show, setShow] = useState("");   // 展会名，填了才写展位开场白
-  const [showYear, setShowYear] = useState("");
   const [query, setQuery] = useState(DEFAULT_QUERIES);
   const [url, setUrl] = useState("");
   const [country, setCountry] = useState("USA");
@@ -50,8 +48,7 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
       const composed = queryLines.map((l) => (country.trim() ? `${l} ${country.trim()}` : l));
       const screen = { exclude_countries: [...excluded], exclude_peers: excludePeers };
       const { job_id } = mode === "page"
-        ? await startPageDiscover(url.trim(), 40, screen, show.trim() || undefined,
-                                  showYear.trim() ? Number(showYear.trim()) : undefined)
+        ? await startPageDiscover(url.trim(), 40, screen)
         : await startDiscover(composed, 10, screen);
       const poll = setInterval(async () => {
         const j = await fetchDiscoverJob(job_id);
@@ -66,9 +63,7 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
               .filter((c) => !c.excluded && !c.duplicate_of && (c.email || c.phone || c.instagram))
               .map((c) => c.domain)));
             const cut = all.filter((c) => c.excluded).length;
-            const note = (j.result as { note?: string | null }).note;
-            setMsg(`找到 ${all.length} 个候选${cut ? `，其中 ${cut} 家已筛掉（同行/目录站/排除国家）` : ""}`
-              + (note ? ` · ${note}` : ""));
+            setMsg(`找到 ${all.length} 个候选${cut ? `，其中 ${cut} 家已筛掉（同行/目录站/排除国家）` : ""}`);
           } else if (j.result && "error" in j.result) {
             setMsg("失败：" + j.result.error);
           }
@@ -156,16 +151,6 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
             <input className="input" style={{ flex: 1, minWidth: 260 }} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…  经销商页 / 参展商名录 URL" />
             <input className="input" style={{ width: 90 }} value={country} onChange={(e) => setCountry(e.target.value)} placeholder="国家" />
             <button className="btn btn-primary" onClick={run} disabled={busy}>{busy ? "抓取中…" : "抓取名录"}</button>
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
-            <input className="input" style={{ width: 180 }} value={show}
-              onChange={(e) => setShow(e.target.value)} placeholder="展会名（选填）如 InfoComm" />
-            <input className="input" style={{ width: 110 }} value={showYear}
-              onChange={(e) => setShowYear(e.target.value)} placeholder="年份，留空自动读" />
-            <span className="ts">
-              填了展会名，抓到的每家都会写上「看到你们在 InfoComm 2026 的展位」——
-              这句话只有翻过名录才写得出来，不会和别的线索撞。年份读不出来就不写。
-            </span>
           </div>
         </>
       )}
