@@ -52,7 +52,8 @@ a:hover { text-decoration: underline; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* App shell */
-.shell { display: flex; min-height: 100vh; }
+/* height 而不是 min-height：子元素要能按剩余高度伸缩，就得有一个确定的高度可分 */
+.shell { display: flex; height: 100vh; }
 .sidebar {
   width: 208px; flex: none; position: sticky; top: 0; height: 100vh;
   background: var(--surface); border-right: 1px solid var(--border);
@@ -89,8 +90,9 @@ a:hover { text-decoration: underline; }
   position: sticky; top: 0; z-index: 20;
 }
 .topbar h2 { margin: 0; font-size: 16px; font-weight: 600; }
-.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.content { padding: 20px; flex: 1; }
+.main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.content { padding: 20px; flex: 1; min-height: 0; overflow-y: auto;
+           display: flex; flex-direction: column; }
 
 /* Primitives */
 .card {
@@ -125,7 +127,11 @@ textarea.input { width: 100%; resize: vertical; }
 /* 表头的 position:sticky 一直写着，却从不生效：overflow-x 让 .table-wrap 成了滚动容器，
    而它没有高度上限，永远不会纵向滚动，sticky 就没有参照物。给客户库这张长表一个高度，
    表头才真的能停在顶上，页码也就一直留在屏幕底部。 */
-.table-wrap.table-scroll { overflow: auto; max-height: calc(100vh - 250px); }
+/* 填满剩下的高度，而不是猜一个数字：顶栏、筛选栏、工具条的高度都会变，
+   写死 250px 的结果就是底部要么被压住，要么留一大片白。 */
+.table-wrap.table-scroll { overflow: auto; flex: 1; min-height: 0; }
+/* 客户库这一页整体占满，表格伸缩，页码贴着视口底部 */
+.page-fill { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .pager-bar { position: sticky; bottom: 0; z-index: 6; background: var(--surface);
              border-top: 1px solid var(--border); padding: 8px 4px; }
 .table { width: 100%; border-collapse: collapse; font-size: 13px; }
