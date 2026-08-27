@@ -66,51 +66,93 @@ def is_company_site(url: str) -> bool:
 # --------------------------------------------------------------- naver
 
 _NAVER_TAGS = re.compile(r"<[^>]+>")
+# The old Developers Center closed to new applications; search moved to NAVER API Hub
+# on Naver Cloud Platform, with different header names and a different host. A legacy
+# Client ID now authenticates to nothing — "Scopes are Empty" is what that looks like.
+_HUB_HOST = "https://naverapihub.apigw.ntruss.com"
 
 
 def _naver_keys() -> tuple[str, str]:
-    return (os.environ.get("NAVER_CLIENT_ID", ""),
-            os.environ.get("NAVER_CLIENT_SECRET", ""))
+    return (os.environ.get("NAVER_API_KEY_ID", ""),
+            os.environ.get("NAVER_API_KEY", ""))
 
 
 def _naver_unavailable() -> str:
-    cid, secret = _naver_keys()
-    if not cid or not secret:
-        return "没有配置 NAVER_CLIENT_ID / NAVER_CLIENT_SECRET"
+    key_id, key = _naver_keys()
+    if not key_id or not key:
+        return "没有配置 NAVER_API_KEY_ID / NAVER_API_KEY（Naver Cloud Platform → API Hub）"
     return ""
 
 
-def naver_search(query: str, limit: int = 20) -> list[Candidate]:
-    """Korean web search through Naver's official open API.
-
-    Korea is the primary market and Google's coverage there is thin. This is an official
-    API with a free 25,000/day allowance, so it is the one channel that does not depend
-    on scraping surviving a redesign.
-    """
+def _naver_call(path: str, params: dict) -> dict:
     import json
+    import urllib.error
     import urllib.request
 
-    cid, secret = _naver_keys()
-    if not cid or not secret:
-        return []
-    url = ("https://openapi.naver.com/v1/search/webkr.json?display="
-           f"{min(limit, 100)}&query={urllib.parse.quote(query)}")
+    key_id, key = _naver_keys()
+    url = f"{_HUB_HOST}{path}?" + urllib.parse.urlencode(params)
     request = urllib.request.Request(url, headers={
-        "X-Naver-Client-Id": cid, "X-Naver-Client-Secret": secret})
-    with urllib.request.urlopen(request, timeout=20) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+        "X-NCP-APIGW-API-KEY-ID": key_id, "X-NCP-APIGW-API-KEY": key})
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        # The body carries the actual reason; the status alone sends you looking in the
+        # wrong place — "Scopes are Empty" and a wrong key are both 401 and mean
+        # opposite things.
+        detail = exc.read().decode("utf-8", "replace")[:200]
+        raise RuntimeError(f"Naver {exc.code}: {detail}") from exc
+
+
+def naver_search(query: str, limit: int = 20) -> list[Candidate]:
+    """Korean web search. Korea is the primary market and Google's coverage there is thin."""
+    key_id, key = _naver_keys()
+    if not key_id or not key:
+        return []
+    payload = _naver_call("/search/v1/webkr", {"display": min(limit, 100), "query": query})
     out: list[Candidate] = []
     for item in payload.get("items", []):
         link = item.get("link") or ""
         if not is_company_site(link):
             continue
         out.append({
-            "domain": host_of(link),
-            "website": host_of(link),
+            "domain": host_of(link), "website": host_of(link),
             "title": _NAVER_TAGS.sub("", item.get("title") or "").strip(),
-            "country": "South Korea",
-            "source": "naver",
+            "country": "South Korea", "source": "naver",
         })
+    return out
+
+
+def naver_local(query: str, limit: int = 20) -> list[Candidate]:
+    """Korean business listings — Naver's answer to a maps search.
+
+    A local result carries the address and phone as published by the business, which is
+    the part a web search does not give: "AV 렌탈 강남" returns companies with a city
+    and a number already attached.
+    """
+    key_id, key = _naver_keys()
+    if not key_id or not key:
+        return []
+    payload = _naver_call("/search/v1/local",
+                          {"display": min(limit, 5), "query": query})
+    out: list[Candidate] = []
+    for item in payload.get("items", []):
+        link = item.get("link") or ""
+        name = _NAVER_TAGS.sub("", item.get("title") or "").strip()
+        if not name:
+            continue
+        candidate: Candidate = {
+            "company_en": name, "country": "South Korea", "source": "naver-local",
+            "city": (item.get("address") or "").split(" ")[0] or None,
+            "phone": item.get("telephone") or None,
+        }
+        # A listing without its own site is still a lead — the phone is the way in.
+        if is_company_site(link):
+            candidate["domain"] = host_of(link)
+            candidate["website"] = host_of(link)
+        else:
+            candidate["domain"] = f"naver-local:{name}"
+        out.append(candidate)
     return out
 
 
@@ -130,8 +172,11 @@ SOURCES: dict[str, Source] = {
     "duckduckgo": Source(
         name="duckduckgo", label="搜索引擎", kind="page", fetch=duckduckgo_search),
     "naver": Source(
-        name="naver", label="Naver（韩国）", kind="api", fetch=naver_search,
+        name="naver", label="Naver 网页搜索（韩国）", kind="api", fetch=naver_search,
         unavailable=_naver_unavailable),
+    "naver-local": Source(
+        name="naver-local", label="Naver 本地商户（韩国地图）", kind="api",
+        fetch=naver_local, unavailable=_naver_unavailable),
 }
 
 
