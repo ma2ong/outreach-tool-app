@@ -74,6 +74,10 @@ PEER_BRANDS = (
     "colorlight", "dicolor", "sharingled", "doitvision", "unit-led", "canbest",
     "highmight", "yaham", "retop", "lightlink", "kingaurora", "shenzhen", "szled",
     "hikvision", "gtek", "ledsino", "vision-led", "reissdisplay", "mrled",
+    # Added from Allen's own reading of the book. The list grows this way rather than
+    # from guesses: a brand added on a hunch does not just add noise, it silently drops
+    # a real customer who happens to share a word with it.
+    "longrun", "long run",
 )
 
 # What a Chinese factory says about itself in English. Either signal alone is innocent —
@@ -85,12 +89,30 @@ _CN_ORIGIN = re.compile(
 _MAKER = re.compile(r"manufactur|factory|oem|odm|工厂|厂家", re.I)
 
 
-def is_peer_brand(domain: str | None) -> str | None:
-    """The brand name matched, or None. Substring on the host: absen.com.br counts."""
-    host = (domain or "").lower()
-    if not host:
+def _squash(text: str | None) -> str:
+    """Lowercase, letters and digits only — so "Long Run LED USA" and "longrunled_usa"
+    read the same as "longrunled"."""
+    return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
+
+
+def is_peer_brand(domain: str | None, name: str | None = None,
+                  handles: tuple[str, ...] = ()) -> str | None:
+    """The brand name matched, or None.
+
+    The domain alone was not enough. "Long Run LED USA" arrived with no website at all,
+    only an Instagram handle, so there was nothing for a host check to look at and a
+    Chinese manufacturer's US arm walked straight into the book. A company announces
+    itself in its name and its handles too.
+    """
+    haystacks = [_squash(domain), _squash(name), *(_squash(h) for h in handles)]
+    haystacks = [h for h in haystacks if h]
+    if not haystacks:
         return None
-    return next((b for b in PEER_BRANDS if b in host), None)
+    for brand in PEER_BRANDS:
+        squashed = _squash(brand)
+        if any(squashed in hay for hay in haystacks):
+            return brand
+    return None
 
 
 def reads_as_chinese_maker(cand: dict) -> bool:
@@ -246,7 +268,10 @@ def screen(cand: dict, exclude_countries: list[str] | None = None,
     if exclude_peers and country in PEER_COUNTRIES:
         return {"country": country, "excluded": True, "exclude_reason": f"同行/供应商（{country}）"}
     if exclude_peers:
-        brand = is_peer_brand(cand.get("domain"))
+        brand = is_peer_brand(
+            cand.get("domain") or cand.get("website"),
+            cand.get("company_en") or cand.get("title"),
+            tuple(str(cand.get(k) or "") for k in ("instagram", "facebook", "linkedin")))
         if brand:
             return {"country": country, "excluded": True,
                     "exclude_reason": f"国内同行品牌（{brand}）"}
