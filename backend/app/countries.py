@@ -38,6 +38,59 @@ _ALIASES = {
     "colombia": "Colombia", "co": "Colombia", "哥伦比亚": "Colombia",
     "peru": "Peru", "perú": "Peru", "pe": "Peru", "秘鲁": "Peru",
     "canada": "Canada", "ca": "Canada", "加拿大": "Canada",
+
+    # The two-letter codes that were already sitting in the book. A filter list reading
+    # "AT · AU · BE · DE · ES" tells nobody which markets those are, and the row itself
+    # is no better. "USA" and "UK" stay as they are: those read as country names, which
+    # is the whole test.
+    "at": "Austria", "austria": "Austria",
+    "au": "Australia", "australia": "Australia",
+    "be": "Belgium", "belgium": "Belgium",
+    "de": "Germany", "germany": "Germany", "deutschland": "Germany",
+    "es": "Spain", "spain": "Spain", "españa": "Spain",
+    "fi": "Finland", "finland": "Finland",
+    "fr": "France", "france": "France",
+    "gr": "Greece", "greece": "Greece",
+    "id": "Indonesia", "indonesia": "Indonesia",
+    "in": "India", "india": "India",
+    "it": "Italy", "italy": "Italy", "italia": "Italy",
+    "my": "Malaysia", "malaysia": "Malaysia",
+    "nz": "New Zealand", "new zealand": "New Zealand",
+    "pl": "Poland", "poland": "Poland",
+    "ru": "Russia", "russia": "Russia",
+    "se": "Sweden", "sweden": "Sweden",
+    "tr": "Turkey", "turkey": "Turkey", "türkiye": "Turkey",
+    "tn": "Tunisia", "tunisia": "Tunisia",
+    "ve": "Venezuela", "venezuela": "Venezuela",
+    "vn": "Vietnam", "vietnam": "Vietnam", "viet nam": "Vietnam",
+    "ph": "Philippines", "philippines": "Philippines",
+    "pg": "Papua New Guinea",
+    "ge": "Georgia", "kz": "Kazakhstan",
+    "ae": "UAE", "uae": "UAE", "united arab emirates": "UAE",
+    "sa": "Saudi Arabia", "saudi arabia": "Saudi Arabia",
+    "za": "South Africa", "south africa": "South Africa",
+    "eg": "Egypt", "egypt": "Egypt",
+    "ng": "Nigeria", "nigeria": "Nigeria",
+    "ke": "Kenya", "kenya": "Kenya",
+    "il": "Israel", "israel": "Israel",
+    "jp": "Japan", "japan": "Japan", "日本": "Japan",
+    "cn": "China", "china": "China", "中国": "China",
+    "sg": "Singapore", "singapore": "Singapore",
+    "th": "Thailand", "thailand": "Thailand",
+    "nl": "Netherlands", "netherlands": "Netherlands",
+    "pt": "Portugal", "portugal": "Portugal",
+    "ie": "Ireland", "ireland": "Ireland",
+    "no": "Norway", "norway": "Norway",
+    "dk": "Denmark", "denmark": "Denmark",
+    "ua": "Ukraine", "ukraine": "Ukraine",
+    "gt": "Guatemala", "guatemala": "Guatemala",
+    "ec": "Ecuador", "ecuador": "Ecuador",
+    "uy": "Uruguay", "uruguay": "Uruguay",
+    "py": "Paraguay", "paraguay": "Paraguay",
+    "bo": "Bolivia", "bolivia": "Bolivia",
+    "cr": "Costa Rica", "costa rica": "Costa Rica",
+    "pa": "Panama", "panama": "Panama",
+    "do": "Dominican Republic", "dominican republic": "Dominican Republic",
 }
 
 
@@ -47,5 +100,7 @@ def normalize(value: str | None) -> str | None:
         return None
     cleaned = value.strip()
     if not cleaned:
-        return cleaned
+        # An empty string and NULL mean the same thing — "we do not know" — and keeping
+        # both produces a blank row in the filter that selects a third of nothing.
+        return None
     return _ALIASES.get(cleaned.lower(), cleaned)

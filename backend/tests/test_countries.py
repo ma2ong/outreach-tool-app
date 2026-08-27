@@ -22,7 +22,13 @@ def test_an_unknown_country_is_trimmed_but_never_guessed_at():
     assert countries.normalize("  UAE ") == "UAE"
     assert countries.normalize("Côte d'Ivoire") == "Côte d'Ivoire"
     assert countries.normalize(None) is None
-    assert countries.normalize("") == ""
+
+
+def test_blank_and_missing_mean_the_same_thing():
+    # Keeping both spellings of "we do not know" put an unlabelled empty row in the
+    # country filter that selected three leads out of 1313.
+    assert countries.normalize("") is None
+    assert countries.normalize("   ") is None
 
 
 def test_a_new_lead_is_normalized_on_the_way_in(conn):

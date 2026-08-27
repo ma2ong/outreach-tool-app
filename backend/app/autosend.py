@@ -21,6 +21,7 @@ import threading
 import time
 
 from app import settings
+from app.outreach import EMAIL_DELAY
 
 WINDOW = (9, 20)
 CHECK_SECONDS = 300
@@ -169,7 +170,7 @@ def should_run(conn, now: _dt.datetime | None = None) -> bool:
 
 
 def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None = None,
-             email_delay=(16, 28)) -> dict:
+             email_delay=EMAIL_DELAY) -> dict:
     """Evaluate and send today's due EMAIL steps within budget; record the outcome."""
     from app import sequence_send, sequences
     now = now or _dt.datetime.now()
@@ -199,9 +200,21 @@ def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None =
             settings.set_value(conn, _K_LAST_DATE, now.date().isoformat())
             settings.set_value(conn, _K_LAST_RESULT, f"{now:%m-%d %H:%M} 无到期邮件跟进")
             return {"sent": 0, "failed": 0, "deferred": 0}
+        # A heartbeat, not a start stamp. At 60-110 seconds a letter a full run takes
+        # over an hour, and `due_now` treats 20 minutes of silence as a dead run — so
+        # without this the loop would start a second run on top of the first and send
+        # everything twice.
+        started_at = time.monotonic()
+
+        def beat(_done, _total):
+            # Anchored on this run's own `now` plus real elapsed time, so a simulated
+            # clock in a test does not get stamped with today's wall clock.
+            elapsed = _dt.timedelta(seconds=time.monotonic() - started_at)
+            settings.set_value(conn, _K_LAST_ATTEMPT, (now + elapsed).isoformat())
+
         res = sequence_send.send_due(
             conn, due_ids, sender=sender, image_default=image_default,
-            email_delay=email_delay, autonomous_quality=True,
+            email_delay=email_delay, autonomous_quality=True, on_progress=beat,
         )
     except Exception as exc:  # noqa: BLE001
         # A failure is a finished run: it is recorded and the day is closed, because
