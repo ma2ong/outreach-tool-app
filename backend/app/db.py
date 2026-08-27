@@ -194,6 +194,14 @@ _TABLE_COLUMNS = {
     },
 
     "send_log": {
+        # Which experiment this letter belonged to (docs/69). All four are taken from
+        # data already in hand at send time — no new judgement, just no longer thrown
+        # away. Historical rows stay NULL: the customer type may have changed since and
+        # the sequence names were edited, so backfilling would invent an answer.
+        "variant": "TEXT",
+        "step": "INTEGER",
+        "audience": "TEXT",
+        "market": "TEXT",
         # What the customer actually read. The campaign label says which sequence step
         # went out; it cannot say what the letter said, because {hook} differs per lead
         # and the hooks are rewritten over time. Rows written before this column exists

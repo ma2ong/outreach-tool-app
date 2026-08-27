@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchSequences, createSequence, fetchDue, sendDue, pollReplies, fetchJob, loadSeeds, fetchQuota } from "../api";
 import type { Sequence, DueItem, SendJob } from "../types";
+import { CopyExperiments } from "./CopyExperiments";
 
 const CH_LABEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook" };
 
@@ -11,6 +12,7 @@ const BLANK_STEPS: Step[] = [
 ];
 
 export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
+  // 战绩表放在序列上方：改话术之前应该先看它管不管用
   const [seqs, setSeqs] = useState<Sequence[]>([]);
   const [due, setDue] = useState<DueItem[]>([]);
   const [picked, setPicked] = useState<Set<number>>(new Set());
@@ -100,6 +102,7 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
 
   return (
     <>
+      <CopyExperiments />
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
           <h3 style={{ margin: 0 }}>今日待发跟进（{due.length}）</h3>

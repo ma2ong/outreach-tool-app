@@ -9,7 +9,9 @@ import datetime as _dt
 
 
 def log_send(conn, lead_no: int, channel: str, campaign: str,
-             subject: str | None = None, body: str | None = None) -> None:
+             subject: str | None = None, body: str | None = None,
+             variant: str | None = None, step: int | None = None,
+             audience: str | None = None, market: str | None = None) -> None:
     """Record a send, including the text the customer received.
 
     `body` must be the rendered string that was handed to the sender, not the template
@@ -18,9 +20,11 @@ def log_send(conn, lead_no: int, channel: str, campaign: str,
     """
     now = _dt.datetime.now(_dt.UTC).isoformat()
     conn.execute(
-        "INSERT INTO send_log(lead_no, channel, campaign, sent_at, subject, body)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
-        (lead_no, channel, campaign, now, subject or None, body or None))
+        "INSERT INTO send_log(lead_no, channel, campaign, sent_at, subject, body,"
+        " variant, step, audience, market)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (lead_no, channel, campaign, now, subject or None, body or None,
+         variant or None, step, audience or None, market or None))
     conn.commit()
     # Written after the authoritative row, and unable to raise (docs/68 part 1): losing
     # the note about a send must never be able to lose the send.

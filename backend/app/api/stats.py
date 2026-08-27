@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from app import campaigns
 from app import repository as repo
@@ -25,3 +25,21 @@ def get_quality_stats(conn=Depends(get_conn)):
     return {"quality": campaigns.quality_stats(conn),
             "deliverability": campaigns.deliverability(conn),
             "danger_pct": campaigns.BOUNCE_DANGER_PCT}
+
+@router.get("/stats/copy-experiments")
+def copy_experiments(by: str = "variant,market", days: int = 90, conn=Depends(get_conn)):
+    """Reply rate cut by whichever dimensions you ask for (docs/69).
+
+    The one number that existed before — "361 sent, 1 reply" — could not say whether the
+    opener was weak, the list wrong, or the third letter the one that burns people.
+    """
+    from app import copy_experiments as ce
+
+    keys = tuple(k.strip() for k in by.split(",") if k.strip())
+    try:
+        rows = ce.breakdown(conn, keys, days=days)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"by": list(keys), "days": days, "rows": rows,
+            "unmeasured": ce.unmeasured(conn, days),
+            "dimensions": list(ce.DIMENSIONS)}
