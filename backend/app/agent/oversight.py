@@ -77,7 +77,18 @@ def _incident_lead(conn) -> int | None:
 
 
 def evaluate(conn) -> dict:
-    """Pause autonomous email when enough evidence says measurement or quality is unsafe."""
+    """Report delivery health. It no longer decides how much gets sent (docs/67 R2).
+
+    A bounce says *this address* is wrong. It does not say the customer should not be
+    contacted, and it certainly does not say today is a day to send less. Allen's
+    instruction is explicit: a high bounce rate means find the other person at that
+    company, or reach them another way — the answer to a bad address is more work, not
+    less outreach.
+
+    So the numbers are still measured and still shown; what changed is that this
+    function stopped switching sending off by itself. The domain risk is real and it is
+    reported every day, but stopping is his call, not a threshold's.
+    """
     delivery = campaigns.deliverability(conn)
     result = {"paused": False, "code": None, "deliverability": delivery}
     existing = autosend.safety_pause(conn)
@@ -87,43 +98,47 @@ def evaluate(conn) -> dict:
                 "pause": existing, "already_paused": True}
     if not autosend.enabled(conn) or delivery["sends"] < MIN_SAFETY_SAMPLE:
         return result
+    if delivery["blind"] or delivery["danger"]:
+        # Surfaced, not acted on: the report and the readiness panel carry it.
+        return {**result, "warning": _delivery_warning(delivery)}
+    return result
+
+
+def _delivery_warning(delivery: dict) -> str:
     if delivery["blind"]:
-        pending_code = "deliverability_blind"
-    elif delivery["danger"]:
-        pending_code = "bounce_rate"
-    else:
-        return result
-    ack = autosend.risk_ack(conn)
-    if autosend.ack_covers(ack, pending_code, delivery["bounce_rate"]):
-        # Allen saw these numbers and said keep going. Re-pausing every run made his
-        # decision last exactly until the next one.
-        return {**result, "acknowledged": ack}
-    if ack:
-        autosend.clear_risk_ack(conn)   # spent: the situation is no longer the one he accepted
-    if delivery["blind"]:
-        code = "deliverability_blind"
-        reason = (f"近 {delivery['days']} 天发给 {delivery['sends']} 家，但有退信无法被监测"
-                  f"（未测发送 {delivery['unmeasured']}，同步异常={delivery['sync_broken']}）")
-    elif delivery["danger"]:
-        code = "bounce_rate"
-        reason = (f"近 {delivery['days']} 天硬退信 {delivery['bounced']}/{delivery['sends']}，"
-                  f"退信率 {delivery['bounce_rate']}% 超过 {campaigns.BOUNCE_DANGER_PCT}% 安全线")
-    else:
-        return result
-    pause = autosend.pause(conn, code, reason, delivery)
-    lead_no = _incident_lead(conn)
-    if lead_no is not None:
+        return (f"近 {delivery['days']} 天发给 {delivery['sends']} 家，有退信无法被监测"
+                f"（未测发送 {delivery['unmeasured']}）——照常发送，但这个数字值得看一眼")
+    return (f"近 {delivery['days']} 天硬退信 {delivery['bounced']}/{delivery['sends']}，"
+            f"退信率 {delivery['bounce_rate']}%。照常发送；要压下来靠换联系人和换渠道，"
+            f"不是靠少发")
+
+
+def bounce_followup_tasks(conn, limit: int = 20) -> int:
+    """Turn recent hard bounces into "find another contact there" work (docs/67 R2).
+
+    This is what replaces the circuit breaker. The old behaviour read a bounce as a
+    reason to send less; the useful reading is that one address is dead and the company
+    still needs reaching — through a different person, or a different channel.
+    """
+    rows = conn.execute(
+        "SELECT no, company_en FROM leads"
+        " WHERE bounced_at IS NOT NULL AND COALESCE(do_not_contact, 0) = 0"
+        "   AND date(bounced_at) >= date('now', '-14 days')"
+        " ORDER BY bounced_at DESC LIMIT ?", (limit,)).fetchall()
+    made = 0
+    for row in rows:
         proposals.create(
-            conn, "create_task", lead_no=lead_no,
-            title="邮件自动跟进已安全暂停——先修复送达率",
-            reasoning=reason,
-            evidence=[{"claim": "邮件送达率安全闸", "source": reason}],
-            payload={"title": "修复邮箱送达率后再恢复自动跟进", "type": "task",
-                     "due_at": dt.date.today().isoformat(), "priority": "high",
-                     "note": "Agent 已自动停掉邮件自动跟进；检查退信、邮箱验证和可收退信的发件箱。"},
-            risk="high", dedupe_key=f"safety-{code}-{dt.date.today().isoformat()}")
-    return {"paused": True, "code": code, "reason": reason,
-            "deliverability": delivery, "pause": pause}
+            conn, "create_task", lead_no=row["no"],
+            title=f"{row['company_en'] or row['no']}：邮箱退信，找这家的另一个联系人",
+            reasoning="这个地址收不到信，但这家公司仍然是目标",
+            evidence=[{"claim": "硬退信", "source": "邮件退信通知"}],
+            payload={"title": "找采购/项目负责人的直邮地址，或改走 WhatsApp / Instagram",
+                     "type": "task", "due_at": dt.date.today().isoformat(),
+                     "priority": "normal",
+                     "note": "退信说明地址不对，不说明这家不该联系。"},
+            risk="low", dedupe_key=f"bounce-{row['no']}")
+        made += 1
+    return made
 
 
 def weak_sequence_ids(conn) -> set[int]:
