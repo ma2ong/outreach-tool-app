@@ -65,7 +65,24 @@ def test_import_reports_skipped_duplicates(tmp_path):
         {"company_en": "Alpha", "website": "alpha.com"}]})
     body = r.json()
     assert body["imported"] == 0
-    assert body["skipped"] == [{"company_en": "Alpha", "website": "alpha.com", "duplicate_of": 1}]
+    assert body["skipped"] == [{"company_en": "Alpha", "website": "alpha.com",
+                                "duplicate_of": 1, "enriched": []}]
+
+
+def test_a_known_company_is_enriched_rather_than_discarded(tmp_path):
+    """docs/68 R4.3. Prospecting keeps walking into companies already in the book, and
+    what it learned on the way used to be dropped because the only question asked was
+    "is this new?"."""
+    jobs.clear()
+    client, db = _client(tmp_path)
+    r = client.post("/api/leads/import", json={"country": "USA", "candidates": [
+        {"company_en": "Alpha", "website": "alpha.com",
+         "email": "buyer@alpha.com", "phone": "+13468378628"}]})
+    assert r.json()["enriched_fields"] == 2
+
+    row = connect(db).execute("SELECT email, phone FROM leads WHERE no=1").fetchone()
+    assert row["email"] == "buyer@alpha.com"
+    assert row["phone"] == "+13468378628"
 
 
 def test_discover_multiple_queries_dedup_by_domain(tmp_path):

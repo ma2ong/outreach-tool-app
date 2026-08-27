@@ -16,12 +16,20 @@ def log_send(conn, lead_no: int, channel: str, campaign: str,
     it came from: {hook} differs per lead and hooks get rewritten, so a template plus a
     date cannot reconstruct the letter afterwards (docs/56 R1).
     """
+    now = _dt.datetime.now(_dt.UTC).isoformat()
     conn.execute(
         "INSERT INTO send_log(lead_no, channel, campaign, sent_at, subject, body)"
         " VALUES (?, ?, ?, ?, ?, ?)",
-        (lead_no, channel, campaign, _dt.datetime.now(_dt.UTC).isoformat(),
-         subject or None, body or None))
+        (lead_no, channel, campaign, now, subject or None, body or None))
     conn.commit()
+    # Written after the authoritative row, and unable to raise (docs/68 part 1): losing
+    # the note about a send must never be able to lose the send.
+    from app import relationship_events
+
+    relationship_events.record(
+        conn, lead_no, "sent", subject or (body or "")[:80] or campaign,
+        channel=channel, at=now,
+        detail={"campaign": campaign, "subject": subject, "body": body})
 
 
 def default_label(channel: str) -> str:
