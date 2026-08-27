@@ -102,11 +102,49 @@ def qualify_for_auto_import(candidates: list[dict], minimum_fit: int,
     return accepted, rejected
 
 
+# Only ever filled when blank. A phone read off a search result does not get to
+# overwrite one Allen typed, and docs/45 forbids guessing either way.
+_FILLABLE = ("email", "phone", "instagram", "facebook", "linkedin", "city", "country",
+             "website", "brief", "hook")
+
+
+def enrich_existing(conn, lead_no: int, candidate: dict) -> list[str]:
+    """Fill what this company's record is missing. Returns the field names gained."""
+    from app import relationship_events
+
+    current = conn.execute("SELECT * FROM leads WHERE no=?", (lead_no,)).fetchone()
+    if current is None:
+        return []
+    patch = {}
+    for field in _FILLABLE:
+        fresh = str(candidate.get(field) or "").strip()
+        if not fresh:
+            continue
+        # str(None) is "None", which reads as a value and would block every blank field.
+        held = current[field] if field in current.keys() else None
+        if not str(held or "").strip():
+            patch[field] = fresh
+    if not patch:
+        return []
+    if "email" in patch and candidate.get("email_source"):
+        patch["email_source"] = candidate["email_source"]
+    repo.update_lead(conn, lead_no, patch)
+    gained = [f for f in patch if f != "email_source"]
+    relationship_events.record(
+        conn, lead_no, "fact",
+        "开发过程中补到：" + "、".join(gained),
+        source="discovery",
+        detail={"fields": {k: patch[k] for k in gained},
+                "found_via": candidate.get("source") or "discovery"})
+    return gained
+
+
 def import_candidates(conn, candidates: list[dict], default_country: str | None = None) -> dict:
     """The one import path shared by the browser and autonomous Agent."""
     from app import blocklist, icp as icp_mod, sales_intelligence
     imported: list[int] = []
     skipped: list[dict] = []
+    enriched = 0
     signals_imported = 0
     signal_errors: list[dict] = []
     for candidate in candidates:
@@ -115,8 +153,15 @@ def import_candidates(conn, candidates: list[dict], default_country: str | None 
         duplicate = repo.find_duplicate(conn, website=website,
                                         instagram=candidate.get("instagram"))
         if duplicate:
+            # Not a dead end. Prospecting keeps walking into companies already in the
+            # book, and what it learned about them on the way — a direct line, a new
+            # contact, this year's projects — used to be thrown away because the only
+            # question asked was "is this new?" (docs/68 R4.3). A fresh fact about a
+            # company we have already touched is worth more than a stranger.
+            gained = enrich_existing(conn, duplicate, candidate)
             skipped.append({"company_en": company, "website": website,
-                            "duplicate_of": duplicate})
+                            "duplicate_of": duplicate, "enriched": gained})
+            enriched += len(gained)
             continue
         fit = "discovered"
         if candidate.get("icp_type") and candidate.get("icp_type") != "unknown":
@@ -152,7 +197,7 @@ def import_candidates(conn, candidates: list[dict], default_country: str | None 
                 signal_errors.append({"lead_no": no, "headline": signal.get("headline"),
                                       "error": str(exc)})
     result = {"imported": len(imported), "imported_lead_nos": imported,
-              "skipped": skipped}
+              "skipped": skipped, "enriched_fields": enriched}
     if signals_imported or signal_errors:
         result["signals_imported"] = signals_imported
         result["signal_errors"] = signal_errors

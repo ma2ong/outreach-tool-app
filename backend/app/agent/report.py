@@ -150,6 +150,35 @@ def _inbound_section(conn, day: str) -> list[str]:
     return lines
 
 
+def _development_section(conn, day: str) -> list[str]:
+    """What was developed today, not just what was sent (docs/68 R4.1).
+
+    The report used to answer "how many letters went out" and nothing else, which made
+    an empty pipeline invisible until the day there was nothing left to send. Prospecting
+    that found nothing is reported too — a silent zero reads like it did not run.
+    """
+    from app import relationship_events
+
+    lines = []
+    new_leads = conn.execute(
+        "SELECT COUNT(*) c FROM leads WHERE date(created_at)=?", (day,)).fetchone()["c"]
+    facts = relationship_events.recent(conn, kind="fact", days=1, limit=500)
+    enriched = {f["lead_no"] for f in facts if f["source"] == "discovery"}
+    runs = conn.execute(
+        "SELECT COUNT(*) c FROM agent_proposals WHERE kind='discover_run'"
+        " AND date(created_at)=? AND status='executed'", (day,)).fetchone()["c"]
+
+    if new_leads:
+        lines.append(f"  新开发客户 {new_leads} 家")
+    if enriched:
+        lines.append(f"  给 {len(enriched)} 家老客户补上了新信息"
+                     f"（联系方式、职位、最近的项目）")
+    if not new_leads and not enriched:
+        lines.append("  今天没有开发到新客户，也没有补到老客户的新信息"
+                     + (f"（跑了 {runs} 轮搜索）" if runs else "（今天没有跑开发）"))
+    return ["■ 客户开发", *lines]
+
+
 def _pipeline_section(conn, day: str) -> list[str]:
     from app.opportunities import ensure_schema as ensure_opportunity_schema
 
@@ -231,6 +260,11 @@ def compose(conn, today: dt.date | None = None) -> str:
     lines.extend(_sent_section(conn, day))
     lines.append("")
     lines.extend(_inbound_section(conn, day))
+
+    # Development sits beside sending, not under it: the day an empty pipeline appears
+    # is the day this line goes to zero, and that has to be visible before the sending
+    # numbers quietly follow it down.
+    lines.extend(["", *_development_section(conn, day)])
 
     pipeline = _pipeline_section(conn, day)
     if pipeline:
