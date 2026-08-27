@@ -15,6 +15,8 @@ import { SequencesPanel } from "./components/SequencesPanel";
 import { InboxPanel } from "./components/InboxPanel";
 import { ConversationPanel } from "./components/ConversationPanel";
 import { Pager } from "./components/Pager";
+import { AutonomyControlCenter } from "./components/AutonomyControlCenter";
+import { WorkerRuntimeStatus } from "./components/WorkerRuntimeStatus";
 import { HealthPanel } from "./components/HealthPanel";
 import { OpportunityPipeline } from "./components/OpportunityPipeline";
 import { ActivitiesPanel } from "./components/ActivitiesPanel";
@@ -302,9 +304,13 @@ export function App() {
       <div className="main">
         <header className="topbar">
           <h2>{title}</h2>
-          <button className="btn btn-sm" onClick={toggleTheme} title="切换主题">
-            {theme === "dark" ? "☀ 浅色" : "☾ 深色"}
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <AutonomyControlCenter />
+            <WorkerRuntimeStatus />
+            <button className="btn btn-sm" onClick={toggleTheme} title="切换主题">
+              {theme === "dark" ? "☀ 浅色" : "☾ 深色"}
+            </button>
+          </div>
         </header>
         <div className="content">
           {err && <div className="error-text" style={{ marginBottom: 12 }}>加载失败：{err}</div>}

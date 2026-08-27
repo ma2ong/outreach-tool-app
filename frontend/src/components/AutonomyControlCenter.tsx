@@ -136,10 +136,11 @@ export function AutonomyControlCenter() {
   const dot = "●";
 
   return (
-    <div style={{ position: "fixed", right: 14, bottom: 52, zIndex: 70 }}>
+    <div style={{ position: "relative" }}>
       {open && (
         <div className="card" style={{
-          position: "absolute", right: 0, bottom: 42, width: "min(680px, calc(100vw - 28px))",
+          position: "absolute", right: 0, top: 32, zIndex: 80,
+          width: "min(680px, calc(100vw - 28px))",
           maxHeight: "76vh", overflowY: "auto", padding: 14,
           boxShadow: "0 12px 42px rgba(0,0,0,.22)",
         }}>
@@ -230,9 +231,8 @@ export function AutonomyControlCenter() {
         </div>
       )}
 
-      <button className="btn btn-sm" onClick={() => setOpen(!open)} style={{
-        boxShadow: "0 4px 16px rgba(0,0,0,.18)", minWidth: 176,
-      }}>
+      {/* 在顶栏里就不用浮标的阴影和最小宽度了，那是给悬浮在内容上方准备的 */}
+      <button className="btn btn-sm" onClick={() => setOpen(!open)} style={{ whiteSpace: "nowrap" }}>
         <span style={{ marginRight: 6 }}>{dot}</span>{stateText}
         {c?.awaiting_approval ? ` · 待确认 ${c.awaiting_approval}` : ""}
       </button>
