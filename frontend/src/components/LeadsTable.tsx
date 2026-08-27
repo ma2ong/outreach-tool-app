@@ -102,7 +102,7 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
                     && HANGUL.test(l.company_local) &&
                     <div>{l.company_local}</div>}
                 </td>
-                <td onClick={stop}>
+                <td onClick={stop} style={{ whiteSpace: "nowrap" }}>
                   <InlineStage value={row(l).stage} onChange={(s) => save(l.no, { stage: s })} />
                 </td>
                 <td onClick={stop} style={{ minWidth: 150 }}>
