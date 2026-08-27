@@ -39,7 +39,8 @@ export function Pager({ page, pageCount, total, pageSize, onPage, onPageSize }: 
   }
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+    <div className="pager-bar"
+      style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
       <span className="muted">共 {total} 条</span>
 
       <button className="btn btn-sm" disabled={page <= 0} onClick={() => onPage(page - 1)}>‹</button>

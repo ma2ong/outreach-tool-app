@@ -159,7 +159,7 @@ export function App() {
   // 每页条数记在本地：这是个人习惯，不该每次打开都退回默认
   const [pageSize, setPageSize] = useState(() => {
     const saved = Number(localStorage.getItem("leadPageSize"));
-    return [20, 50, 100, 200].includes(saved) ? saved : 50;
+    return [20, 50, 100, 200].includes(saved) ? saved : 100;
   });
   const PAGE_SIZE = pageSize;
 

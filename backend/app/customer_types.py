@@ -9,9 +9,10 @@ him — so the two have to be told apart before either is shown as a customer ty
 """
 from __future__ import annotations
 
-# Ordered by how much of his book each one covers. 租赁商 and 租赁客户 both appear in
-# his own usage; both stay, because collapsing them would rewrite tags he already set.
-KNOWN = ("工程商", "租赁客户", "租赁商", "批发商", "广告商", "透明屏",
+# Ordered by how much of his book each one covers. 租赁客户 and 租赁商 named the same
+# thing, so the picker offers one of them — Allen picked 租赁商 — and the records
+# carrying the other were renamed rather than losing their tag.
+KNOWN = ("工程商", "租赁商", "批发商", "广告商", "透明屏",
          "系统集成商", "代理商", "终端用户")
 
 # The classifier writes its own tags into the same column; they are working notes.

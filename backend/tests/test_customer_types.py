@@ -64,6 +64,13 @@ def test_the_picker_never_offers_a_joined_pair_as_one_type(conn):
     assert "工程商、租赁客户" not in ct.options(conn)
 
 
+def test_the_duplicate_rental_label_is_gone_from_the_picker(conn):
+    # 租赁客户 and 租赁商 named the same thing; the records carrying the first were
+    # renamed rather than losing their tag, so only one is offered now.
+    assert "租赁客户" not in ct.KNOWN
+    assert "租赁商" in ct.KNOWN
+
+
 def test_a_type_he_invented_joins_the_picker(conn):
     conn.execute("UPDATE leads SET tags='舞台租赁' WHERE no=4")
     conn.commit()

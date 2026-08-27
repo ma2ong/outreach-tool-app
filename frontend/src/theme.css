@@ -122,6 +122,12 @@ select.input { padding-right: 26px; }
 textarea.input { width: 100%; resize: vertical; }
 
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+/* 表头的 position:sticky 一直写着，却从不生效：overflow-x 让 .table-wrap 成了滚动容器，
+   而它没有高度上限，永远不会纵向滚动，sticky 就没有参照物。给客户库这张长表一个高度，
+   表头才真的能停在顶上，页码也就一直留在屏幕底部。 */
+.table-wrap.table-scroll { overflow: auto; max-height: calc(100vh - 250px); }
+.pager-bar { position: sticky; bottom: 0; z-index: 6; background: var(--surface);
+             border-top: 1px solid var(--border); padding: 8px 4px; }
 .table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .table th {
   text-align: left; padding: 9px 10px; white-space: nowrap;
