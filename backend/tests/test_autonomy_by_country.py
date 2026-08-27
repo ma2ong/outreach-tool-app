@@ -48,7 +48,7 @@ def conn(tmp_path):
     init_schema(c)
     from app import social_queue
     social_queue.ensure_schema(c)
-    today = dt.date.today().isoformat()
+    today = "2026-08-27"
     c.executescript(f"""
         INSERT INTO leads(no, company_en, country, phone, instagram) VALUES
             (1, 'Atlanta Pro AV', 'USA', '+14048352230', NULL),
@@ -65,24 +65,33 @@ def conn(tmp_path):
     return c
 
 
+def _walk_a_day(conn, day: dt.date):
+    """Run the loop across the day and the one after it, the way the real cycle does.
+
+    Two days because a customer's afternoon can fall after UTC midnight — that is the
+    whole reason run_due also looks at yesterday's queue (docs/65).
+    """
+    start = dt.datetime.combine(day, dt.time(0, 0), tzinfo=dt.UTC)
+    for minute in range(0, 48 * 60, 10):
+        sa.run_due(conn, now=start + dt.timedelta(minutes=minute))
+
+
 def test_the_automatic_run_skips_korea_but_sends_the_rest(conn, monkeypatch):
     sa.set_mode(conn, "whatsapp", "auto", confirm="whatsapp")
     sent: list[dict] = []
     monkeypatch.setattr(sa, "_deliver",
                         lambda c, items: sent.extend(items) or {"sent": len(items)})
-    # Past today's send moment, whatever it happens to be.
-    monkeypatch.setattr(sa, "send_at", lambda day: dt.datetime.combine(day, dt.time(0, 1)))
 
-    sa.run_due(conn, now=dt.datetime.combine(dt.date.today(), dt.time(23, 0)))
-    assert {i["lead_no"] for i in sent} == {1, 3}
+    _walk_a_day(conn, dt.date(2026, 8, 27))   # a Thursday everywhere that matters
+    # #2 is Korean (held for Allen) and #3 has no country, so neither goes on its own.
+    assert {i["lead_no"] for i in sent} == {1}
 
 
 def test_the_korean_row_stays_in_the_queue_for_him(conn, monkeypatch):
     sa.set_mode(conn, "whatsapp", "auto", confirm="whatsapp")
     monkeypatch.setattr(sa, "_deliver", lambda c, items: {"sent": len(items)})
-    monkeypatch.setattr(sa, "send_at", lambda day: dt.datetime.combine(day, dt.time(0, 1)))
 
-    sa.run_due(conn, now=dt.datetime.combine(dt.date.today(), dt.time(23, 0)))
+    _walk_a_day(conn, dt.date(2026, 8, 27))
     still = conn.execute(
         "SELECT status FROM social_dm_queue WHERE lead_no=2").fetchone()[0]
     assert still == "ready"

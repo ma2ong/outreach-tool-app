@@ -17,7 +17,7 @@ import datetime as dt
 import json
 import random
 
-from app import settings, social_queue
+from app import local_time, settings, social_queue
 
 MODES = ("off", "manual", "auto")
 DEFAULT_MODE = "manual"
@@ -39,6 +39,18 @@ _K_LAST_RUN = "social_autonomy_last_run"
 # A person pressing send never lands on the same minute two days running; a scheduler
 # does unless it is told not to.
 SEND_WINDOW = (9, 18)
+
+# How late a message may still go out after its own moment. Falling behind is fine;
+# catching up in one burst is how an account gets rate-limited (docs/53).
+MISSED_AFTER = dt.timedelta(hours=2)
+
+# Spreading by timezone still leaves two messages able to land in the same minute by
+# chance. One per channel per cycle, never closer together than this, so the account
+# never shows a burst.
+MIN_GAP = {"whatsapp": dt.timedelta(minutes=6),
+           "instagram": dt.timedelta(minutes=8),
+           "facebook": dt.timedelta(minutes=10)}
+_K_LAST_SEND = "social_last_send_at_%s"
 
 
 class ConfirmationRequired(ValueError):
@@ -116,41 +128,87 @@ def last_run(conn) -> dict | None:
 
 
 def run_due(conn, now: dt.datetime | None = None) -> dict:
-    """Send today's queue for channels set to `auto`, if the day's moment has passed.
+    """Send whichever queued messages are due right now in the recipient's own timezone.
 
-    One run a day. A day that falls behind stays behind: catching up by sending twice is
-    how an account gets rate-limited, and the queue is rebuilt tomorrow anyway.
+    Not one batch at one moment: a single moment cannot serve a list spanning twelve
+    time zones, and the Shenzhen afternoon it used to pick was 05:07 in New York. Each
+    message now has its own due time inside the customer's working day, and each cycle
+    sends only the ones whose moment has arrived (docs/65 R3).
     """
-    now = now or dt.datetime.now()
+    now = now or dt.datetime.now(dt.UTC)
+    if now.tzinfo is None:
+        now = now.astimezone(dt.UTC)
     today = now.date().isoformat()
-    result = {"sent_batches": 0, "channels": {}}
-    if settings.get(conn, _K_LAST_RUN_DATE) == today:
-        return result
+    result = {"sent_batches": 0, "channels": {}, "held": {}}
     auto = [c for c in social_queue.CHANNELS if get(conn, c) == "auto"]
     if not auto:
-        return result
-    if now < send_at(now.date()):
         return result
 
     social_queue.ensure_schema(conn)
     placeholders = ",".join("?" * len(auto))
+    # Yesterday's queue is still in play: a customer's Thursday afternoon in Chicago is
+    # Friday morning in UTC, so a row dated Thursday has its moment after UTC midnight.
+    # Matching only today's date made those messages unreachable and silently unsent.
+    yesterday = (now.date() - dt.timedelta(days=1)).isoformat()
     rows = conn.execute(
-        f"SELECT q.id, q.lead_no, q.channel, q.target, q.body, l.country"
+        f"SELECT q.id, q.lead_no, q.channel, q.target, q.body, q.queue_date, l.country"
         f" FROM social_dm_queue q JOIN leads l ON l.no = q.lead_no"
-        f" WHERE q.queue_date=? AND q.status='ready' AND q.channel IN ({placeholders})"
-        f" ORDER BY q.rank_order", [today, *auto]).fetchall()
-    # A country set to manual stays in the queue and waits for Allen; it is held back
-    # here rather than filtered out of the list he sees (docs/63).
-    items = [{k: v for k, v in dict(r).items() if k != "country"} for r in rows
-             if effective_mode("auto", r["country"]) == "auto"]
-    # Claim the day before sending, not after: a crash mid-send must not hand tomorrow's
-    # scheduler a second run at the same queue. (The same lesson as autosend's last_date.)
-    settings.set_value(conn, _K_LAST_RUN_DATE, today)
+        f" WHERE q.queue_date IN (?, ?) AND q.status='ready'"
+        f" AND q.channel IN ({placeholders})"
+        f" ORDER BY q.rank_order", [today, yesterday, *auto]).fetchall()
+    items, held = [], {}
+    taken: set[str] = set()
+    for row in rows:
+        country = row["country"]
+        # A country set to manual stays in the queue and waits for Allen; it is held
+        # back here rather than filtered out of the list he sees (docs/63).
+        if effective_mode("auto", country) != "auto":
+            held["韩国等你确认"] = held.get("韩国等你确认", 0) + 1
+            continue
+        allowed, why = local_time.may_send(country, now)
+        if not allowed:
+            held[why] = held.get(why, 0) + 1
+            continue
+        # The moment belongs to the day the message was queued for, in their timezone.
+        queued_on = dt.date.fromisoformat(row["queue_date"])
+        due = local_time.send_minute(row["lead_no"], queued_on, country)
+        if due is None:
+            held["国家未知，不自动发"] = held.get("国家未知，不自动发", 0) + 1
+            continue
+        due = due.replace(tzinfo=dt.UTC)
+        if now < due:
+            held["还没到这条的时刻"] = held.get("还没到这条的时刻", 0) + 1
+            continue
+        # A moment long past is a moment missed, not a moment owed. Without this, a
+        # service restart would fire every message whose time passed while it was down,
+        # all at once — the burst docs/53 refuses to allow.
+        if now - due > MISSED_AFTER:
+            held["错过了今天的时刻"] = held.get("错过了今天的时刻", 0) + 1
+            continue
+        channel = row["channel"]
+        if channel in taken:
+            held["同一渠道本轮已发过一条"] = held.get("同一渠道本轮已发过一条", 0) + 1
+            continue
+        gap = MIN_GAP.get(channel, dt.timedelta(minutes=6))
+        last = settings.get(conn, _K_LAST_SEND % channel)
+        if last:
+            try:
+                if now - dt.datetime.fromisoformat(last) < gap:
+                    held["离上一条不够间隔"] = held.get("离上一条不够间隔", 0) + 1
+                    continue
+            except ValueError:  # a malformed stamp must not block sending forever
+                pass
+        taken.add(channel)
+        items.append({k: v for k, v in dict(row).items()
+                      if k not in ("country", "queue_date")})
+    result["held"] = held
     if not items:
         return result
 
     outcome = _deliver(conn, items) or {}
     sent = int(outcome.get("sent") or 0)
+    for item in items[:sent]:
+        settings.set_value(conn, _K_LAST_SEND % item["channel"], now.isoformat())
     if sent:
         sent_ids = [item["id"] for item in items[:sent]]
         placeholders = ",".join("?" * len(sent_ids))

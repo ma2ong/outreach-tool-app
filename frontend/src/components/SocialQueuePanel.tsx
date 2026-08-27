@@ -150,13 +150,16 @@ export function SocialQueuePanel() {
                 </select>
               </span>
             ))}
-            <span className="muted">今天自动发送时刻 {autonomy.send_at}（每天不同）</span>
+            {/* 不再是"一个时刻"：docs/65 之后每条按收件人所在时区各自到点 */}
+            <span className="muted">按对方当地时间 8–20 点发，周末不发</span>
           </div>
           {/* 不写出来的话，「全自动」会被读成"所有人都自动发"，而韩国那批不是。docs/63 */}
           {Object.values(autonomy.modes).some((m) => m === "auto") && (
             <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
               韩国客户不走全自动：他们多数是做了几年的老客户，自动开场白读起来像群发。
               他们照常出现在下面的列表里，等你按发送。
+              其余客户按各自所在时区的白天分散发出，同一渠道两条之间至少隔几分钟，
+              不会在对方半夜或周末打扰。
             </div>
           )}
           {confirming && (
