@@ -180,7 +180,10 @@ def _development_section(conn, day: str) -> list[str]:
     # An unconfigured channel and a broken one are different problems, and a line that
     # merges them teaches nothing about which (docs/70 R4).
     from app import discovery_sources
-    off = [s for s in discovery_sources.status() if not s["available"]]
+    # An optional alternative that is fine to leave unconfigured is not a problem to
+    # report; saying so daily would just be a standing reminder of a door that is shut.
+    off = [s for s in discovery_sources.status()
+           if not s["available"] and not s.get("optional")]
     if off:
         lines.append("  未启用的渠道：" + "、".join(f"{s['label']}（{s['reason']}）"
                                                 for s in off))
