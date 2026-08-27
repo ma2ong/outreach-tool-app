@@ -45,11 +45,14 @@ SEND_WINDOW = (9, 18)
 MISSED_AFTER = dt.timedelta(hours=2)
 
 # Spreading by timezone still leaves two messages able to land in the same minute by
-# chance. One per channel per cycle, never closer together than this, so the account
-# never shows a burst.
-MIN_GAP = {"whatsapp": dt.timedelta(minutes=6),
-           "instagram": dt.timedelta(minutes=8),
-           "facebook": dt.timedelta(minutes=10)}
+# chance. One per channel per cycle, and never closer than a minute or two apart.
+#
+# The natural spacing is already an hour or so — 8-15 messages across a 12-hour window —
+# so this only bites when two scheduled moments happen to collide. Guarding that edge
+# with six to ten minutes was more caution than the case needs. The range is drawn
+# fresh each time rather than fixed: a sender that always waits exactly 90 seconds is
+# its own kind of signature.
+MIN_GAP_SECONDS = (60, 120)
 _K_LAST_SEND = "social_last_send_at_%s"
 
 
@@ -189,7 +192,7 @@ def run_due(conn, now: dt.datetime | None = None) -> dict:
         if channel in taken:
             held["同一渠道本轮已发过一条"] = held.get("同一渠道本轮已发过一条", 0) + 1
             continue
-        gap = MIN_GAP.get(channel, dt.timedelta(minutes=6))
+        gap = dt.timedelta(seconds=random.randint(*MIN_GAP_SECONDS))
         last = settings.get(conn, _K_LAST_SEND % channel)
         if last:
             try:
