@@ -124,14 +124,21 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
   return (
     <>
       {report && (
-        <div className="card">
+        // 整张卡片可点：报告是拿来读的，为了读它还要先瞄准右上角一个按钮，
+        // 是把一次阅读变成了两次操作。
+        <div className="card" style={{ cursor: "pointer" }}
+          onClick={() => {
+            // 选中文字时不折叠：读完想复制一段，结果一松手报告没了，第三次就会烦。
+            if (window.getSelection()?.toString()) return;
+            setReportOpen((v) => !v);
+          }}
+          title={reportOpen ? "点击收起" : "点击展开完整报告"}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <h3 style={{ margin: 0, fontSize: 15 }}>今天做了什么</h3>
             <span className="muted">Agent 今日报告</span>
-            <button className="btn btn-sm" style={{ marginLeft: "auto" }}
-              onClick={() => setReportOpen((v) => !v)}>
-              {reportOpen ? "收起" : "展开"}
-            </button>
+            <span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>
+              {reportOpen ? "收起 ▲" : "展开 ▼"}
+            </span>
           </div>
           {/* 报告靠换行和缩进排版，所以要 pre-wrap；但字体跟随全站，不用 pre 的等宽体 */}
           <div style={{
