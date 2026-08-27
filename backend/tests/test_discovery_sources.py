@@ -34,6 +34,35 @@ def test_a_channel_with_no_key_is_unavailable_not_failed(monkeypatch):
     assert "NAVER_API_KEY_ID" in naver.unavailable()
 
 
+def test_korea_is_reachable_without_any_account(monkeypatch):
+    """NAVER Cloud Platform wants Korean real-name verification, which Allen cannot do
+    from Shenzhen. A channel that works today beats a better one that never opens."""
+    assert ds.SOURCES["naver-web"].available() is True
+    assert ds.SOURCES["naver-web"].kind == "page"
+
+
+def test_the_api_route_is_optional_not_a_daily_complaint(monkeypatch):
+    monkeypatch.delenv("NAVER_API_KEY_ID", raising=False)
+    naver = ds.SOURCES["naver"]
+    assert naver.available() is False
+    assert naver.optional is True
+
+
+def test_naver_page_results_drop_the_cdn_and_the_forums(monkeypatch):
+    page = " ".join(f"]({u})" for u in [
+        "https://ssl.pstatic.net/img.png",
+        "https://www.navercorp.com/about",
+        "https://cafe.daum.net/thread",
+        "https://gadgetrental.kr/",
+        "https://media-rental.co.kr/led",
+        "https://gadgetrental.kr/again",
+    ])
+    monkeypatch.setattr("app.jina.fetch", lambda url, timeout=45: page)
+    rows = ds.naver_page_search("LED 렌탈")
+    assert [r["domain"] for r in rows] == ["gadgetrental.kr", "media-rental.co.kr"]
+    assert rows[0]["country"] == "South Korea"
+
+
 def test_the_local_channel_shares_the_same_keys(monkeypatch):
     # One credential pair for both Naver channels: configuring one and not the other
     # would be a state nobody can reason about.

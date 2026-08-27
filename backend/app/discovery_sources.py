@@ -36,6 +36,11 @@ class Source:
     # Why this channel cannot run right now, or "" when it can. Being unconfigured and
     # being broken are different states and the report must not merge them (docs/70 R4).
     unavailable: Callable[[], str] = field(default=lambda: "")
+    # An alternative route that is fine to leave unconfigured. Reporting it as 未启用
+    # every day would be a daily reminder of a door Allen cannot open — NAVER Cloud
+    # Platform wants Korean real-name verification — while the page channel already
+    # covers the same market.
+    optional: bool = False
 
     def available(self) -> bool:
         return not self.unavailable()
@@ -50,6 +55,8 @@ _NOT_A_COMPANY = (
     "x.com", "tiktok.com", "pinterest.com", "yelp.com", "alibaba.com", "made-in-china.com",
     "indiamart.com", "amazon.", "ebay.", "naver.com", "blog.naver.com", "cafe.naver.com",
     "tistory.com", "wordpress.com", "blogspot.com", "wikipedia.org", "google.",
+    # Naver's own CDN and corporate pages come back on every Korean query.
+    "pstatic.net", "navercorp.com", "daum.net", "kakao.com", "nate.com",
 )
 
 
@@ -156,6 +163,38 @@ def naver_local(query: str, limit: int = 20) -> list[Candidate]:
     return out
 
 
+_MD_LINK = re.compile(r"\]\((https?://[^)\s]+)\)")
+
+
+def naver_page_search(query: str, limit: int = 20) -> list[Candidate]:
+    """Korean search by reading the results page, the way a person would.
+
+    The API route needs a NAVER Cloud Platform account, and that needs Korean
+    real-name verification — a door Allen cannot open from Shenzhen. Reading the public
+    results page needs no account at all, and Korea is the primary market, so a channel
+    that works today beats a better one that never opens.
+    """
+    from app.jina import fetch
+
+    url = ("https://search.naver.com/search.naver?where=web&query="
+           + urllib.parse.quote(query))
+    text = fetch(url, timeout=45)
+    out: list[Candidate] = []
+    seen: set[str] = set()
+    for link in _MD_LINK.findall(text):
+        if not is_company_site(link):
+            continue
+        host = host_of(link)
+        if host in seen:
+            continue
+        seen.add(host)
+        out.append({"domain": host, "website": host,
+                    "country": "South Korea", "source": "naver-web"})
+        if len(out) >= limit:
+            break
+    return out
+
+
 # --------------------------------------------------------------- duckduckgo
 
 def duckduckgo_search(query: str, limit: int = 20) -> list[Candidate]:
@@ -171,12 +210,17 @@ def duckduckgo_search(query: str, limit: int = 20) -> list[Candidate]:
 SOURCES: dict[str, Source] = {
     "duckduckgo": Source(
         name="duckduckgo", label="搜索引擎", kind="page", fetch=duckduckgo_search),
+    "naver-web": Source(
+        name="naver-web", label="Naver 搜索（韩国）", kind="page",
+        fetch=naver_page_search),
+    # Kept for the day the account exists: the API returns cleaner results and the local
+    # endpoint carries addresses and phone numbers the page does not.
     "naver": Source(
-        name="naver", label="Naver 网页搜索（韩国）", kind="api", fetch=naver_search,
-        unavailable=_naver_unavailable),
+        name="naver", label="Naver API 网页搜索", kind="api", fetch=naver_search,
+        unavailable=_naver_unavailable, optional=True),
     "naver-local": Source(
-        name="naver-local", label="Naver 本地商户（韩国地图）", kind="api",
-        fetch=naver_local, unavailable=_naver_unavailable),
+        name="naver-local", label="Naver API 本地商户", kind="api",
+        fetch=naver_local, unavailable=_naver_unavailable, optional=True),
 }
 
 
@@ -187,7 +231,8 @@ def available(conn=None) -> list[Source]:
 def status() -> list[dict]:
     """What each channel can do right now, for the report and the channels page."""
     return [{"name": s.name, "label": s.label, "kind": s.kind,
-             "available": s.available(), "reason": s.unavailable()}
+             "available": s.available(), "reason": s.unavailable(),
+             "optional": s.optional}
             for s in SOURCES.values()]
 
 
