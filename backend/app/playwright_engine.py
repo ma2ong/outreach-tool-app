@@ -330,6 +330,43 @@ class PlaywrightEngine:
             return self._ig_threads(page)
         raise ValueError(f"unsupported channel {channel}")
 
+    # Read a public profile and leave. No like, no follow, no comment — anything that
+    # shows up on their side is a trace, and docs/61 already taught what one stray
+    # public action costs (docs/71 R3).
+    _PROFILE_SCROLLS = 2
+
+    def _read_profile_op(self, channel, handle):
+        page = self._page(channel)
+        handle = str(handle or "").strip().lstrip("@")
+        if not handle:
+            raise ValueError("没有账号名")
+        url = (f"https://www.instagram.com/{handle}/" if channel == "instagram"
+               else f"https://www.facebook.com/{handle}")
+        page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(2500)
+
+        body = page.inner_text("body")[:6000]
+        # A login wall or a missing account is an answer, not a reason to try again
+        # from another angle (docs/71 R6).
+        low = body.lower()
+        if not body.strip():
+            raise RuntimeError("页面是空的")
+        if "page isn't available" in low or "user not found" in low or "找不到" in body:
+            raise RuntimeError("主页不存在或已改名")
+        if "log in" in low[:400] or "登录" in body[:400]:
+            raise RuntimeError("需要登录才能看")
+
+        for _ in range(self._PROFILE_SCROLLS):
+            page.mouse.wheel(0, 1400)
+            page.wait_for_timeout(1200)
+        body = page.inner_text("body")[:12000]
+
+        links = page.eval_on_selector_all(
+            "a[href^='http']",
+            "els => els.map(e => e.href).slice(0, 120)")
+        return {"handle": handle, "channel": channel, "url": url,
+                "text": body, "links": links}
+
     def _wait_list(self, page, channel, selector, name, timeout=25000):
         try:
             page.wait_for_selector(selector, timeout=timeout)
@@ -555,6 +592,10 @@ class PlaywrightEngine:
 
     def read_thread(self, channel: str, target: str, limit: int = 20) -> list[dict]:
         return self._call(self._read_thread_op, channel, target, limit, timeout=180)
+
+    def read_profile(self, channel: str, handle: str) -> dict:
+        """Open one public profile, read it, leave. Never writes anything."""
+        return self._call(self._read_profile_op, channel, handle, timeout=120)
 
     def scan_threads(self, channel: str) -> list[dict]:
         # Instagram alone walks three tabs; 210s was cutting scans off mid-scroll.

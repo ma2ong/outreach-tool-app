@@ -197,6 +197,12 @@ def auto_social_queue() -> None:
         conn = connect(DB_PATH)
         social_queue.build_today(conn)
         social_autonomy.run_due(conn)
+        # Only after the queue is empty for the day: one account both messaging
+        # strangers and browsing strangers in the same minute is the most machine-like
+        # pattern there is (docs/71 R2). social_watch checks that itself.
+        from app import social_watch
+        from app.api import channels as channels_api
+        social_watch.watch(conn, channels_api.ENGINE, limit=3)
     except Exception:  # noqa: BLE001 — never take the operating loop down with it
         pass
     finally:
