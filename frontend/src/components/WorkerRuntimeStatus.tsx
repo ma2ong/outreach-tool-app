@@ -62,9 +62,13 @@ export function WorkerRuntimeStatus() {
     ? "●" : degraded ? "◆" : "⚠";
 
   return (
-    <div style={{ position: "fixed", right: 16, bottom: 14, zIndex: 1000, maxWidth: 430 }}>
+    // 顶栏里的一行，不再占用列表底部：那两枚浮标压着最后一行客户和页码
+    <div style={{ position: "relative" }}>
       {open && (
-        <div className="card" style={{ marginBottom: 7, padding: 12, boxShadow: "0 8px 28px rgba(0,0,0,.22)" }}>
+        <div className="card" style={{
+          position: "absolute", right: 0, top: 32, width: "min(430px, calc(100vw - 28px))",
+          zIndex: 80, padding: 12, boxShadow: "0 8px 28px rgba(0,0,0,.22)",
+        }}>
           <div style={{ fontWeight: 700, marginBottom: 5 }}>自主销售运行状态</div>
           <div className="muted" style={{ fontSize: 12, lineHeight: 1.55 }}>
             <div>执行模式：{status.lease?.mode === "worker" ? "独立 Worker" : status.lease?.mode === "embedded" ? "Web 内嵌 Worker" : "当前无 Leader"}</div>
@@ -115,7 +119,7 @@ export function WorkerRuntimeStatus() {
         className="btn btn-sm"
         onClick={() => setOpen((v) => !v)}
         title="查看自主销售 Worker、数据库备份和生产健康"
-        style={{ borderColor: border, boxShadow: "0 3px 14px rgba(0,0,0,.18)" }}
+        style={{ borderColor: border, whiteSpace: "nowrap" }}
       >
         <span style={{ color: border, marginRight: 5 }}>{dot}</span>{label}
       </button>
