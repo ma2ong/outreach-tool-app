@@ -43,7 +43,9 @@ export function InlineStage({ value, onChange }: {
                whiteSpace: "nowrap" }}
       title="点击修改阶段">
       <span className={`stage-badge stage-${stage}`}>{STAGE_LABEL[stage] ?? stage}</span>
-      {hover && <span className="muted" style={{ fontSize: 12 }}>✎</span>}
+      {/* 位置常驻，只切换可见性：让图标凭空出现会把徽章推一下，每次鼠标经过都抖 */}
+      <span className="muted" style={{ fontSize: 12, width: 12, display: "inline-block",
+                                       visibility: hover ? "visible" : "hidden" }}>✎</span>
     </div>
   );
 }

@@ -6,9 +6,20 @@
 import { useEffect, useRef, useState } from "react";
 
 const SEPARATORS = /[,，、;；]/;
+// 分类器把自己的中间产物写进同一列（icp:rental 有 191 条）。它不是客户类型，不该显示，
+// 但也不能因为没显示就在保存时被抹掉。docs/60 R2.1
+const MACHINE = /^(icp|auto|sys):/i;
 
 export function splitTypes(raw: string | null | undefined): string[] {
   return String(raw ?? "").split(SEPARATORS).map((t) => t.trim()).filter(Boolean);
+}
+
+function humanTypes(raw: string | null | undefined): string[] {
+  return splitTypes(raw).filter((t) => !MACHINE.test(t));
+}
+
+function machineTags(raw: string | null | undefined): string[] {
+  return splitTypes(raw).filter((t) => MACHINE.test(t));
 }
 
 export function joinTypes(types: string[]): string {
@@ -24,7 +35,9 @@ export function CustomerTypePicker({ value, options, onChange }: {
   const [hover, setHover] = useState(false);
   const [query, setQuery] = useState("");
   const box = useRef<HTMLDivElement>(null);
-  const picked = splitTypes(value);
+  const picked = humanTypes(value);
+  // 写回时把没显示的机器标记接在后面：界面不显示它，不等于可以删掉它
+  const commit = (types: string[]) => onChange(joinTypes([...types, ...machineTags(value)]));
 
   useEffect(() => {
     if (!open) return;
@@ -36,14 +49,13 @@ export function CustomerTypePicker({ value, options, onChange }: {
   }, [open]);
 
   function toggle(type: string) {
-    const next = picked.includes(type) ? picked.filter((t) => t !== type) : [...picked, type];
-    onChange(joinTypes(next));
+    commit(picked.includes(type) ? picked.filter((t) => t !== type) : [...picked, type]);
   }
 
   function addTyped() {
     const fresh = query.trim();
     if (!fresh || picked.includes(fresh)) { setQuery(""); return; }
-    onChange(joinTypes([...picked, fresh]));
+    commit([...picked, fresh]);
     setQuery("");
   }
 
@@ -64,10 +76,10 @@ export function CustomerTypePicker({ value, options, onChange }: {
             {t}{open && " ✕"}
           </span>
         ))}
-        {picked.length === 0 && !hover && <span className="muted">—</span>}
-        {picked.length === 0 && hover && <span className="muted" style={{ fontSize: 12 }}>选择类型</span>}
-        {/* 悬停才出现的编辑图标，和小满一样 */}
-        {hover && !open && <span className="muted" style={{ fontSize: 12, marginLeft: 2 }}>✎</span>}
+        {picked.length === 0 && <span className="muted">—</span>}
+        {/* 图标位置常驻，只切换可见性：凭空出现会把标签推一下，鼠标每次经过都抖 */}
+        <span className="muted" style={{ fontSize: 12, width: 12, display: "inline-block",
+                                         visibility: hover && !open ? "visible" : "hidden" }}>✎</span>
       </div>
 
       {open && (
