@@ -77,7 +77,7 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
     </th>
   );
   return (
-    <div className="table-wrap">
+    <div className="table-wrap table-scroll">
       <table className="table">
         <thead><tr>
           <th><input type="checkbox" checked={allChecked} onChange={(e) => onToggleAll(e.target.checked)} /></th>
