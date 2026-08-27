@@ -14,6 +14,7 @@ import { ProductsPanel } from "./components/ProductsPanel";
 import { SequencesPanel } from "./components/SequencesPanel";
 import { InboxPanel } from "./components/InboxPanel";
 import { ConversationPanel } from "./components/ConversationPanel";
+import { Pager } from "./components/Pager";
 import { HealthPanel } from "./components/HealthPanel";
 import { OpportunityPipeline } from "./components/OpportunityPipeline";
 import { ActivitiesPanel } from "./components/ActivitiesPanel";
@@ -155,7 +156,12 @@ export function App() {
     finally { setQuickBusy(false); }
   }
 
-  const PAGE_SIZE = 50;
+  // 每页条数记在本地：这是个人习惯，不该每次打开都退回默认
+  const [pageSize, setPageSize] = useState(() => {
+    const saved = Number(localStorage.getItem("leadPageSize"));
+    return [20, 50, 100, 200].includes(saved) ? saved : 50;
+  });
+  const PAGE_SIZE = pageSize;
 
   useEffect(() => { fetchSequences().then(setSequences).catch((e) => setErr(String(e))); }, []);
   async function enroll(sid: number) {
@@ -184,7 +190,7 @@ export function App() {
     loadLeads();
   }
   useEffect(() => { fetchStats().then(setStats).catch((e) => setErr(String(e))); }, []);
-  useEffect(loadLeads, [country, channel, status, search, has, followUp, sort, order, leadPage]);
+  useEffect(loadLeads, [country, channel, status, search, has, followUp, sort, order, leadPage, pageSize]);
 
   // Reset to first page whenever a filter/sort changes so offset stays valid.
   const filterReset = () => setLeadPage(0);
@@ -394,11 +400,13 @@ export function App() {
               <LeadsTable leads={shown} selected={selected} onToggle={toggle} onToggleAll={toggleAll}
                 onReply={reply} onOpen={setDetail} sort={sort} order={order} onSort={sortBy}
                 onChanged={reload} />
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
-                <button className="btn btn-sm" disabled={leadPage <= 0} onClick={() => setLeadPage(leadPage - 1)}>← 上一页</button>
-                <span className="muted">第 {leadPage + 1} / {pageCount} 页</span>
-                <button className="btn btn-sm" disabled={leadPage + 1 >= pageCount} onClick={() => setLeadPage(leadPage + 1)}>下一页 →</button>
-              </div>
+              <Pager page={leadPage} pageCount={pageCount} total={total} pageSize={pageSize}
+                onPage={setLeadPage}
+                onPageSize={(n) => {
+                  // 换了每页条数，当前的 offset 就不再指向同一批客户了，退回第一页
+                  localStorage.setItem("leadPageSize", String(n));
+                  setPageSize(n); setLeadPage(0);
+                }} />
               {selected.size > 0 && (
                 <div className="action-bar">
                   {sequences.length > 0 && (
