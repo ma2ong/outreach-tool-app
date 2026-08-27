@@ -176,6 +176,14 @@ def _development_section(conn, day: str) -> list[str]:
     if not new_leads and not enriched:
         lines.append("  今天没有开发到新客户，也没有补到老客户的新信息"
                      + (f"（跑了 {runs} 轮搜索）" if runs else "（今天没有跑开发）"))
+
+    # An unconfigured channel and a broken one are different problems, and a line that
+    # merges them teaches nothing about which (docs/70 R4).
+    from app import discovery_sources
+    off = [s for s in discovery_sources.status() if not s["available"]]
+    if off:
+        lines.append("  未启用的渠道：" + "、".join(f"{s['label']}（{s['reason']}）"
+                                                for s in off))
     return ["■ 客户开发", *lines]
 
 

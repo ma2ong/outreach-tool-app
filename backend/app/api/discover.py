@@ -109,6 +109,18 @@ def discover_page(req: PageDiscoverRequest, background: BackgroundTasks):
     return {"job_id": job_id}
 
 
+@router.get("/discover/sources")
+def discovery_sources():
+    """Which prospecting channels can run right now, and why the others cannot.
+
+    Unconfigured and broken are different states (docs/70 R4): one needs a key, the
+    other needs fixing, and a page that shows both as "failed" teaches nobody which.
+    """
+    from app import discovery_sources as sources
+
+    return {"sources": sources.status()}
+
+
 @router.get("/discover/jobs/{job_id}")
 def discover_job(job_id: str):
     job = jobs.get(job_id)
