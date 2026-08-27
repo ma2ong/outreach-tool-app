@@ -37,6 +37,41 @@ def customer_types(raw: str | None) -> list[str]:
             if not t.lower().startswith(MACHINE_PREFIXES)]
 
 
+# The classifier has its own vocabulary; Allen has his. Translate once, then only ever
+# speak his (docs/64 R1). `unknown` is deliberately absent: a type we cannot tell is a
+# blank, not a category, and giving it a name only adds a useless filter option.
+FROM_ICP = {
+    "rental": "租赁商",
+    "integrator": "系统集成商",
+    "signage": "广告商",
+    "reseller": "代理商",
+    "end-user": "终端用户",
+}
+
+def from_icp(icp_type: str | None) -> str | None:
+    return FROM_ICP.get(str(icp_type or "").strip().lower())
+
+
+def icp_type_of(raw: str | None) -> str | None:
+    """The classifier's own verdict carried in the tags column, if any."""
+    for tag in split_tags(raw):
+        if tag.lower().startswith("icp:"):
+            return tag[4:].lower()
+    return None
+
+
+def derive(raw: str | None, edited_at: str | None = None) -> str | None:
+    """The customer type to add, or None to leave the field as it is (docs/64 R2).
+
+    Nothing is derived when he already chose a type, and nothing once he has edited the
+    field: a type he deleted is a judgement, and re-deriving it would quietly overrule
+    him every time the site is read again.
+    """
+    if edited_at or customer_types(raw):
+        return None
+    return from_icp(icp_type_of(raw))
+
+
 def options(conn) -> list[str]:
     """The picker's choices: the known list, plus anything he has added himself.
 

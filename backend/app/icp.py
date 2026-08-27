@@ -95,12 +95,20 @@ def apply_to_lead(conn, lead_no: int, icp: dict) -> None:
     if icp["icp_type"] == "unknown":
         return
     fit = f"{label(icp['icp_type'])} ({icp['fit_score']})"
-    row = conn.execute("SELECT tags FROM leads WHERE no=?", (lead_no,)).fetchone()
+    row = conn.execute("SELECT tags, types_edited_at FROM leads WHERE no=?",
+                       (lead_no,)).fetchone()
     if row is None:
         return
+    from app import customer_types
+
     tags = [t.strip() for t in (row["tags"] or "").split(",") if t.strip()]
     tags = [t for t in tags if not _TAG_RE.match(t)]  # replace any previous icp tag
     tags.append(f"icp:{icp['icp_type']}")
+    # The classifier already decided what this company does; leaving the customer type
+    # blank means the answer lives only in a machine tag nobody reads (docs/64 R3).
+    derived = customer_types.derive(",".join(tags), row["types_edited_at"])
+    if derived:
+        tags.insert(0, derived)
     conn.execute("UPDATE leads SET target_fit=?, tags=? WHERE no=?",
                  (fit, ",".join(tags), lead_no))
     conn.commit()

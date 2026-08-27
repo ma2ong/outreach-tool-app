@@ -184,6 +184,10 @@ _TABLE_COLUMNS = {
         # itself said the number is not registered. The old whatsapp_verified flag
         # cannot tell "checked, absent" from "never checked" — see docs/59.
         "whatsapp_status": "TEXT",
+        # When a person last set the customer type by hand. The classifier stops
+        # deriving for this lead afterwards, so a type he removed cannot grow back
+        # (docs/64 R2). Kept out of `tags` so it never reaches an export.
+        "types_edited_at": "TEXT",
     },
     "templates": {
         "lang": "TEXT",
