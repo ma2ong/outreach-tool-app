@@ -71,6 +71,10 @@ UTC_OFFSET = {
 
 # The decent hours to reach someone, in their own time.
 WINDOW = (8, 20)
+# Email is wider on purpose: it waits in an inbox instead of lighting up a phone, so a
+# letter arriving at 22:00 is at the top of the pile next morning while a DM at 22:00 is
+# an interruption (docs/66 R2).
+EMAIL_WINDOW = (6, 23)
 # Never, under any relaxation. A push notification at 03:00 does not read as diligence.
 NIGHT = (0, 6)
 
@@ -102,6 +106,24 @@ def in_window(local: dt.datetime) -> bool:
 
 def is_night(local: dt.datetime) -> bool:
     return NIGHT[0] <= local.hour < NIGHT[1]
+
+
+def may_email(country: str | None, now: dt.datetime | None = None) -> tuple[bool, str]:
+    """(allowed, why not) for email — wider than a DM, and forgiving of an unknown country.
+
+    Guessing wrong about a DM costs a 3am interruption. Guessing wrong about an email
+    costs "it arrived after they left", which is email's normal condition. Different
+    cost, different rule — matching the two for the sake of symmetry would be worse
+    (docs/66 R3).
+    """
+    local = local_now(country, now)
+    if local is None:
+        return True, ""
+    if is_night(local):
+        return False, f"对方当地凌晨 {local:%H:%M}"
+    if not (EMAIL_WINDOW[0] <= local.hour < EMAIL_WINDOW[1]):
+        return False, f"不在对方当地 {EMAIL_WINDOW[0]}–{EMAIL_WINDOW[1]} 点（现在 {local:%H:%M}）"
+    return True, ""
 
 
 def may_send(country: str | None, now: dt.datetime | None = None) -> tuple[bool, str]:

@@ -177,7 +177,24 @@ def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None =
     # finished — a run that dies halfway must come back, not silently skip to tomorrow.
     settings.set_value(conn, _K_LAST_ATTEMPT, now.isoformat())
     try:
-        due_ids = [d["enrollment_id"] for d in sequences.due_queue(conn, "email")]
+        from app import local_time
+
+        due = sequences.due_queue(conn, "email")
+        # His window is the outer bound (R1); the recipient's small hours are the veto
+        # (R2). Anything held back stays due and goes tomorrow — these are follow-ups,
+        # and a day costs nothing (docs/66 R4).
+        held: dict[str, int] = {}
+        due_ids = []
+        for item in due:
+            allowed, why = local_time.may_email(item.get("_lead_country"), _dt.datetime.now(_dt.UTC))
+            if allowed:
+                due_ids.append(item["enrollment_id"])
+            else:
+                held[why] = held.get(why, 0) + 1
+        if held and not due_ids:
+            settings.set_value(conn, _K_LAST_RESULT,
+                               f"{now:%m-%d %H:%M} 到期 {len(due)} 封都不在收件人当地的合适时间，明天再发")
+            return {"sent": 0, "failed": 0, "deferred": len(due), "held": held}
         if not due_ids:
             settings.set_value(conn, _K_LAST_DATE, now.date().isoformat())
             settings.set_value(conn, _K_LAST_RESULT, f"{now:%m-%d %H:%M} 无到期邮件跟进")
@@ -196,6 +213,9 @@ def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None =
     settings.set_value(conn, _K_LAST_DATE, now.date().isoformat())
     # Keep the original prefix stable for readiness/UI/tests; quality outcomes append.
     note = f"{now:%m-%d %H:%M} 自动发送：成功 {res['sent']}，失败 {res['failed']}"
+    if held:
+        # Otherwise a short day looks like the system missed something.
+        note += f"，避开收件人夜间 {sum(held.values())}"
     if res.get("delayed"):
         note += f"，质量延后 {res['delayed']}"
     if res.get("quality_held"):

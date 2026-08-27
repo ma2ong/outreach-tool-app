@@ -15,6 +15,7 @@ import { SequencesPanel } from "./components/SequencesPanel";
 import { InboxPanel } from "./components/InboxPanel";
 import { ConversationPanel } from "./components/ConversationPanel";
 import { Pager } from "./components/Pager";
+import { EmailPlanPanel } from "./components/EmailPlanPanel";
 import { AutonomyControlCenter } from "./components/AutonomyControlCenter";
 import { WorkerRuntimeStatus } from "./components/WorkerRuntimeStatus";
 import { HealthPanel } from "./components/HealthPanel";
@@ -24,7 +25,7 @@ import { SalesDocumentsPanel } from "./components/SalesDocumentsPanel";
 import { SalesIntelligencePanel } from "./components/SalesIntelligencePanel";
 import { AgentPanel } from "./components/AgentPanel";
 
-type Page = "dashboard" | "agent" | "intelligence" | "activities" | "leads" | "opportunities" | "conversations" | "inbox" | "sequences" | "socialqueue" | "discovery" | "products" | "channels";
+type Page = "dashboard" | "agent" | "intelligence" | "activities" | "leads" | "opportunities" | "conversations" | "inbox" | "sequences" | "emailplan" | "socialqueue" | "discovery" | "products" | "channels";
 
 function exportQuery(params: Record<string, string>): string {
   const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
@@ -41,6 +42,7 @@ const PAGES: { id: Page; label: string; ico: string }[] = [
   { id: "conversations", label: "客户对话", ico: "◗" },
   { id: "inbox", label: "收件箱", ico: "✉" },
   { id: "sequences", label: "跟进序列", ico: "⇉" },
+  { id: "emailplan", label: "邮件计划", ico: "✈" },
   { id: "socialqueue", label: "社媒私信", ico: "◐" },
   { id: "discovery", label: "客户开发", ico: "⌕" },
   { id: "products", label: "报价订单", ico: "▤" },
@@ -439,6 +441,7 @@ export function App() {
           {page === "conversations" && <ConversationPanel onOpenLead={openLead} />}
           {page === "inbox" && <InboxPanel onOpenLead={openLead} onPendingChange={() => { refreshPending(); refreshActivityStats(); reload(); }} />}
           {page === "sequences" && <SequencesPanel onChanged={() => { reload(); refreshPending(); }} />}
+          {page === "emailplan" && <EmailPlanPanel onOpenLead={openLead} />}
           {page === "socialqueue" && <SocialQueuePanel />}
           {page === "discovery" && <><DiscoveryPanel onImported={reload} /><BlocklistPanel /></>}
           {page === "products" && <><SalesDocumentsPanel /><ProductsPanel /></>}
