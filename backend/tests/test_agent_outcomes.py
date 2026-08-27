@@ -21,28 +21,40 @@ def _recent_email_sample(conn, size=25, bounced=0):
     conn.commit()
 
 
-def test_deliverability_circuit_breaker_pauses_autosend_and_escalates(conn):
+def test_a_high_bounce_rate_reports_but_never_stops_the_sending(conn):
+    """docs/67 R2. Allen's instruction, and the reasoning behind it: a bounce says one
+    address is wrong, not that the customer should not be contacted and certainly not
+    that today is a day to send less. The number is still measured and still shown;
+    stopping is his call, not a threshold's."""
     _recent_email_sample(conn, size=25, bounced=1)
     settings.set_value(conn, "reply_sync_last_status", "success")
     autosend.set_enabled(conn, True)
 
     result = oversight.evaluate(conn)
 
-    assert result["paused"] is True
-    assert autosend.enabled(conn) is False
-    assert autosend.status(conn)["safety_pause"]["code"] == "bounce_rate"
-    p = proposals.list_proposals(conn)[0]
-    assert p["kind"] == "create_task" and "暂停" in p["title"]
-    assert "4.0%" in p["reasoning"]
+    assert result["paused"] is False
+    assert autosend.enabled(conn) is True
+    assert "4.0%" in result["warning"] or "退信" in result["warning"]
 
 
-def test_blind_bounce_measurement_is_not_treated_as_a_healthy_zero(conn):
+def test_a_bounce_becomes_work_rather_than_a_brake(conn):
+    conn.execute("UPDATE leads SET bounced_at=datetime('now') WHERE no=1")
+    conn.commit()
+    assert oversight.bounce_followup_tasks(conn) >= 1
+    task = proposals.list_proposals(conn)[0]
+    assert task["kind"] == "create_task"
+    assert "另一个联系人" in task["title"] or "退信" in task["title"]
+
+
+def test_blind_bounce_measurement_is_reported_not_silently_read_as_zero(conn):
+    """A zero we cannot see is not a zero. Since docs/67 it is said out loud instead of
+    switching sending off."""
     _recent_email_sample(conn, size=25)
     settings.set_value(conn, "reply_sync_last_status", "error")
     autosend.set_enabled(conn, True)
     result = oversight.evaluate(conn)
-    assert result["paused"] is True
-    assert result["code"] == "deliverability_blind"
+    assert result["paused"] is False
+    assert "无法被监测" in result["warning"]
 
 
 def test_small_or_healthy_samples_do_not_trigger_the_circuit_breaker(conn):
@@ -64,16 +76,16 @@ def test_an_explicit_resume_clears_the_persisted_safety_pause(conn):
 
 
 def test_an_existing_safety_pause_stays_visible_in_every_agent_run(conn, monkeypatch):
+    """Nothing pauses on its own any more (docs/67 R2), but a pause Allen set himself
+    must keep showing up — a stop that goes quiet is how a stopped system looks healthy."""
     _recent_email_sample(conn, size=25, bounced=1)
     settings.set_value(conn, "reply_sync_last_status", "success")
     autosend.set_enabled(conn, True)
-    first = oversight.evaluate(conn)
-    assert first["paused"] is True
+    autosend.pause(conn, "bounce_rate", "Allen 手动暂停", {"bounce_rate": 4.0})
 
     second = oversight.evaluate(conn)
     assert second["paused"] is True and second["already_paused"] is True
     assert second["code"] == "bounce_rate"
-    assert len(proposals.list_proposals(conn, status=None, kind="create_task")) == 1
 
     monkeypatch.setattr("app.agent.classify.run",
                         lambda c: {"classified": 0, "pending": 0, "note": ""})
@@ -177,10 +189,12 @@ def test_a_genuinely_empty_auto_import_still_reports_the_quality_gate(conn):
 
 
 def test_the_agent_status_carries_the_pause_so_the_ui_can_offer_a_way_out(conn):
+    """Since docs/67 a pause is only ever set by a person; it still has to be visible."""
     _recent_email_sample(conn, size=25, bounced=1)
     settings.set_value(conn, "reply_sync_last_status", "success")
     autosend.set_enabled(conn, True)
-    oversight.evaluate(conn)
+    autosend.pause(conn, "bounce_rate", "退信率 4.0% —— 手动停一下",
+                   {"sends": 25, "bounce_rate": 4.0})
 
     pause = run.status(conn)["safety_pause"]
     assert pause["code"] == "bounce_rate"
@@ -190,49 +204,38 @@ def test_the_agent_status_carries_the_pause_so_the_ui_can_offer_a_way_out(conn):
 
 # ------------------------------------------------- Spec 29: an informed decision holds
 
-def test_an_acknowledged_risk_is_not_paused_again_on_the_next_run(conn):
-    """Resuming used to survive exactly until the next agent run re-paused it."""
+def test_resuming_after_a_manual_pause_holds(conn):
+    """Resuming used to survive exactly until the next agent run re-paused it. Nothing
+    re-pauses now, but clearing has to actually clear."""
     _recent_email_sample(conn, size=25, bounced=1)
     settings.set_value(conn, "reply_sync_last_status", "success")
-    autosend.set_enabled(conn, True)
-    pause = oversight.evaluate(conn)
-    assert pause["paused"] is True
+    pause = autosend.pause(conn, "bounce_rate", "手动暂停", {"bounce_rate": 4.0})
+    assert autosend.enabled(conn) is False
 
-    autosend.set_enabled(conn, True)          # Allen resumes...
-    autosend.acknowledge(conn, pause)         # ...having read the evidence
+    autosend.set_enabled(conn, True)
+    autosend.acknowledge(conn, {"paused": True, "code": "bounce_rate", "pause": pause,
+                                "deliverability": {"bounce_rate": 4.0}})
+    settings.set_value(conn, "autosend_safety_pause", "")
 
     again = oversight.evaluate(conn)
     assert again["paused"] is False
-    assert again["acknowledged"]["code"] == "bounce_rate"
     assert autosend.enabled(conn) is True
 
 
-def test_a_worsening_bounce_rate_takes_the_permission_back(conn):
-    _recent_email_sample(conn, size=25, bounced=1)     # 4.0%
+def test_a_worsening_bounce_rate_is_reported_but_keeps_sending(conn):
+    """docs/67 R2: the number goes up, the sending does not stop. Pushing through a bad
+    patch by finding better addresses is Allen's call, and this is where he made it."""
+    _recent_email_sample(conn, size=25, bounced=1)
     settings.set_value(conn, "reply_sync_last_status", "success")
     autosend.set_enabled(conn, True)
-    autosend.acknowledge(conn, oversight.evaluate(conn))
-    autosend.set_enabled(conn, True)
-    assert oversight.evaluate(conn)["paused"] is False
 
     conn.execute("UPDATE leads SET bounced_at=? WHERE no IN (101,102,103)",
                  (dt.datetime.now(dt.UTC).isoformat(),))      # 4.0% -> 16.0%
     conn.commit()
     worse = oversight.evaluate(conn)
-    assert worse["paused"] is True
-    assert autosend.risk_ack(conn) is None            # spent, must be asked again
-
-
-def test_a_different_failure_is_not_covered_by_the_old_acknowledgement(conn):
-    _recent_email_sample(conn, size=25, bounced=1)
-    settings.set_value(conn, "reply_sync_last_status", "success")
-    autosend.set_enabled(conn, True)
-    autosend.acknowledge(conn, oversight.evaluate(conn))      # acked: bounce_rate
-    autosend.set_enabled(conn, True)
-
-    settings.set_value(conn, "reply_sync_last_status", "error")   # now also blind
-    result = oversight.evaluate(conn)
-    assert result["paused"] is True and result["code"] == "deliverability_blind"
+    assert worse["paused"] is False
+    assert autosend.enabled(conn) is True
+    assert "16.0%" in worse["warning"] or "退信" in worse["warning"]
 
 
 def test_switching_autosend_off_withdraws_the_acknowledgement(conn):

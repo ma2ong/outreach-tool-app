@@ -265,6 +265,33 @@ def evaluate(conn: sqlite3.Connection, enrollment_id: int,
             "next_due_date": None, "memory": memory_ctx}
 
 
+# Angle N of a language lives in a sequence whose name ends with 角度N; the first angle
+# has no suffix. Adding a new angle means adding a sequence, not editing a list here.
+_ANGLE_SUFFIX = "·角度"
+
+
+def _switch_angle(conn, enrollment_id: int) -> bool:
+    """Re-open this follow-up on the next angle for the same language, if there is one."""
+    row = conn.execute(
+        "SELECT e.id, s.name FROM sequence_enrollments e"
+        " JOIN sequences s ON s.id = e.sequence_id WHERE e.id=?", (enrollment_id,)).fetchone()
+    if row is None:
+        return False
+    # 冷邮件 3 步跟进（英语） and 冷邮件 3 步跟进（英语·角度二） share everything up to the
+    # closing bracket, so the bracket has to come off before the prefix will match.
+    base = row["name"].split(_ANGLE_SUFFIX)[0].rstrip("）)")
+    nxt = conn.execute(
+        "SELECT id FROM sequences WHERE name LIKE ? AND name <> ? ORDER BY id LIMIT 1",
+        (f"{base}{_ANGLE_SUFFIX}%", row["name"])).fetchone()
+    if nxt is None:
+        return False   # angles exhausted — parking is a real answer now, and reportable
+    conn.execute(
+        "UPDATE sequence_enrollments SET sequence_id=?, current_step=0, status='active',"
+        " next_due_date=date('now') WHERE id=? AND status='active'",
+        (nxt["id"], enrollment_id))
+    return True
+
+
 def apply(conn: sqlite3.Connection, decision: dict, *, _ensure: bool = True) -> dict:
     """Apply only machine-owned sequence state and append an audit row."""
     if _ensure:
@@ -280,10 +307,14 @@ def apply(conn: sqlite3.Connection, decision: dict, *, _ensure: bool = True) -> 
         )
         applied = True
     elif action == "change_angle":
-        conn.execute(
-            "UPDATE sequence_enrollments SET status='quality_hold' WHERE id=? AND status='active'",
-            (enrollment_id,),
-        )
+        # Move to the next angle rather than parking (docs/67 R3). Parking was half a
+        # decision: the system correctly saw the angle was not working, then stopped
+        # instead of changing it, and 110 follow-ups sat still for weeks.
+        moved = _switch_angle(conn, enrollment_id)
+        if not moved:
+            conn.execute(
+                "UPDATE sequence_enrollments SET status='quality_hold'"
+                " WHERE id=? AND status='active'", (enrollment_id,))
         applied = True
     elif action == "stop":
         conn.execute(
