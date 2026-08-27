@@ -224,6 +224,10 @@ def update_lead(conn, no: int, fields: dict) -> bool:
     if "country" in cols:
         from app import countries
         cols["country"] = countries.normalize(cols["country"])
+    if "tags" in cols:
+        # A type he removed is a judgement. Without a record of the edit, the next
+        # classification would quietly put it back (docs/64 R2).
+        cols["types_edited_at"] = _dt.datetime.now(_dt.UTC).isoformat()
     sets = ", ".join(f"{k} = ?" for k in cols) + ", updated_at = ?"
     params = [*cols.values(), _dt.datetime.now(_dt.UTC).isoformat(), no]
     cur = conn.execute(f"UPDATE leads SET {sets} WHERE no = ?", params)

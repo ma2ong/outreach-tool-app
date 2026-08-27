@@ -83,22 +83,64 @@ def test_the_send_time_moves_every_day(conn):
         assert 9 <= moment.hour < 18
 
 
-def test_auto_runs_once_a_day_and_does_not_chase_the_backlog(conn, monkeypatch):
-    """Falling behind is fine. Catching up by sending twice is how an account gets
-    rate-limited."""
+def test_nothing_is_sent_twice_across_the_day(conn, monkeypatch):
+    """Since docs/65 each message has its own moment in the customer's timezone, so the
+    day is walked rather than fired in one batch. What must still hold is that a message
+    goes out once."""
     social_autonomy.set_mode(conn, "instagram", "auto", confirm="instagram")
     social_queue.build_today(conn, now=_monday())
     sent = []
-    def fake(conn, items):
-        sent.append(items)
+    monkeypatch.setattr(social_autonomy, "_deliver",
+                        lambda conn, items: sent.extend(items) or
+                        {"sent": len(items), "failed": 0})
+
+    # Every ten minutes through the whole UTC day, the way the real loop runs.
+    for minute in range(0, 24 * 60, 10):
+        social_autonomy.run_due(
+            conn, now=_monday().replace(tzinfo=dt.UTC) + dt.timedelta(minutes=minute))
+
+    ids = [i["id"] for i in sent]
+    assert ids, "a day of cycles should have sent something"
+    assert len(ids) == len(set(ids))
+
+
+def test_whatsapp_never_sends_two_in_the_same_minute(conn, monkeypatch):
+    """Spreading by timezone still lets two moments collide by chance; the account is
+    what shows the burst, so the gap is enforced at the sender."""
+    social_autonomy.set_mode(conn, "whatsapp", "auto", confirm="whatsapp")
+    social_queue.build_today(conn, now=_monday())
+    stamps: list[dt.datetime] = []
+
+    def fake(conn, items, _at=stamps):
+        _at.extend([fake.now] * len(items))
         return {"sent": len(items), "failed": 0}
 
     monkeypatch.setattr(social_autonomy, "_deliver", fake)
+    start = _monday().replace(tzinfo=dt.UTC)
+    for minute in range(0, 48 * 60, 5):
+        fake.now = start + dt.timedelta(minutes=minute)
+        social_autonomy.run_due(conn, now=fake.now)
 
-    late = _monday(hour=23)
-    assert social_autonomy.run_due(conn, now=late)["sent_batches"] == 1
-    assert social_autonomy.run_due(conn, now=late)["sent_batches"] == 0
-    assert len(sent) == 1
+    assert len(stamps) >= 2, "the day should have sent more than one message"
+    gaps = [(b - a).total_seconds() for a, b in zip(stamps, stamps[1:])]
+    assert min(gaps) >= 60, f"two sends came {min(gaps)}s apart"
+
+
+def test_a_restart_does_not_fire_every_missed_moment_at_once(conn, monkeypatch):
+    """Falling behind is fine. Catching up in one burst is how an account gets
+    rate-limited."""
+    social_autonomy.set_mode(conn, "instagram", "auto", confirm="instagram")
+    social_queue.build_today(conn, now=_monday())
+    batches = []
+    monkeypatch.setattr(social_autonomy, "_deliver",
+                        lambda conn, items: batches.append(len(items)) or
+                        {"sent": len(items), "failed": 0})
+
+    # The service was down all day and comes back at the end of it.
+    social_autonomy.run_due(
+        conn, now=_monday(hour=23).replace(tzinfo=dt.UTC))
+    # Only whatever was due in the last couple of hours, never the whole day.
+    assert sum(batches) <= 4
 
 
 def test_manual_channels_are_never_sent_by_the_scheduler(conn, monkeypatch):
@@ -128,7 +170,9 @@ def test_an_automatic_send_always_leaves_a_record(conn, monkeypatch):
     social_queue.build_today(conn, now=_monday())
     monkeypatch.setattr(social_autonomy, "_deliver",
                         lambda conn, items: {"sent": len(items), "failed": 0})
-    social_autonomy.run_due(conn, now=_monday(hour=23))
+    for minute in range(0, 24 * 60, 10):
+        social_autonomy.run_due(
+            conn, now=_monday().replace(tzinfo=dt.UTC) + dt.timedelta(minutes=minute))
     log = social_autonomy.last_run(conn)
     assert log and log["channels"]["whatsapp"] > 0
 
