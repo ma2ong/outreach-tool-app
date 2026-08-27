@@ -327,7 +327,9 @@ export function App() {
               <div className="filter-bar">
                 <select className="input" value={country} onChange={(e) => { setCountry(e.target.value); filterReset(); }}>
                   <option value="">全部国家</option>
-                  {stats && Object.keys(stats.by_country).sort().map((c) => <option key={c} value={c}>{c}</option>)}
+                  {/* 国家为空的那一档要有名字：一个空白选项看不出选的是什么 */}
+                  {stats && Object.keys(stats.by_country).sort()
+                    .map((c) => <option key={c} value={c}>{c.trim() || "（国家未知）"}</option>)}
                 </select>
                 <select className="input" value={channel} onChange={(e) => { setChannel(e.target.value); filterReset(); }}>
                   <option value="">全部渠道</option>

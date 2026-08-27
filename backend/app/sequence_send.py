@@ -31,7 +31,7 @@ def _contact(conn, lead_no: int) -> dict:
 
 
 def send_due(conn, enrollment_ids, *, sender=None, engine=None,
-             email_delay=(16, 28), channel_delay=None, image_default=None,
+             email_delay=email_outreach.EMAIL_DELAY, channel_delay=None, image_default=None,
              on_progress=None, autonomous_quality: bool = False) -> dict:
     """Send current steps that are in today's safe due queue.
 

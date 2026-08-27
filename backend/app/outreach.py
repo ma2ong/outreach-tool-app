@@ -19,6 +19,12 @@ DAILY_CAP = 40
 # flags it, and the last domain was lost at 11.4%.
 MAX_BATCH = 60
 
+# At least a minute between letters. 16-28 seconds is a rate no one types at, and a
+# receiving server that clocks a steady sub-minute cadence from one address has every
+# reason to file the next one as bulk — which costs far more than the extra hour a
+# 60-message run now takes.
+EMAIL_DELAY = (60, 110)
+
 
 def sent_today(conn) -> int:
     return conn.execute(
