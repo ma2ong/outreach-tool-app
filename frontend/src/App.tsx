@@ -321,7 +321,7 @@ export function App() {
             }} />
           )}
           {page === "leads" && (
-            <>
+            <div className="page-fill">
               <div className="filter-bar">
                 <select className="input" value={country} onChange={(e) => { setCountry(e.target.value); filterReset(); }}>
                   <option value="">全部国家</option>
@@ -430,7 +430,7 @@ export function App() {
                     firstCompany={leads.find((l) => selected.has(l.no))?.company_en ?? ""} />
                 </div>
               )}
-            </>
+            </div>
           )}
           {page === "agent" && <AgentPanel onOpenLead={openLead} />}
           {page === "intelligence" && <SalesIntelligencePanel onOpenLead={openLead} onChanged={() => { refreshActivityStats(); reload(); }} />}
