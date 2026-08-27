@@ -39,7 +39,8 @@ export function InlineStage({ value, onChange }: {
   return (
     <div ref={box} onClick={() => setEditing(true)}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-      style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}
+      style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer",
+               whiteSpace: "nowrap" }}
       title="点击修改阶段">
       <span className={`stage-badge stage-${stage}`}>{STAGE_LABEL[stage] ?? stage}</span>
       {hover && <span className="muted" style={{ fontSize: 12 }}>✎</span>}
