@@ -16,10 +16,10 @@ from app.db import connect, init_schema
 
 
 @pytest.mark.parametrize("kind,marker", [
-    ("租赁商", "load-in"),
-    ("工程商", "spec compliance"),
-    ("广告商", "brightness"),
-    ("代理商", "margin"),
+    ("租赁商", "reload every week"),
+    ("工程商", "three years after the install"),
+    ("广告商", "daylight"),
+    ("代理商", "OEM"),
 ])
 def test_the_line_is_aimed_at_this_kind_of_buyer(kind, marker):
     out = personalize.render("{fit}", {"company_en": "X", "tags": kind})
@@ -34,8 +34,8 @@ def test_an_unknown_type_says_nothing_rather_than_guessing():
 
 def test_the_korean_letter_gets_the_korean_line():
     out = personalize.render("{fit_ko}", {"company_en": "X", "tags": "租赁商"})
-    assert "렌탈" in out
-    assert "load-in" not in out
+    assert "캐비닛" in out
+    assert "reload" not in out
 
 
 def test_an_empty_line_does_not_leave_a_hole_in_the_letter():
@@ -62,6 +62,30 @@ def test_a_korean_name_keeps_its_honorific():
     out = personalize.render(tpl, {"company_en": "X", "contact_name": "김종수",
                                    "tags": ""})
     assert out.splitlines()[0] == "안녕하세요, 김종수님."
+
+
+@pytest.mark.parametrize("hook,expected_fragment", [
+    ("Saw P1, P2 and P2.5 panels listed on your site.", "P1, P2, P2.5"),
+    ("Saw the LED signage work you do around Hwaseong.", "LED 전광판"),
+    ("Saw the rental and events work on your site.", "렌탈 · 행사"),
+])
+def test_the_korean_letter_gets_a_korean_opener(hook, expected_fragment):
+    """The stored hook is English because brief.py glosses every site term into English.
+    Dropping that sentence into a Korean letter reads half-finished."""
+    out = personalize.render("{hook_ko}", {"company_en": "X", "hook": hook})
+    assert expected_fragment in out
+    assert "Saw" not in out
+
+
+@pytest.mark.parametrize("hook", ["Saw the widget work on your site.", "", None])
+def test_an_unfamiliar_opener_yields_nothing_rather_than_half_english(hook):
+    assert personalize.render("{hook_ko}", {"company_en": "X", "hook": hook}) == ""
+
+
+def test_a_dash_with_nothing_after_it_goes_too():
+    # "We build LED panels in Shenzhen — {fit}." with no type rendered "... Shenzhen —."
+    out = personalize.render("We build panels — {fit}.", {"company_en": "X", "tags": ""})
+    assert out == "We build panels."
 
 
 @pytest.fixture

@@ -10,13 +10,13 @@ Every LED factory in Shenzhen can send that. It also asks the reader to do the w
 "tell me the pitch and the size and I'll send specs" means opening a project file before
 they can answer at all.
 
-The second angle inverts both. It says something about *their* kind of work, using the
-customer type the classifier now knows, and asks one question answerable in a line
-without looking anything up — which cabinet they run today.
+The second angle inverts both, and is short. A stranger does not read five paragraphs —
+the first draft of this angle was better written and still too long, so it says one true
+thing about their kind of work and asks one question answerable in a line.
 
-110 follow-ups sat in `quality_hold` doing nothing. Parking them was half a decision:
-the system correctly saw the angle was not working and then stopped instead of changing
-it. They move here.
+110 follow-ups sat in `quality_hold` doing nothing. Parking was half a decision: the
+system correctly saw the angle was not working and then stopped instead of changing it.
+They move here.
 
 Run:  python -m app.seed_angle2            # preview
       python -m app.seed_angle2 --apply
@@ -31,83 +31,65 @@ from app.db import connect
 EN_NAME = "冷邮件 3 步跟进（英语·角度二）"
 KO_NAME = "冷邮件 3 步跟进（韩语·角度二）"
 
-EN_SIGN = """Best regards,
-Allen Ma
-Shenzhen Maxcolor Visual Co., Ltd.
-WhatsApp/WeChat: +86 135-7087-1001
-Email: allen@maxcolorvisual.com"""
+EN_SIGN = """Allen Ma · Shenzhen Maxcolor Visual
+WhatsApp/WeChat +86 135-7087-1001"""
 
-KO_SIGN = """Allen Ma
-Shenzhen Maxcolor Visual Co., Ltd.
-Kakaotalk / WeChat: +86 13570871001
-Email: allen@maxcolorvisual.com"""
+KO_SIGN = """Allen Ma · Shenzhen Maxcolor Visual
+Kakaotalk / WeChat +86 13570871001"""
 
 EN_STEPS = [
-    (0, 0, "{company} — a question about your LED panels", """Hi {contact},
+    (0, 0, "{company} — which cabinet are you running?", """Hi {contact},
 
 {hook}
 
-{fit}
+We build LED panels in Shenzhen — {fit}.
 
-We build the panels for that kind of work in Shenzhen. Rather than send you a catalogue,
-one question: what pitch and cabinet are you running now?
-
-Tell me that and I can say straight whether we are worth talking to — sometimes the
-honest answer is that what you already have is fine.
+What pitch and cabinet are you on now? If ours won't mix with your stock I'll say so and
+leave it there.
 
 """ + EN_SIGN),
-    (1, 4, "Re: {company} — a question about your LED panels", """Hi {contact},
+    (1, 4, "Re: {company} — which cabinet are you running?", """Hi {contact},
 
-Following up on my note. If it is easier, just reply with the cabinet brand you use —
-that alone tells me whether our boxes would mix with your existing stock.
+Just the brand of cabinet you use is enough — that tells me whether we're worth your
+time.
 
-And if this is not your area, point me at whoever handles displays and I will stop
-filling your inbox.
+Not your area? Point me at whoever handles displays and I'll stop here.
 
 """ + EN_SIGN),
-    (2, 7, "Re: {company} — a question about your LED panels", """Hi {contact},
+    (2, 7, "Re: {company} — which cabinet are you running?", """Hi {contact},
 
-Last note from me.
+Last note. If panels aren't on your plan, that's a fine answer.
 
-If LED panels are not on your plan, that is a completely fine answer and I will leave it
-there. Whenever a project does come up — this year or in two — write to me and you will
-get specs the same day, from someone who already knows what you run.
+Whenever one comes up, write to me — you'll get specs the same day.
 
 """ + EN_SIGN),
 ]
 
-# Korea keeps Korean (docs/67 R1). Same angle, same question — not a translation of the
-# old letter, which had the same problem the English one had.
+# Korea keeps Korean (docs/67 R1), including the opener: {hook_ko} says the same line in
+# Korean rather than dropping an English sentence into a Korean letter.
 KO_STEPS = [
-    (0, 0, "{company} — 현재 사용 중인 LED 캐비닛 문의드립니다", """안녕하세요, {contact}님.
+    (0, 0, "{company} — 현재 어떤 캐비닛 쓰고 계신가요?", """안녕하세요, {contact}님.
 
-{hook}
+{hook_ko}
 
-{fit_ko}
+저희는 선전에서 LED 패널을 직접 만듭니다 — {fit_ko}.
 
-저희는 선전에서 그런 현장에 들어가는 LED 패널을 직접 생산하고 있습니다.
-카탈로그를 보내드리기 전에 한 가지만 여쭙고 싶습니다 — 현재 어떤 피치와 캐비닛을
-사용하고 계신가요?
-
-그것만 알려주시면 저희가 도움이 될지 아닐지 솔직하게 말씀드리겠습니다. 지금 쓰시는
-것으로 충분하다는 답이 나오는 경우도 있습니다.
+지금 어떤 피치와 캐비닛을 쓰고 계신가요? 저희 것이 안 맞으면 솔직히 말씀드리고
+더 연락드리지 않겠습니다.
 
 """ + KO_SIGN),
-    (1, 4, "Re: {company} — 현재 사용 중인 LED 캐비닛 문의드립니다", """안녕하세요, {contact}님.
+    (1, 4, "Re: {company} — 현재 어떤 캐비닛 쓰고 계신가요?", """안녕하세요, {contact}님.
 
-지난번 메일 관련해 다시 연락드립니다. 번거로우시면 사용 중인 캐비닛 브랜드만
-알려주셔도 됩니다. 그것만으로도 저희 제품과 혼용이 가능한지 판단할 수 있습니다.
+쓰시는 캐비닛 브랜드만 알려주셔도 충분합니다. 그것만으로 저희가 도움이 될지 판단됩니다.
 
-담당이 아니시라면 디스플레이 담당자분을 알려주시면 더 이상 메일 드리지 않겠습니다.
+담당이 아니시면 디스플레이 담당자분만 알려주세요. 여기서 그만 연락드리겠습니다.
 
 """ + KO_SIGN),
-    (2, 7, "Re: {company} — 현재 사용 중인 LED 캐비닛 문의드립니다", """안녕하세요, {contact}님.
+    (2, 7, "Re: {company} — 현재 어떤 캐비닛 쓰고 계신가요?", """안녕하세요, {contact}님.
 
-마지막 메일입니다.
+마지막 메일입니다. 지금 계획이 없으시면 그것으로 충분한 답변입니다.
 
-지금 LED 패널 계획이 없으시다면 그것으로 충분한 답변입니다. 나중에 프로젝트가 생기실 때
-언제든 연락 주시면, 이미 어떤 장비를 쓰시는지 아는 사람에게서 당일에 사양을 받아보실 수
-있습니다.
+나중에 프로젝트가 생기시면 연락 주세요. 당일에 사양 보내드리겠습니다.
 
 """ + KO_SIGN),
 ]
@@ -143,32 +125,28 @@ def main() -> None:
     with connect("outreach.db") as conn:
         rows = parked(conn)
         korean = [r for r in rows if str(r["country"] or "").lower() in KOREAN]
-        english = [r for r in rows if r not in korean]
-        print(f"挂起的跟进 {len(rows)} 个：韩语 {len(korean)}，英语 {len(english)}")
-        print(f"新序列：{EN_NAME} / {KO_NAME}")
+        print(f"挂起的跟进 {len(rows)} 个：韩语 {len(korean)}，英语 {len(rows) - len(korean)}")
         print()
         print("--- 英语第一封 ---")
-        print(EN_STEPS[0][3][:430])
+        print(EN_STEPS[0][3])
         print()
         print("--- 韩语第一封 ---")
-        print(KO_STEPS[0][3][:430])
+        print(KO_STEPS[0][3])
         if not apply_changes:
-            print("\n确认没问题就加 --apply 写入并把挂起的跟进转过来")
+            print("\n确认没问题就加 --apply 写入")
             return
 
         en_id = _seed(conn, EN_NAME, EN_STEPS)
         ko_id = _seed(conn, KO_NAME, KO_STEPS)
         today = dt.date.today().isoformat()
         for row in rows:
-            target = ko_id if row in korean else en_id
-            # Back to step 0: this is a new conversation opener, not the next line of
-            # the old one.
+            # Back to step 0: a new opener, not the next line of the old conversation.
             conn.execute(
                 "UPDATE sequence_enrollments SET sequence_id=?, current_step=0,"
                 " status='active', next_due_date=? WHERE id=?",
-                (target, today, row["id"]))
+                (ko_id if row in korean else en_id, today, row["id"]))
         conn.commit()
-        print(f"\n已写入。{len(rows)} 个跟进转到角度二，今天起可发。")
+        print(f"\n已写入。{len(rows)} 个跟进转到角度二。")
 
 
 if __name__ == "__main__":
