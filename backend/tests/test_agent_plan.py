@@ -197,9 +197,24 @@ def test_an_approved_outreach_goes_through_the_normal_send_path(planned, monkeyp
                                   "lead_nos": [1, 2]})
     done = proposals.approve(planned, p["id"])
     assert done["status"] == "executed"
-    # lead 1 was already messaged in the fixture, so only the untouched one goes out
+    # Both go out: lead 1 was messaged on 2026-07-01, which is well past the two-week
+    # cooldown that is now the only frequency rule (docs/75 R1).
+    assert sorted(sent) == ["a@alpha.com", "b@beta.com"]
+    assert "已发 2 封" in done["execution_result"]
+
+
+def test_a_lead_written_to_this_week_is_left_out_of_the_batch(planned, monkeypatch):
+    sent = []
+    monkeypatch.setattr("app.api.send.pick_sender",
+                        lambda conn: lambda to, s, b, a: sent.append(to))
+    planned.execute("UPDATE outreach SET message_sent_date=date('now','-3 days')"
+                    " WHERE lead_no=1 AND channel='email'")
+    planned.commit()
+    p = proposals.create(planned, "send_outreach", lead_no=None, title="给两家发第一封",
+                         payload={"template_id": 1, "channel": "email",
+                                  "lead_nos": [1, 2]})
+    proposals.approve(planned, p["id"])
     assert sent == ["b@beta.com"]
-    assert "已发 1 封" in done["execution_result"]
 
 
 def test_safety_pause_blocks_a_stale_agent_outreach_proposal(planned, monkeypatch):

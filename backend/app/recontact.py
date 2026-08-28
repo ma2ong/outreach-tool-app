@@ -7,13 +7,22 @@ four years, imported from the Xiaoman CRM. A company that has not heard from us 
 2022 is not an existing contact, it is a fresh lead, and the pool looked empty because of
 bookkeeping rather than because it was.
 
+The window started at 180 days and is now 14 (docs/75 R1): Allen replaced every gate on
+this path with a single frequency rule, and a second, longer cooldown living here would
+have been exactly the kind of hidden brake he removed.
+
 This module owns one decision and nothing else: *may a cold approach go to this lead on
 this channel again?* It is deliberately a SQL fragment rather than a Python predicate, so
 the callers keep filtering in one query instead of loading the whole book into memory.
 """
 from __future__ import annotations
 
-COOLDOWN_DAYS = 180
+# docs/75 R1 replaced the old 180-day re-approach window with the single frequency rule
+# Allen gave: one message on a channel, then nothing on that channel for two weeks unless
+# they reply. Whether the next message is step two of a sequence or the start of a new one
+# does not change what the recipient sees — it is another message from us either way, so
+# one number governs both.
+COOLDOWN_DAYS = 14
 
 # The lead numbers a cold approach on `channel` must skip.
 #

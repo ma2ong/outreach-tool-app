@@ -157,26 +157,15 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
           </div>
         </div>
       )}
-      {deliver && (deliver.danger || deliver.blind) && (
-        <div className="card" style={{ marginBottom: 16, borderColor: deliver.blind ? "var(--warn)" : "var(--danger)" }}>
-          <div className="stat-label">{deliver.blind ? (deliver.sync_broken ? "⚠️ 退信率测不准 · 收信中断" : "⚠️ 退信率偏低估") : "⚠️ 邮件送达率告警"}</div>
-          <div className="stat-value" style={{ color: deliver.blind ? "var(--warn)" : "var(--danger)" }}>
-            {deliver.sync_broken ? "收信中断" : `硬退信率 ${deliver.bounce_rate}%`}
-            <span className="muted" style={{ fontSize: 14, marginLeft: 10 }}>
-              近 {deliver.days} 天 {deliver.bounced} / {deliver.sends} 家
-            </span>
-          </div>
+      {deliver?.sync_broken && (
+        <div className="card" style={{ marginBottom: 16, borderColor: "var(--warn)" }}>
+          <div className="stat-label">⚠️ 收信中断</div>
+          <div className="stat-value" style={{ color: "var(--warn)" }}>客户回复读不回来</div>
           <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-            {deliver.sync_broken
-              ? "退信只能从收件箱读回来。收信一断，新的退信就再也不会被记下，这个数字会一路掉到 0，看起来像很健康 —— 先去渠道连接把收信恢复，在那之前不要拿它当判断依据。"
-              : deliver.unmeasured > 0
-                ? `近 ${deliver.days} 天有 ${deliver.unmeasured} 封是从收不到退信的邮箱发出去的，这部分退信永远不会回来 —— 实际退信率只会比 ${deliver.bounce_rate}% 更高。换回能收信的邮箱之后，这条提示会随着这批发送滑出统计窗口自动消失。`
-                : "超过 2% 之后 Gmail 会限制你的发信、把后面的邮件投进垃圾箱 —— 那时候回复率再低，也不是话术的问题。先去客户库跑一遍邮箱验证，把验不过的排除掉再继续发。"}
+            收信一断，客户的回复就再也不会出现在收件箱里 —— 先去渠道连接把收信恢复。
           </div>
           <button className="btn btn-sm" style={{ marginTop: 8 }}
-            onClick={() => onGoto(deliver.sync_broken ? "channels" : "leads")}>
-            {deliver.sync_broken ? "去恢复收信 →" : "去验证邮箱 →"}
-          </button>
+            onClick={() => onGoto("channels")}>去恢复收信 →</button>
         </div>
       )}
       <div className="card" style={{ marginBottom: 16, cursor: "pointer", borderColor: (activityStats?.overdue ?? 0) > 0 ? "var(--danger)" : undefined }}

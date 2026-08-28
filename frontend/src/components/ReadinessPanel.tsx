@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { cardToggle } from "./Expandable";
 import { fetchReadiness, setAutoSend } from "../api";
 import type { Readiness } from "../types";
 
@@ -48,7 +49,7 @@ export function ReadinessPanel({ onGoto }: { onGoto: (page: string) => void }) {
   const auto = data.metrics.autosend;
   const problemCount = data.checks.filter((c) => c.status !== "ok").length;
   return (
-    <div className="card" style={{ marginBottom: 16, borderColor: data.status === "blocked" ? "var(--danger)" : undefined }}>
+    <div className="card" style={{ marginBottom: 16, cursor: "pointer", borderColor: data.status === "blocked" ? "var(--danger)" : undefined }} {...cardToggle(open, setOpen)}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div>
           <div className="stat-label">每日就绪中心</div>

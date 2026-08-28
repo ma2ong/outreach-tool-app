@@ -1,7 +1,12 @@
-"""A second angle, in English and Korean, and the parked follow-ups moved onto it (docs/67).
+"""The one cold-email sequence, in English and Korean (docs/75 R4).
 
-The first English angle sent 361 letters for one reply. Read it back and the reason is
-not hard to find — every sentence is about us:
+This used to be "angle two", one of three interchangeable angles the system switched
+between on its own. Allen deleted that machinery — angle three was his last straw — and
+kept this copy, which he shaped himself. So there are no angles any more: one sequence
+per language, this text.
+
+Why this text and not the first attempt. The original angle sent 361 letters for one
+reply, and reading it back the reason is not hard to find — every sentence is about us:
 
     We manufacture the panels behind that kind of work — indoor and outdoor,
     P1.86 through P10 — and supply integrators and rental companies directly.
@@ -10,13 +15,11 @@ Every LED factory in Shenzhen can send that. It also asks the reader to do the w
 "tell me the pitch and the size and I'll send specs" means opening a project file before
 they can answer at all.
 
-The second angle inverts both, and is short. A stranger does not read five paragraphs —
-the first draft of this angle was better written and still too long, so it says one true
-thing about their kind of work and asks one question answerable in a line.
+This one inverts both, and is short — a stranger does not read five paragraphs. It says
+one true thing about their kind of work and asks one question answerable in a line.
 
-110 follow-ups sat in `quality_hold` doing nothing. Parking was half a decision: the
-system correctly saw the angle was not working and then stopped instead of changing it.
-They move here.
+Steps are D+0 / D+14 / D+28: the same two-week frequency rule that governs every channel
+(docs/75 R1), so the sequence's own schedule cannot outrun it.
 
 Run:  python -m app.seed_angle2            # preview
       python -m app.seed_angle2 --apply
@@ -28,8 +31,8 @@ import sys
 
 from app.db import connect
 
-EN_NAME = "冷邮件 3 步跟进（英语·角度二）"
-KO_NAME = "冷邮件 3 步跟进（韩语·角度二）"
+EN_NAME = "冷邮件 3 步跟进（英语）"
+KO_NAME = "冷邮件 3 步跟进（韩语）"
 
 EN_SIGN = """Allen Ma · Shenzhen Maxcolor Visual
 WhatsApp/WeChat +86 135-7087-1001"""
@@ -48,7 +51,7 @@ What pitch and cabinet are you on now? If ours won't mix with your stock I'll sa
 leave it there.
 
 """ + EN_SIGN),
-    (1, 4, "Re: {company} — which cabinet are you running?", """Hi {contact},
+    (1, 14, "Re: {company} — which cabinet are you running?", """Hi {contact},
 
 Just the brand of cabinet you use is enough — that tells me whether we're worth your
 time.
@@ -56,7 +59,7 @@ time.
 Not your area? Point me at whoever handles displays and I'll stop here.
 
 """ + EN_SIGN),
-    (2, 7, "Re: {company} — which cabinet are you running?", """Hi {contact},
+    (2, 28, "Re: {company} — which cabinet are you running?", """Hi {contact},
 
 Last note. If panels aren't on your plan, that's a fine answer.
 
@@ -78,14 +81,14 @@ KO_STEPS = [
 더 연락드리지 않겠습니다.
 
 """ + KO_SIGN),
-    (1, 4, "Re: {company} — 현재 어떤 캐비닛 쓰고 계신가요?", """안녕하세요, {contact}님.
+    (1, 14, "Re: {company} — 현재 어떤 캐비닛 쓰고 계신가요?", """안녕하세요, {contact}님.
 
 쓰시는 캐비닛 브랜드만 알려주셔도 충분합니다. 그것만으로 저희가 도움이 될지 판단됩니다.
 
 담당이 아니시면 디스플레이 담당자분만 알려주세요. 여기서 그만 연락드리겠습니다.
 
 """ + KO_SIGN),
-    (2, 7, "Re: {company} — 현재 어떤 캐비닛 쓰고 계신가요?", """안녕하세요, {contact}님.
+    (2, 28, "Re: {company} — 현재 어떤 캐비닛 쓰고 계신가요?", """안녕하세요, {contact}님.
 
 마지막 메일입니다. 지금 계획이 없으시면 그것으로 충분한 답변입니다.
 

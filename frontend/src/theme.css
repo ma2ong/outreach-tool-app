@@ -91,8 +91,13 @@ a:hover { text-decoration: underline; }
 }
 .topbar h2 { margin: 0; font-size: 16px; font-weight: 600; }
 .main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.content { padding: 20px; flex: 1; min-height: 0; overflow-y: auto;
+/* A full-bleed content column is tiring to read: on a wide monitor a row of text runs
+   the whole screen and the eye loses its place returning to the next line. The gutter
+   grows with the window instead of being a fixed 20px, and the column stops widening
+   past a point no amount of screen makes easier to read. */
+.content { padding: 20px clamp(20px, 6vw, 96px); flex: 1; min-height: 0; overflow-y: auto;
            display: flex; flex-direction: column; }
+.content > * { max-width: 1440px; width: 100%; margin-left: auto; margin-right: auto; }
 
 /* Primitives */
 .card {

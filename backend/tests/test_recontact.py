@@ -48,7 +48,7 @@ def test_a_company_silent_for_years_is_a_lead_again(conn):
 
 def test_a_recent_conversation_is_left_alone(conn):
     _lead(conn, 1)
-    _sent(conn, 1, 30)
+    _sent(conn, 1, 3)
     conn.commit()
     assert _elig(conn, [1]) == []
 

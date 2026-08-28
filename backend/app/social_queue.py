@@ -164,10 +164,14 @@ def _channel_for(conn, lead: dict, taken: set[str]) -> tuple[str, str] | None:
         # a browser trip to rediscover the same thing (docs/59 R2).
         if channel == "whatsapp" and (lead.get("whatsapp_status") or "") == "none":
             continue
-        already = conn.execute(
-            "SELECT 1 FROM outreach WHERE lead_no=? AND channel=?"
-            " AND status IN ('messaged','replied')", (lead["no"], channel)).fetchone()
-        if already:
+        # docs/75 R1. This used to exclude anyone ever messaged on this channel, for good.
+        # The rule now is the same two weeks that governs email: silence buys a cooldown,
+        # not a permanent no. A reply still ends cold outreach here entirely.
+        from app import recontact
+        blocked = conn.execute(
+            f"SELECT 1 FROM ({recontact.BLOCKED_SQL}) WHERE lead_no=?",
+            [*recontact.blocked_params(channel), lead["no"]]).fetchone()
+        if blocked:
             continue
         try:
             target = co._target(channel, lead)

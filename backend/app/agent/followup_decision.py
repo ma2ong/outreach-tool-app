@@ -1,12 +1,20 @@
-"""Deterministic worth-now policy for automatic email sequence follow-up.
+"""When a follow-up may go out (docs/75).
 
-A sequence due date is permission to consider a follow-up, not permission to send one.
-This module decides whether automatic follow-up should continue, wait, change angle or
-stop. It never writes customer-facing copy and never interprets silence as rejection.
+Allen took every quality gate off this path: "质量门拆了，以后不许设置质量门 …
+反正就是要多发". What is left is not a weaker gate but a different kind of rule — this
+module no longer judges whether a company is worth writing to, only whether writing to
+them right now would be too soon or addressed to somebody who should not get a cold
+letter at all.
 
-Sequence step zero is still a first touch. It reuses PR #20's stricter first-touch gate
-(with only the current enrollment ignored as a blocker) so sequences cannot become a
-back door around autonomous first-touch quality.
+Two things decide that:
+
+  * who must not be written to — already replied, already bought, written off, an open
+    opportunity, an unsendable address. None of those are quality judgements.
+  * COOLDOWN_DAYS on the same channel, unless they replied.
+
+The angle machinery is gone with the gates. Its real fault was not that changing the
+copy is wrong — it is that the system changed it *by itself* on a bad number, then
+parked 75 letters when it ran out of angles. Rewriting the pitch is Allen's call.
 """
 from __future__ import annotations
 
@@ -15,12 +23,11 @@ import sqlite3
 
 from app import sales_intelligence
 
-# docs/74 R1: the two score thresholds that used to decide whether to send are gone.
-# The score still orders the queue and still appears in every decision's reason line —
-# it just no longer answers "should this letter go out at all".
-ANGLE_AFTER_UNANSWERED = 3
+# docs/75 R1. One number instead of the old escalating table (3 days, then 5, then 8),
+# because one number is harder to argue around. A company that did not answer hears
+# nothing on that channel for two weeks; a company that answered is not throttled at all.
+COOLDOWN_DAYS = 14
 FRESH_SIGNAL = 60
-STRONG_FRESH_SIGNAL = 70
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS followup_decisions (
@@ -81,12 +88,9 @@ def _parse_date(value) -> dt.date | None:
             return None
 
 
-def _spacing_days(touches: int) -> int:
-    if touches <= 1:
-        return 3
-    if touches == 2:
-        return 5
-    return 8
+def _spacing_days(_touches: int = 0) -> int:
+    """Kept as a function so callers read the rule, not a bare literal."""
+    return COOLDOWN_DAYS
 
 
 def _latest_send(conn: sqlite3.Connection, lead_no: int) -> tuple[int, dt.date | None]:
@@ -127,7 +131,7 @@ def _memory_context(conn: sqlite3.Connection, lead_no: int) -> list[str]:
 def evaluate(conn: sqlite3.Connection, enrollment_id: int,
              *, today: dt.date | None = None, _ensure: bool = True,
              weak_sequence_ids: set[int] | None = None) -> dict:
-    """Return one of continue/delay/change_angle/stop without mutating the enrollment."""
+    """Return one of continue/delay/stop without mutating the enrollment."""
     if _ensure:
         ensure_schema(conn)
     today = today or _today()
@@ -191,54 +195,15 @@ def evaluate(conn: sqlite3.Connection, enrollment_id: int,
     touches, latest = _latest_send(conn, no)
     memory_ctx = _memory_context(conn, no)
 
-    # Compute Oversight once for an automatic batch; standalone evaluation remains safe.
-    if weak_sequence_ids is None:
-        from app.agent import oversight
-        weak_sequence_ids = oversight.weak_sequence_ids(conn)
-    if data["sequence_id"] in weak_sequence_ids:
-        return {**data, "action": "change_angle",
-                "reason": "当前序列已有足够发送样本但零回复，停止重复同一角度",
-                "score": score, "touch_count": touches,
-                "signal_confidence": signal_confidence, "signal": signal_headline,
-                "next_due_date": None, "memory": memory_ctx}
-
-    # Sequence step zero is a first touch, not a follow-up. Reuse PR #20 exactly, with
-    # this enrollment ignored so it does not disqualify itself.
-    if int(data["current_step"] or 0) == 0 and touches == 0:
-        from app.agent import send_decision
-        first = send_decision.evaluate(
-            conn, no, subject=data["step_subject"], body=data["step_body"],
-            sales=sales, allow_active_sequence=True,
-        )
-        if not first["ready"]:
-            return {**data, "action": "change_angle",
-                    "reason": "序列首封未通过自主首触质量门：" + "；".join(first["blockers"][:4]),
-                    "score": score, "touch_count": 0,
-                    "signal_confidence": signal_confidence, "signal": signal_headline,
-                    "next_due_date": None, "memory": memory_ctx,
-                    "first_touch_decision": send_decision.compact(first)}
-        return {**data, "action": "continue",
-                "reason": "序列首封通过 PR #20 自主首触质量门",
-                "score": score, "touch_count": 0,
-                "signal_confidence": signal_confidence, "signal": signal_headline,
-                "next_due_date": None, "memory": memory_ctx,
-                "first_touch_decision": send_decision.compact(first)}
-
-    # Repeated silence changes the angle, never the inferred intent.
-    if touches >= ANGLE_AFTER_UNANSWERED and signal_confidence < FRESH_SIGNAL:
-        return {**data, "action": "change_angle",
-                "reason": f"已连续 {touches} 次邮件触达无真人回复且没有新的高可信采购信号，先换角度",
-                "score": score, "touch_count": touches,
-                "signal_confidence": signal_confidence, "signal": signal_headline,
-                "next_due_date": None, "memory": memory_ctx}
-
-    # Fresh strong intent may follow the sequence's explicit due date; otherwise enforce
-    # a minimum gap from the last actual send so an old/bad due date cannot cause spam.
-    if latest and signal_confidence < STRONG_FRESH_SIGNAL:
-        earliest = latest + dt.timedelta(days=_spacing_days(touches))
+    # docs/75 R1 — the only reason left to hold a letter back for timing. Everything that
+    # used to sit here (the first-touch quality gate, "this sequence has samples and no
+    # replies", "N unanswered touches, change angle") judged whether the company was
+    # worth writing to, and Allen removed that question from this module entirely.
+    if latest:
+        earliest = latest + dt.timedelta(days=COOLDOWN_DAYS)
         if earliest > today:
             return {**data, "action": "delay",
-                    "reason": f"距上次邮件太近；按第 {max(1, touches)} 次触达节奏至少间隔 {_spacing_days(touches)} 天",
+                    "reason": f"上一封是 {latest}，同渠道 {COOLDOWN_DAYS} 天内不再发",
                     "score": score, "touch_count": touches,
                     "signal_confidence": signal_confidence, "signal": signal_headline,
                     "next_due_date": earliest.isoformat(), "memory": memory_ctx}
@@ -250,53 +215,6 @@ def evaluate(conn: sqlite3.Connection, enrollment_id: int,
             "score": score, "touch_count": touches,
             "signal_confidence": signal_confidence, "signal": signal_headline,
             "next_due_date": None, "memory": memory_ctx}
-
-
-# Angle N of a language lives in a sequence whose name ends with 角度N; the first angle
-# has no suffix. Adding a new angle means adding a sequence, not editing a list here.
-_ANGLE_SUFFIX = "·角度"
-
-
-def _switch_angle(conn, enrollment_id: int) -> bool:
-    """Re-open this follow-up on the next angle for the same language, if there is one."""
-    row = conn.execute(
-        "SELECT e.id, e.sequence_id, s.name FROM sequence_enrollments e"
-        " JOIN sequences s ON s.id = e.sequence_id WHERE e.id=?", (enrollment_id,)).fetchone()
-    if row is None:
-        return False
-    # 冷邮件 3 步跟进（英语） and 冷邮件 3 步跟进（英语·角度二） share everything up to the
-    # closing bracket, so the bracket has to come off before the prefix will match.
-    base = row["name"].split(_ANGLE_SUFFIX)[0].rstrip("）)")
-    # Angles only ever move forward. `ORDER BY id LIMIT 1` alone was safe while angle two
-    # was the last one; the moment angle three existed it would have sent an enrollment on
-    # angle three back to angle two, and round again forever.
-    nxt = conn.execute(
-        "SELECT id FROM sequences WHERE name LIKE ? AND id > ? ORDER BY id LIMIT 1",
-        (f"{base}{_ANGLE_SUFFIX}%", row["sequence_id"])).fetchone()
-    if nxt is None:
-        return False   # angles exhausted — parking is a real answer now, and reportable
-    conn.execute(
-        "UPDATE sequence_enrollments SET sequence_id=?, current_step=0, status='active',"
-        " next_due_date=date('now') WHERE id=? AND status IN ('active', 'quality_hold')",
-        (nxt["id"], enrollment_id))
-    return True
-
-
-def revive_parked(conn) -> int:
-    """Move everything parked for want of an angle onto the angle that now exists.
-
-    A parked enrollment is `quality_hold`, and `due_queue` only reads `active`, so it is
-    never re-evaluated — adding a new angle does nothing for the letters that were waiting
-    for one unless something goes and gets them. 110 follow-ups sat still for weeks the
-    last time this was left to fix itself (docs/67).
-    """
-    moved = 0
-    for row in conn.execute(
-            "SELECT id FROM sequence_enrollments WHERE status='quality_hold'").fetchall():
-        if _switch_angle(conn, row["id"]):
-            moved += 1
-    conn.commit()
-    return moved
 
 
 def apply(conn: sqlite3.Connection, decision: dict, *, _ensure: bool = True) -> dict:
@@ -312,16 +230,6 @@ def apply(conn: sqlite3.Connection, decision: dict, *, _ensure: bool = True) -> 
             "UPDATE sequence_enrollments SET next_due_date=? WHERE id=? AND status='active'",
             (next_due, enrollment_id),
         )
-        applied = True
-    elif action == "change_angle":
-        # Move to the next angle rather than parking (docs/67 R3). Parking was half a
-        # decision: the system correctly saw the angle was not working, then stopped
-        # instead of changing it, and 110 follow-ups sat still for weeks.
-        moved = _switch_angle(conn, enrollment_id)
-        if not moved:
-            conn.execute(
-                "UPDATE sequence_enrollments SET status='quality_hold'"
-                " WHERE id=? AND status='active'", (enrollment_id,))
         applied = True
     elif action == "stop":
         conn.execute(
@@ -351,7 +259,7 @@ def evaluate_due(conn: sqlite3.Connection, enrollment_ids: list[int]) -> dict:
     weak = oversight.weak_sequence_ids(conn)
     decisions = [evaluate(conn, int(eid), _ensure=False, weak_sequence_ids=weak)
                  for eid in enrollment_ids]
-    counts = {key: 0 for key in ("continue", "delay", "change_angle", "stop")}
+    counts = {key: 0 for key in ("continue", "delay", "stop")}
     for decision in decisions:
         counts[decision["action"]] = counts.get(decision["action"], 0) + 1
     return {"decisions": decisions, **counts}

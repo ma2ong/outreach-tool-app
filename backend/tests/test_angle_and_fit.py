@@ -107,33 +107,23 @@ def conn(tmp_path):
     return c
 
 
-def test_a_failing_angle_moves_to_the_next_one_instead_of_parking(conn):
-    """Parking was half a decision: the system saw the angle was not working and then
-    stopped, and 110 follow-ups sat still for weeks."""
-    followup_decision.apply(conn, {"enrollment_id": 10, "action": "change_angle"})
+def test_a_delay_moves_the_due_date_and_nothing_else(conn):
+    """What replaced angle switching: the only thing that holds a letter back for timing
+    is the two-week cooldown, and it reschedules rather than parking (docs/75 R1)."""
+    followup_decision.apply(conn, {"enrollment_id": 10, "action": "delay",
+                                   "next_due_date": "2026-09-15"})
     row = conn.execute(
-        "SELECT sequence_id, status, current_step FROM sequence_enrollments WHERE id=10"
-    ).fetchone()
-    assert row["sequence_id"] == 2
+        "SELECT sequence_id, status, current_step, next_due_date"
+        " FROM sequence_enrollments WHERE id=10").fetchone()
     assert row["status"] == "active"
-    assert row["current_step"] == 0     # a new opener, not the next line of the old one
+    assert row["next_due_date"] == "2026-09-15"
+    assert (row["sequence_id"], row["current_step"]) == (1, 2)   # stays where it was
 
 
-def test_it_does_not_wander_into_another_language(conn):
-    conn.execute("UPDATE sequence_enrollments SET sequence_id=3 WHERE id=10")
-    conn.commit()
-    followup_decision.apply(conn, {"enrollment_id": 10, "action": "change_angle"})
-    row = conn.execute(
-        "SELECT sequence_id, status FROM sequence_enrollments WHERE id=10").fetchone()
-    # No Korean angle two exists here, so it parks rather than switching to English.
-    assert row["sequence_id"] == 3
-    assert row["status"] == "quality_hold"
-
-
-def test_with_no_further_angle_parking_is_a_real_answer(conn):
-    conn.execute("UPDATE sequence_enrollments SET sequence_id=2 WHERE id=10")
-    conn.commit()
-    followup_decision.apply(conn, {"enrollment_id": 10, "action": "change_angle"})
-    status = conn.execute(
-        "SELECT status FROM sequence_enrollments WHERE id=10").fetchone()[0]
-    assert status == "quality_hold"
+def test_nothing_parks_any_more(conn):
+    """`quality_hold` was the state for "ran out of angles". There are no angles."""
+    followup_decision.apply(conn, {"enrollment_id": 10, "action": "delay",
+                                   "next_due_date": "2026-09-15"})
+    assert conn.execute(
+        "SELECT COUNT(*) FROM sequence_enrollments WHERE status='quality_hold'"
+    ).fetchone()[0] == 0

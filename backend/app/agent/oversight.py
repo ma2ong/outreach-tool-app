@@ -98,19 +98,11 @@ def evaluate(conn) -> dict:
                 "pause": existing, "already_paused": True}
     if not autosend.enabled(conn) or delivery["sends"] < MIN_SAFETY_SAMPLE:
         return result
-    if delivery["blind"] or delivery["danger"]:
-        # Surfaced, not acted on: the report and the readiness panel carry it.
-        return {**result, "warning": _delivery_warning(delivery)}
+    # docs/75 R3. The rate used to come back as a warning here. Allen's instruction is
+    # "不要管退信率多少" — and a warning that can never be acted on is not information,
+    # it is a number asking to be obeyed. Bounces still produce work, one address at a
+    # time, in `bounce_followup_tasks`; that is the whole of their effect now.
     return result
-
-
-def _delivery_warning(delivery: dict) -> str:
-    if delivery["blind"]:
-        return (f"近 {delivery['days']} 天发给 {delivery['sends']} 家，有退信无法被监测"
-                f"（未测发送 {delivery['unmeasured']}）——照常发送，但这个数字值得看一眼")
-    return (f"近 {delivery['days']} 天硬退信 {delivery['bounced']}/{delivery['sends']}，"
-            f"退信率 {delivery['bounce_rate']}%。照常发送；要压下来靠换联系人和换渠道，"
-            f"不是靠少发")
 
 
 def bounce_followup_tasks(conn, limit: int = 20) -> int:

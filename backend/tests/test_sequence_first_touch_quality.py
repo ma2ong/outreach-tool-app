@@ -1,3 +1,13 @@
+"""Step zero of a sequence, after the gates came off (docs/75).
+
+This file used to assert that a sequence's first letter went through the strict
+first-touch gate — evidence, a named buyer, a verified address — so sequences could not
+become a back door around it. Allen removed that gate entirely: "质量门拆了，以后不许
+设置质量门". What is asserted now is what took its place, because the risk did not
+disappear with the gate — it moved to the frequency rule.
+"""
+import datetime as dt
+
 import pytest
 
 from app import sequences, sequence_send
@@ -17,68 +27,70 @@ def conn(tmp_path, monkeypatch):
     c.commit()
     sid = sequences.create_sequence(c, "First touch", "email", [
         {"day_offset": 0, "subject": "VenueWorks LED", "body": "Hi VenueWorks, quick question."},
-        {"day_offset": 4, "subject": "Re", "body": "Following up."},
+        {"day_offset": 14, "subject": "Re", "body": "Following up."},
     ])
     sequences.enroll_leads(c, sid, [21])
     eid = c.execute("SELECT id FROM sequence_enrollments WHERE lead_no=21").fetchone()["id"]
-    monkeypatch.setattr("app.agent.oversight.weak_sequence_ids", lambda conn: set())
     return c, sid, eid
 
 
-def test_step_zero_still_goes_through_the_first_touch_gate(conn, monkeypatch):
-    """The gate stays; docs/74 R3 only took the decision-maker requirement out of it.
-    A company we cannot name a buyer at is exactly who this letter is for."""
+def _thin(monkeypatch, **over):
+    facts = {"score": 12, "grade": "D", "best_signal": None,
+             "data_incomplete": True, "missing_decision_maker": True}
+    facts.update(over)
+    monkeypatch.setattr(followup_decision.sales_intelligence, "score_lead",
+                        lambda *a, **k: facts)
+
+
+def test_a_first_letter_goes_out_with_nothing_known_about_the_company(conn, monkeypatch):
+    """Low score, no named buyer, incomplete evidence — every one of these used to stop
+    the letter, and together they stopped 77 of 113 on 2026-08-28."""
     c, _, eid = conn
-    monkeypatch.setattr(
-        followup_decision.sales_intelligence, "score_lead",
-        lambda *a, **k: {"score": 82, "grade": "A", "best_signal": None,
-                         "data_incomplete": False, "missing_decision_maker": True},
-    )
-    d = followup_decision.evaluate(c, eid)
-    assert d["action"] == "continue"
-    assert "PR #20" in d["reason"]
+    _thin(monkeypatch)
+    assert followup_decision.evaluate(c, eid)["action"] == "continue"
 
 
-def test_a_letter_that_says_nothing_personal_is_still_refused(conn, monkeypatch):
-    """What replaced the score gate is not "no gate": docs/49 still stops a letter that
-    could have been sent to anyone."""
-    c, sid, eid = conn
-    c.execute("UPDATE sequence_steps SET body='Hello, we make LED panels.',"
-              " subject='LED' WHERE sequence_id=? AND step_order=0", (sid,))
-    c.commit()
-    monkeypatch.setattr(
-        followup_decision.sales_intelligence, "score_lead",
-        lambda *a, **k: {"score": 82, "grade": "A", "best_signal": None,
-                         "data_incomplete": False, "missing_decision_maker": False},
-    )
-    d = followup_decision.evaluate(c, eid)
-    assert d["action"] == "change_angle"
-    assert "Guard" in d["reason"] or "个性化" in d["reason"]
-
-
-def test_sequence_step_zero_can_pass_when_pr20_requirements_are_met(conn, monkeypatch):
+def test_the_sender_actually_sends_it(conn, monkeypatch):
     c, _, eid = conn
-    monkeypatch.setattr(
-        followup_decision.sales_intelligence, "score_lead",
-        lambda *a, **k: {"score": 82, "grade": "A", "best_signal": None,
-                         "data_incomplete": False, "missing_decision_maker": False},
-    )
-    d = followup_decision.evaluate(c, eid)
-    assert d["action"] == "continue"
-    assert "PR #20" in d["reason"]
-
-
-def test_a_missing_decision_maker_no_longer_stops_the_sender(conn, monkeypatch):
-    c, _, eid = conn
-    monkeypatch.setattr(
-        followup_decision.sales_intelligence, "score_lead",
-        lambda *a, **k: {"score": 82, "grade": "A", "best_signal": None,
-                         "data_incomplete": False, "missing_decision_maker": True},
-    )
+    _thin(monkeypatch)
     sent = []
-    res = sequence_send.send_due(
-        c, [eid], sender=lambda *a: sent.append(a), email_delay=(0, 0),
-        autonomous_quality=True,
-    )
-    assert res["sent"] == 1 and res["quality_held"] == 0
-    assert len(sent) == 1
+    res = sequence_send.send_due(c, [eid], sender=lambda *a: sent.append(a),
+                                 email_delay=(0, 0), autonomous_quality=True)
+    assert res["sent"] == 1 and len(sent) == 1
+
+
+def test_a_first_letter_is_never_held_for_the_cooldown(conn, monkeypatch):
+    """Nothing has been sent yet, so there is no clock to wait on — a lead must not be
+    able to start life already throttled."""
+    c, _, eid = conn
+    _thin(monkeypatch)
+    d = followup_decision.evaluate(c, eid)
+    assert d["action"] == "continue" and d["touch_count"] == 0
+
+
+def test_someone_who_replied_still_gets_no_cold_letter(conn, monkeypatch):
+    c, _, eid = conn
+    _thin(monkeypatch)
+    c.execute("INSERT INTO outreach(lead_no,channel,status) VALUES (21,'email','replied')")
+    c.commit()
+    d = followup_decision.evaluate(c, eid)
+    assert d["action"] == "stop" and "回复" in d["reason"]
+
+
+def test_a_customer_who_bought_still_gets_no_cold_letter(conn, monkeypatch):
+    c, _, eid = conn
+    _thin(monkeypatch)
+    c.execute("UPDATE leads SET stage='won' WHERE no=21")
+    c.commit()
+    assert followup_decision.evaluate(c, eid)["action"] == "stop"
+
+
+def test_the_second_step_waits_two_weeks_after_the_first(conn, monkeypatch):
+    c, _, eid = conn
+    _thin(monkeypatch)
+    c.execute("INSERT INTO send_log(lead_no,channel,campaign,sent_at)"
+              " VALUES (21,'email','序列:First touch',datetime('now','-3 days'))")
+    c.commit()
+    d = followup_decision.evaluate(c, eid)
+    assert d["action"] == "delay"
+    assert dt.date.fromisoformat(d["next_due_date"]) > dt.date.today()

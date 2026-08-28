@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { cardToggle } from "./Expandable";
 import { scanHealth, fixHealth, fetchCleanable, bulkDeleteLeads, type HealthLead } from "../api";
 
 const ISSUE_META: Record<string, { title: string; hint: string; fixable: boolean; fixLabel?: string; blockDefault?: boolean }> = {
@@ -121,7 +122,7 @@ export function HealthPanel({ onFixed }: { onFixed: () => void }) {
             const list = issues![k];
             const open = openKey === k;
             return (
-              <div key={k} className="note-item">
+              <div key={k} className="note-item" style={{ cursor: "pointer" }} {...cardToggle(open, () => toggleOpen(k))}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <strong>{meta.title}</strong>
                   <span className="warn-text">{list.length} 条</span>

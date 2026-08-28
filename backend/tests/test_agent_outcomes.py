@@ -34,7 +34,9 @@ def test_a_high_bounce_rate_reports_but_never_stops_the_sending(conn):
 
     assert result["paused"] is False
     assert autosend.enabled(conn) is True
-    assert "4.0%" in result["warning"] or "退信" in result["warning"]
+    # docs/75 R3: it is not even reported as something to look at any more. "不要管退信率
+    # 多少" — a warning nobody may act on is a number asking to be obeyed.
+    assert "warning" not in result
 
 
 def test_a_bounce_becomes_work_rather_than_a_brake(conn):
@@ -46,15 +48,17 @@ def test_a_bounce_becomes_work_rather_than_a_brake(conn):
     assert "另一个联系人" in task["title"] or "退信" in task["title"]
 
 
-def test_blind_bounce_measurement_is_reported_not_silently_read_as_zero(conn):
-    """A zero we cannot see is not a zero. Since docs/67 it is said out loud instead of
-    switching sending off."""
+def test_unmeasurable_bounces_do_not_stop_anything_either(conn):
+    """docs/67 turned this from a circuit breaker into a warning; docs/75 R3 took the
+    warning away too. What a broken inbox actually costs is customer replies, and the
+    dashboard says that in its own words rather than through a bounce statistic."""
     _recent_email_sample(conn, size=25)
     settings.set_value(conn, "reply_sync_last_status", "error")
     autosend.set_enabled(conn, True)
     result = oversight.evaluate(conn)
     assert result["paused"] is False
-    assert "无法被监测" in result["warning"]
+    assert autosend.enabled(conn) is True
+    assert "warning" not in result
 
 
 def test_small_or_healthy_samples_do_not_trigger_the_circuit_breaker(conn):
@@ -235,7 +239,10 @@ def test_a_worsening_bounce_rate_is_reported_but_keeps_sending(conn):
     worse = oversight.evaluate(conn)
     assert worse["paused"] is False
     assert autosend.enabled(conn) is True
-    assert "16.0%" in worse["warning"] or "退信" in worse["warning"]
+    assert "warning" not in worse
+    # The rate is still measured — it just no longer speaks. Bounces turn into work,
+    # one dead address at a time.
+    assert worse["deliverability"]["bounce_rate"] == 16.0
 
 
 def test_switching_autosend_off_withdraws_the_acknowledgement(conn):

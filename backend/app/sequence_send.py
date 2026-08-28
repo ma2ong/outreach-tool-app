@@ -44,7 +44,7 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
     due = {d["enrollment_id"]: d for d in sequences.due_queue(conn)}
     items = [due[i] for i in enrollment_ids if i in due]
     today = datetime.date.today().isoformat()
-    sent = failed = deferred = held = delayed = quality_held = stopped = 0
+    sent = failed = deferred = held = delayed = stopped = 0
     errors: list[dict] = []
     holds: list[dict] = []
     decisions: list[dict] = []
@@ -90,11 +90,6 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
             })
             if decision["action"] == "delay":
                 delayed += 1
-                if on_progress:
-                    on_progress(idx, total)
-                continue
-            if decision["action"] == "change_angle":
-                quality_held += 1
                 if on_progress:
                     on_progress(idx, total)
                 continue
@@ -168,5 +163,5 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
                 time.sleep(random.randint(lo, hi))
     return {"sent": sent, "failed": failed, "deferred": deferred,
             "errors": errors, "held": held, "holds": holds,
-            "delayed": delayed, "quality_held": quality_held, "stopped": stopped,
+            "delayed": delayed, "stopped": stopped,
             "followup_decisions": decisions}

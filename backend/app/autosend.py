@@ -287,8 +287,6 @@ def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None =
         note += f"，避开收件人夜间 {sum(held.values())}"
     if res.get("delayed"):
         note += f"，质量延后 {res['delayed']}"
-    if res.get("quality_held"):
-        note += f"，换角度暂停 {res['quality_held']}"
     if res.get("stopped"):
         note += f"，停止冷跟进 {res['stopped']}"
     if res.get("held"):

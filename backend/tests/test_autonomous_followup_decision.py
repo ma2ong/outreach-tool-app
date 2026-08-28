@@ -19,8 +19,8 @@ def conn(tmp_path, monkeypatch):
     c.commit()
     sid = sequences.create_sequence(c, "Cold follow-up", "email", [
         {"day_offset": 0, "subject": "Hi {name}", "body": "Hi {name}, quick question."},
-        {"day_offset": 3, "subject": "Re: LED", "body": "Following up on my note."},
-        {"day_offset": 8, "subject": "Re: LED", "body": "One last useful check-in."},
+        {"day_offset": 14, "subject": "Re: LED", "body": "Following up on my note."},
+        {"day_offset": 28, "subject": "Re: LED", "body": "One last useful check-in."},
     ])
     sequences.enroll_leads(c, sid, [10])
     # The module owns all optional evidence-schema dependencies; make that explicit in
@@ -55,7 +55,7 @@ def _touch(conn, count=1, days_ago=10):
 
 def test_good_due_followup_continues(conn):
     c, _, eid = conn
-    _touch(c, 1, 10)
+    _touch(c, 1, 20)
     d = followup_decision.evaluate(c, eid)
     assert d["action"] == "continue"
     assert d["score"] == 72
@@ -65,13 +65,12 @@ def test_a_low_score_no_longer_postpones_the_letter(conn, monkeypatch):
     """docs/74 R1. A score of 45 used to buy a 14-day delay; on 2026-08-28 that pattern
     silenced 77 of 113 due letters to real LED companies."""
     c, _, eid = conn
-    _touch(c, 1, 10)
+    _touch(c, 1, 20)
     monkeypatch.setattr(
         followup_decision.sales_intelligence, "score_lead",
         lambda *a, **k: {"score": 45, "grade": "C", "best_signal": None},
     )
-    d = followup_decision.evaluate(c, eid, today=dt.date(2026, 8, 25))
-    assert d["action"] == "continue"
+    assert followup_decision.evaluate(c, eid)["action"] == "continue"
 
 
 def test_even_the_lowest_score_still_gets_written_to(conn, monkeypatch):
@@ -86,46 +85,43 @@ def test_even_the_lowest_score_still_gets_written_to(conn, monkeypatch):
     assert d["score"] == 20   # still computed and reported, just no longer obeyed
 
 
-def test_too_soon_is_delayed_by_touch_count_cadence(conn):
+def test_a_letter_inside_the_cooldown_waits(conn):
     c, _, eid = conn
     _touch(c, 2, 2)
     today = dt.date.today()
     d = followup_decision.evaluate(c, eid, today=today)
     assert d["action"] == "delay"
-    assert dt.date.fromisoformat(d["next_due_date"]) > today
-    assert "至少间隔 5 天" in d["reason"]
+    assert dt.date.fromisoformat(d["next_due_date"]) == today + dt.timedelta(days=12)
+    assert f"{followup_decision.COOLDOWN_DAYS} 天内不再发" in d["reason"]
 
 
-def test_repeated_silence_changes_angle_without_inventing_rejection(conn):
+def test_the_cooldown_is_one_number_not_a_table(conn):
+    """It used to escalate — 3 days, then 5, then 8 — which meant the answer to "may I
+    send" depended on a count nobody could check by eye (docs/75 R1)."""
     c, _, eid = conn
-    _touch(c, 3, 12)
-    d = followup_decision.evaluate(c, eid)
-    assert d["action"] == "change_angle"
-    assert "无真人回复" in d["reason"]
-    assert "拒绝" not in d["reason"] and "不感兴趣" not in d["reason"]
+    for touches in (1, 2, 3, 4):
+        # _touch appends, so old rows would keep MAX(sent_at) pinned to the first pass.
+        c.execute("DELETE FROM send_log")
+        _touch(c, touches, followup_decision.COOLDOWN_DAYS - 1)
+        assert followup_decision.evaluate(c, eid)["action"] == "delay", touches
+        c.execute("DELETE FROM send_log")
+        _touch(c, touches, followup_decision.COOLDOWN_DAYS + 1)
+        assert followup_decision.evaluate(c, eid)["action"] == "continue", touches
 
 
-def test_fresh_signal_prevents_silence_angle_hold(conn, monkeypatch):
+def test_repeated_silence_no_longer_holds_the_letter_back(conn):
+    """Four unanswered letters used to trigger an automatic angle change. Allen removed
+    that: silence is a reason to keep writing, and rewriting the pitch is his call."""
     c, _, eid = conn
-    _touch(c, 3, 12)
-    monkeypatch.setattr(
-        followup_decision.sales_intelligence, "score_lead",
-        lambda *a, **k: {"score": 80, "grade": "A", "best_signal": {
-            "confidence": 80, "headline": "New venue project", "source_url": "https://alpha.com/news"
-        }},
-    )
-    d = followup_decision.evaluate(c, eid)
-    assert d["action"] == "continue"
-    assert d["signal_confidence"] == 80
+    _touch(c, 4, 30)
+    assert followup_decision.evaluate(c, eid)["action"] == "continue"
 
 
-def test_weak_sequence_is_parked_before_another_send(conn, monkeypatch):
+def test_a_sequence_with_no_replies_is_not_stopped_by_itself(conn, monkeypatch):
     c, sid, eid = conn
-    _touch(c, 1, 10)
+    _touch(c, 1, 20)
     monkeypatch.setattr("app.agent.oversight.weak_sequence_ids", lambda conn: {sid})
-    d = followup_decision.evaluate(c, eid)
-    assert d["action"] == "change_angle"
-    assert "零回复" in d["reason"]
+    assert followup_decision.evaluate(c, eid)["action"] == "continue"
 
 
 def test_open_opportunity_stops_cold_sequence_ownership(conn):
@@ -162,15 +158,17 @@ def test_apply_delay_updates_only_machine_schedule_and_audits(conn):
     assert audit["action"] == "delay" and audit["applied"] == 1
 
 
-def test_apply_change_angle_parks_without_creating_sales_task(conn):
-    c, sid, eid = conn
+def test_a_stop_closes_the_enrollment_without_inventing_a_sales_task(conn):
+    """`stop` is still real — it fires for a reply, a won customer, an open opportunity.
+    It must not quietly become work in Allen's task list."""
+    c, _, eid = conn
     before = c.execute("SELECT COUNT(*) c FROM activities").fetchone()["c"]
-    followup_decision.apply(c, {"enrollment_id": eid, "lead_no": 10, "sequence_id": sid,
-        "action": "change_angle", "reason": "weak angle", "score": 60,
-        "touch_count": 3, "signal_confidence": 0, "next_due_date": None})
-    status = c.execute("SELECT status FROM sequence_enrollments WHERE id=?", (eid,)).fetchone()["status"]
+    followup_decision.apply(c, {"enrollment_id": eid, "action": "stop",
+                                "reason": "客户已经回复"})
+    status = c.execute("SELECT status FROM sequence_enrollments WHERE id=?",
+                       (eid,)).fetchone()[0]
     after = c.execute("SELECT COUNT(*) c FROM activities").fetchone()["c"]
-    assert status == "quality_hold" and after == before
+    assert status == "stopped" and after == before
 
 
 def test_automatic_send_obeys_delay_but_manual_send_keeps_human_timing(conn, monkeypatch):

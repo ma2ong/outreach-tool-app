@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { cardToggle } from "./Expandable";
 import {
   approveProposal, fetchAgentMeta, fetchAgentRunJob, fetchAgentStatus, fetchDailyReport,
   fetchAgentMission, fetchProposals, rejectProposal, sendDailyReport, setAgentBackend, setAutonomy,
@@ -109,7 +110,7 @@ function ProposalCard({ p, meta, onDone, takenOver = false }: {
     { status?: string; query_index?: number; query_total?: number; candidates?: number } | undefined;
   const running = p.status !== "pending";
   return (
-    <div className="card" style={{ marginBottom: 12, borderColor: p.risk === "high" ? "var(--danger)" : undefined }}>
+    <div className="card" style={{ marginBottom: 12, cursor: "pointer", borderColor: p.risk === "high" ? "var(--danger)" : undefined }} {...cardToggle(open, setOpen)}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>

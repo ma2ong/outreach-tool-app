@@ -3,6 +3,7 @@
 // 这些以前只是仪表盘上一行小字，所以 Allen 直接问「邮件的计划在哪」。它和社媒私信是并列的
 // 两件事，就该有并列的两个页面。
 import { useEffect, useState } from "react";
+import { ExpandableCard } from "./Expandable";
 
 type Row = {
   lead_no: number; company: string | null; country: string | null;
@@ -33,29 +34,32 @@ async function setEnabled(enabled: boolean): Promise<void> {
 function MailRow({ r, onOpenLead }: { r: Row; onOpenLead?: (no: number) => void }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="card" style={{ marginBottom: 6, opacity: r.reason ? 0.75 : 1 }}>
-      <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
-        <span style={{ fontWeight: 600, cursor: onOpenLead ? "pointer" : undefined }}
-          onClick={() => onOpenLead?.(r.lead_no)}>{r.company || `#${r.lead_no}`}</span>
-        <span className="muted" style={{ fontSize: 12 }}>
-          {[r.country, r.email, r.sequence && `${r.sequence} 第 ${(r.step ?? 0) + 1} 步`]
-            .filter(Boolean).join(" · ")}
-        </span>
-        <span className="muted" style={{ fontSize: 12, marginLeft: "auto" }}>
-          对方当地 {r.local_time}
-        </span>
-        <button className="btn btn-sm" onClick={() => setOpen((v) => !v)}>
-          {open ? "收起" : "看正文"}
-        </button>
+    <ExpandableCard
+      open={open} onToggle={setOpen}
+      style={{ marginBottom: 6, opacity: r.reason ? 0.75 : 1 }}
+      header={
+        <>
+          <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+            <span data-no-toggle style={{ fontWeight: 600, cursor: onOpenLead ? "pointer" : undefined }}
+              onClick={() => onOpenLead?.(r.lead_no)}>{r.company || `#${r.lead_no}`}</span>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {[r.country, r.email, r.sequence && `${r.sequence} 第 ${(r.step ?? 0) + 1} 步`]
+                .filter(Boolean).join(" · ")}
+            </span>
+            <span className="muted" style={{ fontSize: 12, marginLeft: "auto" }}>
+              对方当地 {r.local_time}
+            </span>
+            <span className="muted" style={{ fontSize: 12 }}>{open ? "收起 ▲" : "看正文 ▼"}</span>
+          </div>
+          {r.reason && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>没发：{r.reason}</div>}
+        </>
+      }
+    >
+      <div style={{ marginTop: 8 }}>
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>{r.subject}</div>
+        <div style={{ whiteSpace: "pre-wrap", fontSize: 13 }}>{r.body}</div>
       </div>
-      {r.reason && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>没发：{r.reason}</div>}
-      {open && (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>{r.subject}</div>
-          <div style={{ whiteSpace: "pre-wrap", fontSize: 13 }}>{r.body}</div>
-        </div>
-      )}
-    </div>
+    </ExpandableCard>
   );
 }
 

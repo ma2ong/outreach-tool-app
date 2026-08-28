@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useDismissOnOutside } from "./Expandable";
 import { fetchControlCenter } from "../controlCenterApi";
 import type {
   ControlCenterBlocker, ControlCenterNextAction, ControlCenterReceipt, ControlCenterSnapshot,
@@ -125,6 +126,10 @@ export function AutonomyControlCenter() {
     return () => clearInterval(timer);
   }, []);
 
+  // Clicking anywhere outside closes it — a panel this wide is easier to dismiss by
+  // clicking the page than by finding its corner again.
+  const shell = useDismissOnOutside<HTMLDivElement>(open, () => setOpen(false));
+
   if (!available) return null;
 
   const c = data?.counters;
@@ -136,7 +141,7 @@ export function AutonomyControlCenter() {
   const dot = "●";
 
   return (
-    <div style={{ position: "relative" }}>
+    <div style={{ position: "relative" }} ref={shell}>
       {open && (
         <div className="card" style={{
           position: "absolute", right: 0, top: 32, zIndex: 80,
