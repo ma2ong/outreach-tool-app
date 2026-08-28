@@ -367,6 +367,37 @@ class PlaywrightEngine:
         return {"handle": handle, "channel": channel, "url": url,
                 "text": body, "links": links}
 
+    # The only write action added to profile browsing (docs/72 R2). Following is one
+    # click; liking and commenting stay out, because a comment is public and whether it
+    # gets deleted is the other company's decision, not ours (docs/61).
+    _FOLLOW_LABEL = re.compile(r"^(follow|关注|팔로우|seguir|segui)$", re.I)
+    _ALREADY_FOLLOWING = re.compile(
+        r"following|已关注|正在关注|팔로잉|siguiendo", re.I)
+
+    def _follow_op(self, channel, handle):
+        page = self._page(channel)
+        handle = str(handle or "").strip().lstrip("@")
+        url = (f"https://www.instagram.com/{handle}/" if channel == "instagram"
+               else f"https://www.facebook.com/{handle}")
+        page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(2500)
+
+        if self._ALREADY_FOLLOWING.search(page.inner_text("body")[:3000]):
+            return {"handle": handle, "already": True}
+
+        button = page.get_by_role("button", name=self._FOLLOW_LABEL).first
+        try:
+            button.click(timeout=15000)
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"点不到关注按钮：{str(exc)[:80]}") from exc
+        page.wait_for_timeout(2500)
+
+        # Confirm it took. A click that silently did nothing, counted as a follow, would
+        # spend the day's budget on nothing and hide a rate limit.
+        if not self._ALREADY_FOLLOWING.search(page.inner_text("body")[:3000]):
+            raise RuntimeError("点了关注但状态没变 —— 可能被限流了")
+        return {"handle": handle, "already": False}
+
     def _wait_list(self, page, channel, selector, name, timeout=25000):
         try:
             page.wait_for_selector(selector, timeout=timeout)
@@ -592,6 +623,10 @@ class PlaywrightEngine:
 
     def read_thread(self, channel: str, target: str, limit: int = 20) -> list[dict]:
         return self._call(self._read_thread_op, channel, target, limit, timeout=180)
+
+    def follow(self, channel: str, handle: str) -> dict:
+        """Follow one account. The only write action on a profile."""
+        return self._call(self._follow_op, channel, handle, timeout=120)
 
     def read_profile(self, channel: str, handle: str) -> dict:
         """Open one public profile, read it, leave. Never writes anything."""
