@@ -150,21 +150,21 @@ def test_a_lead_with_no_address_on_that_channel_is_not_offered(conn):
 
 # --- putting them back to work (R3) -------------------------------------------------
 
-def _angle_two(conn):
-    """The two live sequences, minimal but real: the Korean one must contain Korean
-    text, because `is_korean_sequence` reads the copy and ignores the name."""
-    from app import sequences
-    from app.seed_angle2 import EN_NAME, KO_NAME
-    en = sequences.create_sequence(conn, EN_NAME, "email", [
-        {"step_index": 0, "day_offset": 0, "subject": "Which cabinet?", "body": "Hi"}])
-    ko = sequences.create_sequence(conn, KO_NAME, "email", [
-        {"step_index": 0, "day_offset": 0, "subject": "안녕하세요", "body": "제품 문의"}])
-    return en, ko
+def _live_sequences(conn):
+    """Every segment in both languages, as the seeder writes them (docs/76)."""
+    from app.seed_sequences import seed_all
+    return seed_all(conn)
+
+
+def _seq(conn, segment, korean=False):
+    from app.seed_sequences import name_for
+    return conn.execute("SELECT id FROM sequences WHERE name=?",
+                        (name_for(segment, korean),)).fetchone()[0]
 
 
 def test_a_thin_day_is_topped_up_from_the_dormant_pool(conn):
     from app import autosend
-    _angle_two(conn)
+    _live_sequences(conn)
     for no in range(1, 6):
         _lead(conn, no)
         _sent(conn, no, 1000)
@@ -176,7 +176,7 @@ def test_a_thin_day_is_topped_up_from_the_dormant_pool(conn):
 
 def test_korea_is_topped_up_in_korean_and_everyone_else_in_english(conn):
     from app import autosend
-    en, ko = _angle_two(conn)
+    _live_sequences(conn)
     _lead(conn, 1, country="South Korea")
     _lead(conn, 2, country="USA")
     _sent(conn, 1, 1000)
@@ -185,16 +185,33 @@ def test_korea_is_topped_up_in_korean_and_everyone_else_in_english(conn):
     autosend._top_up(conn, 10)
     got = {r["lead_no"]: r["sequence_id"] for r in
            conn.execute("SELECT lead_no, sequence_id FROM sequence_enrollments")}
-    assert got == {1: ko, 2: en}
+    assert got == {1: _seq(conn, "general", korean=True),
+                   2: _seq(conn, "general")}
 
 
-def test_a_company_that_already_had_this_angle_is_not_sent_it_twice(conn):
+def test_the_top_up_picks_the_sequence_written_for_that_segment(conn):
+    """docs/76: a rental company and an integrator must not receive the same opener just
+    because they both came back through the dormant pool."""
+    from app import autosend
+    _live_sequences(conn)
+    _lead(conn, 1, tags="租赁商")
+    _lead(conn, 2, tags="系统集成商")
+    _sent(conn, 1, 1000)
+    _sent(conn, 2, 1000)
+    conn.commit()
+    autosend._top_up(conn, 10)
+    got = {r["lead_no"]: r["sequence_id"] for r in
+           conn.execute("SELECT lead_no, sequence_id FROM sequence_enrollments")}
+    assert got == {1: _seq(conn, "rental"), 2: _seq(conn, "install")}
+
+
+def test_a_company_that_already_finished_this_sequence_is_not_restarted(conn):
     from app import autosend, sequences
-    en, _ = _angle_two(conn)
+    _live_sequences(conn)
     _lead(conn, 1)
     _sent(conn, 1, 1000)
     conn.commit()
-    sequences.enroll_leads(conn, en, [1])
+    sequences.enroll_leads(conn, _seq(conn, "general"), [1])
     conn.execute("UPDATE sequence_enrollments SET status='completed'")
     conn.commit()
     assert autosend._top_up(conn, 10) == 0
@@ -202,7 +219,7 @@ def test_a_company_that_already_had_this_angle_is_not_sent_it_twice(conn):
 
 def test_the_top_up_never_exceeds_the_gap(conn):
     from app import autosend
-    _angle_two(conn)
+    _live_sequences(conn)
     for no in range(1, 21):
         _lead(conn, no)
         _sent(conn, no, 1000)
@@ -214,7 +231,7 @@ def test_a_record_named_after_a_mailbox_is_not_topped_up(conn):
     """44 Xiaoman rows carry someone's naver/gmail address in the company-name column;
     a letter cannot address a company by mailbox."""
     from app import autosend
-    _angle_two(conn)
+    _live_sequences(conn)
     _lead(conn, 1, company_en="jsy5129@naver.com", city="Seoul")
     _lead(conn, 2, company_en="SNA Displays", city="New York")
     _sent(conn, 1, 1000)
@@ -227,9 +244,9 @@ def test_a_record_named_after_a_mailbox_is_not_topped_up(conn):
 
 def test_a_lead_with_nothing_personal_to_say_is_not_topped_up(conn):
     # The guard refuses these at send time; enrolling them parks the day in quality_hold
-    # instead of sending more (the 110 stuck follow-ups seed_angle2 had to rescue).
+    # instead of sending more (the 110 stuck follow-ups docs/67 had to rescue).
     from app import autosend
-    _angle_two(conn)
+    _live_sequences(conn)
     _lead(conn, 1, company_en="LED", city=None, website=None)
     _sent(conn, 1, 1000)
     conn.commit()
@@ -238,7 +255,7 @@ def test_a_lead_with_nothing_personal_to_say_is_not_topped_up(conn):
 
 def test_the_longest_silent_writable_company_is_topped_up_first(conn):
     from app import autosend
-    _angle_two(conn)
+    _live_sequences(conn)
     _lead(conn, 1, company_en="Vantage LED", city="Corona")
     _lead(conn, 2, company_en="Trans-Lux", city="Norwalk")
     _sent(conn, 1, 700)

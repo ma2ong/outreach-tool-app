@@ -66,7 +66,7 @@ def can_be_addressed(lead: dict) -> bool:
 
     Callers that build a queue use this to leave out records the guard would refuse
     anyway. Enrolling them regardless does not send more mail — it parks them in
-    `quality_hold` and quietly shortens the day, which is the failure seed_angle2 found
+    `quality_hold` and quietly shortens the day, which is the failure docs/67 found
     110 follow-ups sitting in.
     """
     name = str(lead.get("company_en") or "").strip()

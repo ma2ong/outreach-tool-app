@@ -245,28 +245,23 @@ def stop_sequence(conn, p: dict) -> str:
     return f"已停掉 {stopped} 条跟进" if stopped else "该客户本来就没有进行中的跟进"
 
 
-def _sequence_for_country(conn, country: str | None) -> int | None:
-    """Pick an existing active email sequence without crossing the language boundary."""
-    import re
-    from app.agent import oversight
+def _sequence_for(conn, lead: dict) -> int | None:
+    """The sequence written for this company: their language and their segment (docs/76).
 
-    quarantined = oversight.weak_sequence_ids(conn)
-    rows = conn.execute(
-        "SELECT s.id, s.name, COALESCE(st.subject,'') subject, st.body"
-        " FROM sequences s JOIN sequence_steps st ON st.sequence_id=s.id"
-        " WHERE s.active=1 AND s.channel='email'"
-        "   AND st.step_order=(SELECT MIN(x.step_order) FROM sequence_steps x"
-        "                      WHERE x.sequence_id=s.id)"
-        " ORDER BY s.id"
-    ).fetchall()
-    korean = str(country or "").strip().lower() in {
+    Falls back to the language's `general` sequence rather than to nothing, so a company
+    whose type we cannot read still gets a letter — a neutral one.
+    """
+    from app import copy_segments
+    from app.seed_sequences import name_for
+
+    korean = str(lead.get("country") or "").strip().lower() in {
         "south korea", "korea", "republic of korea", "대한민국",
     }
-    for row in rows:
-        if row["id"] in quarantined:
-            continue
-        text = f"{row['name']} {row['subject']} {row['body']}"
-        if bool(re.search(r"[\uac00-\ud7a3]", text)) == korean:
+    for segment in (copy_segments.segment_of(lead), "general"):
+        row = conn.execute(
+            "SELECT id FROM sequences WHERE name=? AND active=1 AND channel='email'",
+            (name_for(segment, korean),)).fetchone()
+        if row:
             return row["id"]
     return None
 
@@ -278,18 +273,18 @@ def _enroll_imported(conn, lead_nos: list[int]) -> tuple[int, list[str]]:
         return 0, []
     placeholders = ",".join("?" * len(lead_nos))
     rows = conn.execute(
-        f"SELECT no, country FROM leads WHERE no IN ({placeholders})"
+        f"SELECT no, country, tags, target_fit, business, hook, brief FROM leads"
+        f" WHERE no IN ({placeholders})"
         " AND COALESCE(email_status,'') != 'invalid'", lead_nos).fetchall()
-    groups: dict[str, list[int]] = {}
+    # Grouped by the sequence each lead belongs in, so one enrol call covers each.
+    groups: dict[int | None, list[int]] = {}
     for row in rows:
-        groups.setdefault(row["country"] or "", []).append(row["no"])
+        groups.setdefault(_sequence_for(conn, dict(row)), []).append(row["no"])
     enrolled = 0
     missing: list[str] = []
-    for country, nos in groups.items():
-        sequence_id = _sequence_for_country(conn, country)
+    for sequence_id, nos in groups.items():
         if sequence_id is None:
-            language = "韩语" if country == "South Korea" else "英语"
-            missing.append(f"{language}序列（{len(nos)} 家）")
+            missing.append(f"没有可用的邮件序列（{len(nos)} 家）")
             continue
         enrolled += sequences.enroll_leads(conn, sequence_id, nos)
     return enrolled, missing

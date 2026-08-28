@@ -172,50 +172,42 @@ def should_run(conn, now: _dt.datetime | None = None) -> bool:
 def _top_up(conn, gap: int) -> int:
     """Fill a thin day with companies that have gone cold long enough (docs/73 R3).
 
-    Relaxing `eligible_leads` alone changes nothing: this runs the due sequence steps and
-    never looks at that pool, so without a way in, the 322 re-approachable companies stay
+    Relaxing eligibility alone changes nothing: this runs the due sequence steps and
+    never looks at that pool, so without a way in, the re-approachable companies stay
     exactly as idle as the bookkeeping had left them.
 
-    Korea keeps Korean and every other country gets English (docs/67 R1), decided by
-    country here rather than left to the sequence — `language_blocked` only guards the
-    Korean sequence, so an unrouted Korean lead would quietly receive the English letter.
+    Each one goes into the sequence written for its language and its segment (docs/76),
+    the same routing an imported lead gets, so a rental company and an integrator do not
+    receive the same opener merely because they came in through this path.
     """
     from app import message_guard, recontact, sequences
-    from app.seed_angle2 import EN_NAME, KO_NAME
+    from app.agent import executors
 
-    # Cooled down is not the same as writable. 44 of the 321 re-approachable records have
-    # somebody's mailbox in the company-name column, and another 77 carry a real name with
-    # nothing personal to say about it; the guard refuses both at send time. Filtering here
-    # means `gap` is filled with letters that will actually go out.
+    # Cooled down is not the same as writable. Records with a mailbox in the company-name
+    # column, or with nothing personal to say, are refused by the guard at send time;
+    # filtering here means `gap` is filled with letters that will actually go out.
     candidates = recontact.reapproachable(conn, "email")
     if not candidates:
         return 0
-    # `IN (...)` does not preserve order, so the longest-silent-first ordering that
-    # `reapproachable` established is re-applied here rather than lost to rowid order.
     facts = {r["no"]: dict(r) for r in conn.execute(
-        "SELECT no, company_en, website, city, hook FROM leads WHERE no IN (%s)"
+        "SELECT no, company_en, website, city, hook, country, tags, target_fit, business,"
+        " brief FROM leads WHERE no IN (%s)"
         % ",".join("?" * len(candidates)), candidates)}
-    ids = []
-    for no in candidates:
-        if message_guard.can_be_addressed(facts.get(no, {})):
-            ids.append(no)
-            if len(ids) >= gap:
-                break
-    if not ids:
-        return 0
-    sid = {}
-    for name in (EN_NAME, KO_NAME):
-        row = conn.execute("SELECT id FROM sequences WHERE name=?", (name,)).fetchone()
-        if row:
-            sid[name] = row["id"]
-    if KO_NAME not in sid or EN_NAME not in sid:
-        return 0
-    # Leads the Korean sequence does *not* block are the Korean-country ones.
-    korean = set(ids) - set(sequences.language_blocked(conn, sid[KO_NAME], ids))
-    added = sequences.enroll_leads(conn, sid[KO_NAME], sorted(korean))
-    added += sequences.enroll_leads(
-        conn, sid[EN_NAME], [i for i in ids if i not in korean])
-    return added
+    by_sequence: dict[int, list[int]] = {}
+    picked = 0
+    for no in candidates:          # ordered longest-silent first
+        lead = facts.get(no)
+        if not lead or not message_guard.can_be_addressed(lead):
+            continue
+        sequence_id = executors._sequence_for(conn, lead)
+        if sequence_id is None:
+            continue
+        by_sequence.setdefault(sequence_id, []).append(no)
+        picked += 1
+        if picked >= gap:
+            break
+    return sum(sequences.enroll_leads(conn, sid, nos)
+               for sid, nos in by_sequence.items())
 
 
 def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None = None,

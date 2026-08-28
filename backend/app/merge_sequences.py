@@ -1,17 +1,18 @@
-"""Fold the angle sequences back into one per language (docs/75 R4).
+"""Move every enrollment onto the sequence written for that company (docs/76).
 
-Angle switching is gone, so the sequences it switched between should not survive it —
-leaving them would mean a lead's history is spread over three rows that no longer mean
-anything, and the next person to read the pipeline would have to reconstruct why.
+Two rounds of consolidation live here. The first folded the angle sequences back into one
+per language when docs/75 deleted angle switching. This one splits that single sequence
+again — but along a different seam: not by which copy failed, by which kind of customer
+the company is.
 
-Everything moves onto the language's single sequence. Where a lead is enrolled on both
-(it was moved between angles at some point) the further-along enrollment wins and the
-duplicate is dropped, because `UNIQUE(lead_no, sequence_id)` will not hold two and the
-one that got more letters is the one whose history is real.
+An enrollment moves to its segment's sequence and keeps its step, because the segments
+share a step structure (opener, one nudge, one close) and a company two letters into the
+conversation should not be started over. Where the lead is already enrolled in its target
+sequence, the duplicate is dropped: `UNIQUE(lead_no, sequence_id)` will not hold two, and
+the one with more history is the one that is real.
 
-`quality_hold` becomes `active`: it was the parking state for "ran out of angles", and
-there are no angles to run out of. What decides their next send now is the two-week
-cooldown, like everything else.
+Old sequences left with no enrollments are deleted; ones that still hold history stay,
+so nothing about what a company actually received is lost.
 
 Run:  python -m app.merge_sequences            # preview
       python -m app.merge_sequences --apply
@@ -20,45 +21,55 @@ from __future__ import annotations
 
 import sys
 
+from app import copy_segments
 from app.db import connect
-from app.seed_angle2 import EN_NAME, KO_NAME
+from app.seed_sequences import name_for, seed_all
 
-# Angle sequence name -> the single sequence it folds into.
-FOLD = {
-    "冷邮件 3 步跟进（英语·角度二）": EN_NAME,
-    "冷邮件 3 步跟进（英语·角度三）": EN_NAME,
-    "冷邮件 3 步跟进（韩语·角度二）": KO_NAME,
-    "冷邮件 3 步跟进（韩语·角度三）": KO_NAME,
-}
 # Furthest along wins when a lead sits on both.
-RANK = {"replied": 5, "completed": 4, "active": 3, "quality_hold": 2, "blocked": 1}
+RANK = {"replied": 5, "completed": 4, "stopped": 4, "active": 3, "blocked": 1}
 
 
-def _id(conn, name: str) -> int | None:
-    row = conn.execute("SELECT id FROM sequences WHERE name=?", (name,)).fetchone()
-    return row["id"] if row else None
+def _korean(country: str | None) -> bool:
+    return str(country or "").strip().lower() in {
+        "south korea", "korea", "republic of korea", "대한민국",
+    }
 
 
 def plan(conn) -> list[dict]:
+    """What would move, without touching anything."""
+    # A target sequence that does not exist yet still counts as a move: --apply seeds
+    # them first, and a preview reporting "0 to move" because nothing is seeded yet is a
+    # false all-clear, not an answer.
+    target: dict[str, int | None] = {
+        name_for(segment, korean): None
+        for korean in (False, True) for segment in copy_segments.SEGMENTS}
+    for row in conn.execute("SELECT id, name FROM sequences"):
+        target[row["name"]] = row["id"]
     out = []
-    for old_name, new_name in FOLD.items():
-        old, new = _id(conn, old_name), _id(conn, new_name)
-        if old is None or new is None or old == new:
+    for row in conn.execute(
+            "SELECT e.id, e.lead_no, e.sequence_id, e.current_step, e.status,"
+            "       l.country, l.tags, l.target_fit, l.business, l.hook, l.brief"
+            "  FROM sequence_enrollments e JOIN leads l ON l.no = e.lead_no"
+            " WHERE e.sequence_id IN (SELECT id FROM sequences WHERE channel='email')"):
+        lead = dict(row)
+        segment = copy_segments.segment_of(lead)
+        name = name_for(segment, _korean(row["country"]))
+        if name not in target:
             continue
-        rows = conn.execute(
-            "SELECT id, lead_no, current_step, status FROM sequence_enrollments"
-            " WHERE sequence_id=?", (old,)).fetchall()
-        for row in rows:
-            clash = conn.execute(
-                "SELECT id, current_step, status FROM sequence_enrollments"
-                " WHERE lead_no=? AND sequence_id=?", (row["lead_no"], new)).fetchone()
-            out.append({
-                "enrollment_id": row["id"], "lead_no": row["lead_no"],
-                "from": old_name, "to": new_name, "status": row["status"],
-                "drop": clash is not None and (
-                    RANK.get(clash["status"], 0), clash["current_step"] or 0)
-                    >= (RANK.get(row["status"], 0), row["current_step"] or 0),
-            })
+        want = target[name]
+        if want is not None and want == row["sequence_id"]:
+            continue
+        clash = None if want is None else conn.execute(
+            "SELECT current_step, status FROM sequence_enrollments"
+            " WHERE lead_no=? AND sequence_id=?", (row["lead_no"], want)).fetchone()
+        out.append({
+            "enrollment_id": row["id"], "lead_no": row["lead_no"],
+            "to": want, "to_name": name,
+            "segment": segment, "status": row["status"],
+            "drop": clash is not None
+                    and (RANK.get(clash["status"], 0), clash["current_step"] or 0)
+                        >= (RANK.get(row["status"], 0), row["current_step"] or 0),
+        })
     return out
 
 
@@ -66,35 +77,44 @@ def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     apply_changes = "--apply" in sys.argv
     with connect("outreach.db") as conn:
+        if apply_changes:
+            seed_all(conn)          # the target sequences must exist before anything moves
         moves = plan(conn)
+        assert not apply_changes or all(m["to"] is not None for m in moves)
         keep = [m for m in moves if not m["drop"]]
         drop = [m for m in moves if m["drop"]]
-        print(f"要并入的入组 {len(moves)} 个：迁移 {len(keep)}，因重复丢弃 {len(drop)}")
-        for name in FOLD:
-            n = sum(1 for m in moves if m["from"] == name)
-            print(f"  {name:34} {n}")
+        by_segment: dict[str, int] = {}
+        for move in keep:
+            by_segment[move["segment"]] = by_segment.get(move["segment"], 0) + 1
+        print(f"要重新归位的入组 {len(moves)} 个：迁移 {len(keep)}，因重复丢弃 {len(drop)}")
+        for segment, n in sorted(by_segment.items(), key=lambda kv: -kv[1]):
+            print(f"  {segment:9} {copy_segments.LABEL[segment]:6} {n}")
         if not apply_changes:
             print("\n确认没问题就加 --apply 写入")
             return
         for move in keep:
-            conn.execute(
-                "UPDATE sequence_enrollments SET sequence_id=(SELECT id FROM sequences"
-                " WHERE name=?), status=CASE WHEN status='quality_hold' THEN 'active'"
-                " ELSE status END WHERE id=?", (move["to"], move["enrollment_id"]))
+            conn.execute("UPDATE sequence_enrollments SET sequence_id=? WHERE id=?",
+                         (move["to"], move["enrollment_id"]))
         for move in drop:
             conn.execute("DELETE FROM sequence_enrollments WHERE id=?",
                          (move["enrollment_id"],))
-        for old_name in FOLD:
-            old = _id(conn, old_name)
-            if old is None:
-                continue
-            conn.execute("DELETE FROM sequence_steps WHERE sequence_id=?", (old,))
-            conn.execute("DELETE FROM sequences WHERE id=?", (old,))
-        # Nothing parks any more, so nothing should still be parked.
-        conn.execute("UPDATE sequence_enrollments SET status='active'"
-                     " WHERE status='quality_hold'")
+        # Enrollments whose lead was deleted. They can never send — `due_queue` joins
+        # `leads` — but they sit in the pipeline forever and make every count wrong.
+        orphans = conn.execute(
+            "DELETE FROM sequence_enrollments WHERE lead_no NOT IN"
+            " (SELECT no FROM leads)").rowcount
+        # Only sequences nothing points at any more; anything still holding history stays.
+        empty = conn.execute(
+            "DELETE FROM sequences WHERE channel='email'"
+            "   AND id NOT IN (SELECT DISTINCT sequence_id FROM sequence_enrollments)"
+            "   AND name NOT IN (%s)"
+            % ",".join("?" * (len(copy_segments.SEGMENTS) * 2)),
+            [name_for(s, k) for k in (False, True) for s in copy_segments.SEGMENTS],
+        ).rowcount
+        conn.execute("DELETE FROM sequence_steps WHERE sequence_id NOT IN"
+                     " (SELECT id FROM sequences)")
         conn.commit()
-        print(f"\n已迁移 {len(keep)}，丢弃重复 {len(drop)}，删除 {len(FOLD)} 条角度序列")
+        print(f"\n已迁移 {len(keep)}，丢弃重复 {len(drop)}，删除空序列 {empty} 条")
 
 
 if __name__ == "__main__":

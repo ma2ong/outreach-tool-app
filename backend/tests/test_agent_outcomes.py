@@ -100,7 +100,10 @@ def test_an_existing_safety_pause_stays_visible_in_every_agent_run(conn, monkeyp
     assert result["safety_paused"] is True
 
 
-def test_weak_sequences_are_quarantined_from_new_autonomous_enrollment(conn):
+def test_a_sequence_with_no_replies_is_still_reported_as_weak(conn):
+    """The measurement survives docs/75; what it no longer does is act. Quarantining a
+    sequence was a gate — the system deciding on a number that a company should hear
+    less from us."""
     sid = sequences.create_sequence(conn, "Weak English", "email", [
         {"day_offset": 0, "subject": "Hello", "body": "Hello"},
     ])
@@ -113,8 +116,48 @@ def test_weak_sequences_are_quarantined_from_new_autonomous_enrollment(conn):
         )
     conn.commit()
     assert sid in oversight.weak_sequence_ids(conn)
+
+
+def test_a_lead_is_enrolled_in_the_sequence_written_for_its_segment(conn):
+    """docs/76: a rental company and an integrator do not get the same opener."""
     from app.agent import executors
-    assert executors._sequence_for_country(conn, "USA") is None
+    from app.seed_sequences import name_for, seed_all
+    seed_all(conn)
+    conn.execute("UPDATE leads SET tags='租赁商', country='USA' WHERE no=1")
+    conn.execute("UPDATE leads SET tags='系统集成商', country='USA' WHERE no=2")
+    conn.commit()
+    rental = conn.execute("SELECT * FROM leads WHERE no=1").fetchone()
+    install = conn.execute("SELECT * FROM leads WHERE no=2").fetchone()
+    picked = {n: executors._sequence_for(conn, dict(r))
+              for n, r in (("rental", rental), ("install", install))}
+    assert picked["rental"] != picked["install"]
+    assert picked["rental"] == conn.execute(
+        "SELECT id FROM sequences WHERE name=?", (name_for("rental", False),)).fetchone()[0]
+
+
+def test_a_lead_with_no_type_still_gets_a_letter(conn):
+    """`general` is the fallback because 349 companies have no type — silence would be
+    a gate by another name."""
+    from app.agent import executors
+    from app.seed_sequences import name_for, seed_all
+    seed_all(conn)
+    conn.execute("UPDATE leads SET tags=NULL, target_fit=NULL, business=NULL,"
+                 " hook=NULL, brief=NULL, country='USA' WHERE no=1")
+    conn.commit()
+    lead = dict(conn.execute("SELECT * FROM leads WHERE no=1").fetchone())
+    assert executors._sequence_for(conn, lead) == conn.execute(
+        "SELECT id FROM sequences WHERE name=?", (name_for("general", False),)).fetchone()[0]
+
+
+def test_korea_never_gets_the_english_segment_sequence(conn):
+    from app.agent import executors
+    from app.seed_sequences import name_for, seed_all
+    seed_all(conn)
+    conn.execute("UPDATE leads SET tags='租赁商', country='South Korea' WHERE no=1")
+    conn.commit()
+    lead = dict(conn.execute("SELECT * FROM leads WHERE no=1").fetchone())
+    assert executors._sequence_for(conn, lead) == conn.execute(
+        "SELECT id FROM sequences WHERE name=?", (name_for("rental", True),)).fetchone()[0]
 
 
 def test_market_allocation_explores_first_then_uses_real_reply_rate(conn, monkeypatch):

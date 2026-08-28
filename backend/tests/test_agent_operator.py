@@ -118,9 +118,9 @@ def test_autonomous_discovery_imports_only_evidence_backed_contactable_buyers(
         return {"checked": len(lead_nos), "valid": len(lead_nos)}
 
     monkeypatch.setattr("app.verify.verify_leads", verified)
-    sequences.create_sequence(conn, "Cold English", "email", [
-        {"day_offset": 0, "subject": "Hello", "body": "Hello {name}"},
-    ])
+    # docs/76: enrollment routes by segment, so the real sequences have to exist.
+    from app.seed_sequences import seed_all
+    seed_all(conn)
     proposals.set_autonomy(conn, "discover_run", "auto")
     p = proposals.create(conn, "discover_run", title="自动找客户",
                          payload={"queries": ["AV integrator"], "country": "USA"})
@@ -145,12 +145,10 @@ def test_autonomous_discovery_imports_only_evidence_backed_contactable_buyers(
 
 
 def test_autonomous_import_uses_korean_sequence_for_korean_leads(conn, monkeypatch):
-    english = sequences.create_sequence(conn, "Cold English", "email", [
-        {"day_offset": 0, "subject": "Hello", "body": "Hello"},
-    ])
-    korean = sequences.create_sequence(conn, "Cold Korean", "email", [
-        {"day_offset": 0, "subject": "안녕하세요", "body": "안녕하세요"},
-    ])
+    from app.seed_sequences import name_for, seed_all
+    seed_all(conn)
+    seq_id = lambda name: conn.execute(
+        "SELECT id FROM sequences WHERE name=?", (name,)).fetchone()[0]
     monkeypatch.setattr("app.discovery.run_discovery", lambda c, q, limit=10, **kwargs: [
         _candidate("seoul-av.kr", country="South Korea", fit=85),
     ])
@@ -165,8 +163,10 @@ def test_autonomous_import_uses_korean_sequence_for_korean_leads(conn, monkeypat
                      payload={"queries": ["LED integrator"], "country": "South Korea"})
     enrolled = conn.execute(
         "SELECT sequence_id FROM sequence_enrollments ORDER BY id DESC LIMIT 1").fetchone()
-    assert enrolled["sequence_id"] == korean
-    assert enrolled["sequence_id"] != english
+    # An integrator in Korea: the Korean install sequence, not the English one and not
+    # the Korean general one (docs/76).
+    assert enrolled["sequence_id"] == seq_id(name_for("install", korean=True))
+    assert enrolled["sequence_id"] != seq_id(name_for("install", korean=False))
 
 
 def test_autonomous_discovery_rejects_a_domain_that_cannot_receive_email_before_import(
