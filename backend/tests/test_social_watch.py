@@ -33,10 +33,12 @@ def conn(tmp_path):
 
 
 class FakeEngine:
-    def __init__(self, pages=None, fail=()):
+    def __init__(self, pages=None, fail=(), follow_fails=False):
         self.pages = pages or {}
         self.fail = set(fail)
+        self.follow_fails = follow_fails
         self.seen: list[str] = []
+        self.followed: list[str] = []
 
     def read_profile(self, channel, handle):
         self.seen.append(handle)
@@ -44,6 +46,19 @@ class FakeEngine:
             raise RuntimeError("需要登录才能看")
         return {"handle": handle, "channel": channel,
                 "url": f"https://x/{handle}", "text": self.pages.get(handle, "")}
+
+    def follow(self, channel, handle):
+        if self.follow_fails:
+            raise RuntimeError("action blocked")
+        self.followed.append(handle)
+        return {"handle": handle, "already": False}
+
+
+# A real bio, from the account Allen pointed at.
+REAL_BIO = ("DC Event Production - LED Walls, Photo Booth, Dance Floors, Event "
+            "Technology, AV Production & More. 20+ Years of D.C. "
+            "18630 Woodfield Rd Suite A, Gaithersburg, Maryland 20879. "
+            "electriceventsdc.com")
 
 
 # --- what a visit is for -----------------------------------------------------------
@@ -152,3 +167,55 @@ def test_a_published_email_fills_a_blank_but_never_replaces_one(conn):
 
 def test_a_lead_with_no_handle_is_never_a_target(conn):
     assert 3 not in [t["lead_no"] for t in watch.due_profiles(conn)]
+
+
+# --- following, added by docs/72 --------------------------------------------------
+
+def test_a_real_led_company_is_followed(conn):
+    engine = FakeEngine(pages={"verumav": REAL_BIO})
+    out = watch.watch(conn, engine, limit=1, sleeper=lambda _s: None)
+    assert engine.followed == ["verumav"]
+    assert out["followed"] == 1
+
+
+def test_a_bio_with_nothing_checkable_is_not_followed(conn):
+    """Following an unrelated account also makes this account's following list look
+    less like someone in the LED trade, which platforms read."""
+    engine = FakeEngine(pages={"verumav": "We love LED walls"})
+    watch.watch(conn, engine, limit=1, sleeper=lambda _s: None)
+    assert engine.followed == []
+
+
+def test_a_bio_that_is_not_this_trade_at_all_is_not_followed(conn):
+    engine = FakeEngine(pages={"verumav": "Wedding photography · hello@snaps.com"})
+    watch.watch(conn, engine, limit=1, sleeper=lambda _s: None)
+    assert engine.followed == []
+
+
+def test_the_follow_budget_is_tighter_than_the_reading_budget():
+    # Following is a write action, and platforms tolerate those far less.
+    assert watch.FOLLOW_LIMIT < watch.DAILY_LIMIT
+
+
+def test_a_refused_follow_stops_all_following_for_the_day(conn):
+    """A platform refusing a write action is its last warning before a block."""
+    engine = FakeEngine(pages={"verumav": REAL_BIO, "kinotonkorea": REAL_BIO},
+                        follow_fails=True)
+    watch.watch(conn, engine, limit=2, sleeper=lambda _s: None)
+    assert engine.followed == []
+    assert watch.follows_left(conn) == 0
+
+
+def test_reading_continues_after_a_follow_is_refused(conn):
+    # The read budget and the write budget are different resources.
+    engine = FakeEngine(pages={"verumav": REAL_BIO, "kinotonkorea": REAL_BIO},
+                        follow_fails=True)
+    out = watch.watch(conn, engine, limit=2, sleeper=lambda _s: None)
+    assert out["looked"] == 2
+
+
+def test_the_bio_website_is_saved_onto_the_record(conn):
+    engine = FakeEngine(pages={"verumav": REAL_BIO})
+    watch.watch(conn, engine, limit=1, sleeper=lambda _s: None)
+    site = conn.execute("SELECT website FROM leads WHERE no=1").fetchone()[0]
+    assert site == "electriceventsdc.com"

@@ -36,6 +36,23 @@ _K_DATE = "social_watch_date"
 _K_COUNT = "social_watch_count"
 _K_FAILED = "social_watch_failed"
 
+# Following is a write action, and platforms tolerate those far less than reads: a burst
+# of follows is one of the oldest ban signatures there is. Ten a day is 300 a month,
+# already more than Allen follows by hand (docs/72 R2).
+FOLLOW_LIMIT = 10
+_K_FOLLOWS = "social_follow_count"
+_K_FOLLOW_BLOCKED = "social_follow_blocked_date"
+
+# What a bio has to say before this account is worth a follow and a message. Half of it
+# is not enough: following an unrelated account also makes this account's following list
+# look less like a person in the LED trade, which is one of the things platforms read.
+_ICP_WORDS = (
+    "led wall", "led walls", "led screen", "led display", "video wall", "videowall",
+    "led panel", "digital signage", "av production", "event production",
+    "event technology", "stage", "rental", "전광판", "led 디스플레이", "렌탈",
+    "pantalla led", "painel de led", "locação",
+)
+
 # What a post is worth stopping on. These are the words that mean "there is work
 # happening", in the languages his market writes in.
 _SIGNALS: dict[str, tuple[str, ...]] = {
@@ -54,8 +71,15 @@ _SIGNALS: dict[str, tuple[str, ...]] = {
 # is new (docs/71 R4).
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _PHONE = re.compile(r"\+?\d[\d\s().-]{7,17}\d")
-_SITE = re.compile(r"https?://(?!(?:www\.)?(?:instagram|facebook|fb)\.com)"
-                   r"(?:www\.)?([a-z0-9-]+\.[a-z.]{2,})", re.I)
+# A bio writes its website bare — "electriceventsdc.com", no scheme — so the scheme has
+# to be optional. But a loose pattern then reads "20+ Years of D.C." as a domain, so the
+# ending is checked against real TLDs rather than "two or more letters".
+_TLD = (r"com|net|org|io|co|biz|info|tv|us|ca|au|nz|uk|de|fr|it|es|cz|pl|se|nl|br|mx|"
+        r"ar|cl|pe|co|kr|jp|cn|in|ph|vn|th|my|sg|ae|za|ru|tr|gr|pt|ie|fi|no|dk")
+_SITE = re.compile(
+    r"(?<![@\w.])(?!(?:www\.)?(?:instagram|facebook|fb|linkedin|youtube|tiktok)\.)"
+    rf"((?:[a-z0-9][a-z0-9-]*\.)+(?:{_TLD})(?:\.(?:{_TLD}))?)(?![a-z0-9])",
+    re.I)
 
 
 def _today() -> str:
@@ -141,6 +165,35 @@ def read_contacts(text: str) -> dict:
     return out
 
 
+def follows_left(conn) -> int:
+    if settings.get(conn, _K_FOLLOW_BLOCKED) == _today():
+        return 0        # the platform refused once today; docs/72 R2 says stop
+    if settings.get(conn, _K_DATE) != _today():
+        return FOLLOW_LIMIT
+    try:
+        return max(0, FOLLOW_LIMIT - int(settings.get(conn, _K_FOLLOWS) or 0))
+    except ValueError:
+        return FOLLOW_LIMIT
+
+
+def looks_like_a_customer(text: str) -> tuple[bool, str]:
+    """(worth following, why not).
+
+    Two things must be true: the bio says what they do, and something in it can be
+    checked — a site, an address, a number. A bio that only says "LED" could be anyone,
+    including a competitor's marketing account, and following it costs more than the
+    wasted slot (docs/72 R3).
+    """
+    low = (text or "").lower()
+    word = next((w for w in _ICP_WORDS if w in low), None)
+    if not word:
+        return False, "简介里看不出是做 LED 这一行的"
+    contacts = read_contacts(text)
+    if not contacts:
+        return False, "简介里没有官网/邮箱/电话，无从验证"
+    return True, ""
+
+
 def due_profiles(conn, limit: int = DAILY_LIMIT) -> list[dict]:
     """Customers with a handle we have not looked at recently.
 
@@ -181,7 +234,7 @@ def watch(conn, engine, limit: int | None = None,
                 "failures": 0}
 
     targets = due_profiles(conn, budget)
-    looked = facts = failures = 0
+    looked = facts = failures = followed = 0
     for i, target in enumerate(targets):
         try:
             profile = engine.read_profile(target["channel"], target["handle"])
@@ -198,9 +251,53 @@ def watch(conn, engine, limit: int | None = None,
         _spend(conn)
         looked += 1
         facts += _record(conn, target, profile)
+        outcome = follow_if_worth_it(conn, engine, target, profile)
+        if outcome == "已关注":
+            followed += 1
         if i + 1 < len(targets):
             sleeper(random.randint(*GAP_SECONDS))
-    return {"looked": looked, "facts": facts, "failures": failures, "skipped": ""}
+    return {"looked": looked, "facts": facts, "failures": failures,
+            "followed": followed, "skipped": ""}
+
+
+def _spend_follow(conn) -> None:
+    settings.set_value(conn, _K_DATE, _today())
+    try:
+        used = int(settings.get(conn, _K_FOLLOWS) or 0)
+    except ValueError:
+        used = 0
+    settings.set_value(conn, _K_FOLLOWS, str(used + 1))
+
+
+def follow_if_worth_it(conn, engine, target: dict, profile: dict) -> str:
+    """Follow this account when the bio shows a real LED buyer (docs/72 R3).
+
+    Returns a short outcome for the report. Following an unrelated account costs more
+    than the wasted slot: it makes this account's following list look less like someone
+    in the LED trade, which is one of the things a platform reads.
+    """
+    worth, why = looks_like_a_customer(profile.get("text", ""))
+    if not worth:
+        return f"不关注：{why}"
+    if follows_left(conn) <= 0:
+        return "今天的关注额度用完了"
+    try:
+        result = engine.follow(target["channel"], target["handle"])
+    except Exception as exc:  # noqa: BLE001
+        # The platform refusing a write action is its last warning before a block.
+        settings.set_value(conn, _K_FOLLOW_BLOCKED, _today())
+        relationship_events.record(
+            conn, target["lead_no"], "fact", f"关注失败，今天不再关注任何人：{str(exc)[:60]}",
+            source="agent", channel=target["channel"])
+        return f"关注失败，当天停止关注：{str(exc)[:50]}"
+    _spend_follow(conn)
+    if result.get("already"):
+        return "本来就已关注"
+    relationship_events.record(
+        conn, target["lead_no"], "fact", f"已关注 {target['channel']} @{target['handle']}",
+        source="agent", channel=target["channel"],
+        detail={"url": profile.get("url")})
+    return "已关注"
 
 
 def _record(conn, target: dict, profile: dict) -> int:

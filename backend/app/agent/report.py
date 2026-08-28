@@ -177,8 +177,11 @@ def _development_section(conn, day: str) -> list[str]:
     from app import social_watch
     looked = social_watch.DAILY_LIMIT - social_watch.remaining(conn)
     if looked:
-        lines.append(f"  看了 {looked} 家的社媒主页"
-                     f"（每天最多 {social_watch.DAILY_LIMIT} 家，为的是保住账号）")
+        followed = social_watch.FOLLOW_LIMIT - social_watch.follows_left(conn)
+        line = f"  看了 {looked} 家的社媒主页（每天最多 {social_watch.DAILY_LIMIT} 家）"
+        if followed:
+            line += f"，其中 {followed} 家判定是真客户、已关注"
+        lines.append(line)
     if not new_leads and not enriched:
         lines.append("  今天没有开发到新客户，也没有补到老客户的新信息"
                      + (f"（跑了 {runs} 轮搜索）" if runs else "（今天没有跑开发）"))
