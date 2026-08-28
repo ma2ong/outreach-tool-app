@@ -1,23 +1,23 @@
-"""A third angle that stops selling and asks who buys (docs/74 R4).
+"""A third angle that puts the whole product line on the table (docs/74 R4).
 
 `_switch_angle` had nowhere to go. Every enrollment it wanted to move was already on
 angle two, so the fallback fired and 75 follow-ups parked in `quality_hold` — the same
 standstill docs/67 had to rescue 110 letters from, reappearing for the same reason.
 
-The angle had to differ in kind, not in wording:
+The first draft of this angle stopped selling and only asked who buys. Allen rejected it
+outright — "还是要继续推销、提产品、提能力" — and the rule is broader than this file: a
+letter may not dodge the product gate by declining to mention products. Writing around
+the gate spares us the work, not the customer.
 
-    angle one    we manufacture LED panels, tell me about your project   361 sent, 1 reply
+What makes it a third angle is what it asks for, not what it withholds:
+
+    angle one    we manufacture LED panels — now describe your project   361 sent, 1 reply
     angle two    which cabinet are you running?                          sending
-    angle three  two letters, no reply — I think I have the wrong person
+    angle three  here is the whole pitch range; say a word, get the sheet
 
-It makes no product claim, no capability claim and no case claim, so it cannot trip the
-case gate, the product gate or docs/45. That is not a convenience: after two unanswered
-letters the most likely explanation is not that the pitch was wrong but that it reached
-somebody who does not buy displays, and this letter addresses exactly that. It is the
-writing half of the same job `decision_maker_radar` does by reading public pages.
-
-Run:  python -m app.seed_angle3            # preview
-      python -m app.seed_angle3 --apply
+Angle one wanted a project brief, angle two wanted their current kit. This one wants
+nothing: every pitch in it traces to a row in the product library, and the reply it asks
+for is a single word.
 """
 from __future__ import annotations
 
@@ -30,39 +30,46 @@ EN_NAME = "冷邮件 3 步跟进（英语·角度三）"
 KO_NAME = "冷邮件 3 步跟进（韩语·角度三）"
 
 EN_STEPS = [
-    (0, 0, "{company} — wrong person?", """Hi {contact},
+    (0, 0, "{company} — P0.7 to P10, our own factory", """Hi {contact},
 
-I've written twice about LED displays and heard nothing, which usually means I'm writing
-to the wrong desk.
+We build LED panels at our own factory in Shenzhen, so cabinets are cut to your size:
 
-Who handles display purchasing at {company}? One name and I'll take it from there —
-and stop writing to you.
+  fine pitch P0.7-P1.8 · indoor P2-P3 · rental P2.6-P4.8 · outdoor fixed P4-P10
+
+{fit}
+
+Which line is closest to your work? Say the word and the spec sheet goes out today.
 
 """ + EN_SIGN),
-    (1, 5, "Re: {company} — wrong person?", """Hi {contact},
+    (1, 5, "Re: {company} — P0.7 to P10, our own factory", """Hi {contact},
 
-Still just after a name — whoever specs or buys the screens.
+Short version: fine pitch, rental and outdoor — we make all three ourselves, and we cut
+cabinets to your size.
 
-If that's nobody, say so and I'll close the file.
+One line back and the sheet is with you today. Not your area? Point me at whoever
+handles displays.
 
 """ + EN_SIGN),
 ]
 
 KO_STEPS = [
-    (0, 0, "{company} — 담당자가 다른 분이신가요?", """안녕하세요, {contact}님.
+    (0, 0, "{company} — P0.7~P10, 자체 공장 생산", """안녕하세요, {contact}님.
 
-LED 디스플레이 관련해서 두 번 메일 드렸는데 회신이 없어서요. 보통은 담당이 아닌 분께
-보냈다는 뜻이더라고요.
+저희는 선전 자체 공장에서 LED 패널을 직접 생산합니다. 캐비닛은 사이즈 맞춤 제작됩니다.
 
-{company}에서 디스플레이 구매는 어느 분이 담당하시나요? 성함만 알려주시면
-그분께 연락드리고, {contact}님께는 더 이상 메일 드리지 않겠습니다.
+  파인피치 P0.7-P1.8 · 실내 P2-P3 · 렌탈 P2.6-P4.8 · 실외 고정 P4-P10
+
+{fit_ko}
+
+어느 라인이 가장 가까우신가요? 말씀만 주시면 사양서를 오늘 보내드리겠습니다.
 
 """ + KO_SIGN),
-    (1, 5, "Re: {company} — 담당자가 다른 분이신가요?", """안녕하세요, {contact}님.
+    (1, 5, "Re: {company} — P0.7~P10, 자체 공장 생산", """안녕하세요, {contact}님.
 
-성함만 알려주시면 됩니다 — 화면 사양이나 구매를 보시는 분이요.
+간단히 말씀드리면 — 파인피치, 렌탈, 실외 전부 자체 생산하고 캐비닛은 사이즈 맞춤입니다.
 
-해당하는 분이 안 계시면 그렇게 말씀해 주세요. 여기서 정리하겠습니다.
+한 줄만 주시면 오늘 사양서 보내드리겠습니다. 담당이 아니시면 디스플레이 담당자분만
+알려주세요.
 
 """ + KO_SIGN),
 ]

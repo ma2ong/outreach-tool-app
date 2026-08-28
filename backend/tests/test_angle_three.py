@@ -76,3 +76,47 @@ def test_nothing_is_revived_when_there_is_no_further_angle(conn):
     a3, = _angles(conn, "冷邮件（英语·角度三）")
     _enrol(conn, a3, status="quality_hold")
     assert fd.revive_parked(conn) == 0
+
+
+# --- the copy has to keep selling (docs/74 R4) --------------------------------------
+
+def test_every_angle_names_products_and_capability():
+    """Allen rejected the first angle three for dropping the pitch: "还是要继续推销、
+    提产品、提能力". Writing around the product gate spares us the work, not the customer,
+    so this is asserted rather than left to whoever edits the copy next."""
+    from app.agent.send_decision import _PRODUCT_CLAIM_RE
+    from app import seed_angle2, seed_angle3
+    for label, steps in (("角度二 EN", seed_angle2.EN_STEPS),
+                         ("角度二 KO", seed_angle2.KO_STEPS),
+                         ("角度三 EN", seed_angle3.EN_STEPS),
+                         ("角度三 KO", seed_angle3.KO_STEPS)):
+        opener = steps[0][2] + "\n" + steps[0][3]
+        assert _PRODUCT_CLAIM_RE.search(opener), f"{label} 的开场白不提产品"
+
+
+def test_every_pitch_quoted_traces_to_the_product_library(conn):
+    """docs/45: a claim without a source is not written. The letter may only name pitches
+    that exist as rows, so nobody can widen the range in the copy alone."""
+    import re
+    from app import seed_angle3
+    conn.executescript("""
+        DELETE FROM products;
+        INSERT INTO products(model, pixel_pitch, agent_approved) VALUES
+            ('Indoor Fine Pitch','P0.7-P1.8',1), ('Indoor Commercial','P2-P3',1),
+            ('Indoor Rental','P2.6-P3.9',1), ('Outdoor Rental','P3.9-P4.8',1),
+            ('Outdoor Fixed','P4-P10',1);
+    """)
+    conn.commit()
+    bounds = set()
+    for row in conn.execute("SELECT pixel_pitch FROM products"):
+        bounds.update(re.findall(r"\d+(?:\.\d+)?", row["pixel_pitch"]))
+    quoted = set(re.findall(r"P(\d+(?:\.\d+)?)", seed_angle3.EN_STEPS[0][3]))
+    assert quoted and quoted <= bounds, f"信里的点间距不在产品库内：{quoted - bounds}"
+
+
+def test_a_letter_carrying_a_price_is_still_refused():
+    # ref_price_sqm never leaves the library, and the guard is the second lock.
+    from app import message_guard
+    lead = {"no": 1, "company_en": "Verum AV", "city": "Houston"}
+    verdict = message_guard.check("Rental P2.6 at USD 1200/sqm.", lead, subject="Quote")
+    assert verdict.blocked and verdict.reason == "pricing"

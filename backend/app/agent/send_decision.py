@@ -23,9 +23,11 @@ _CASE_CLAIM_RE = re.compile(
     r"|\brecent\b.{0,50}\bprojects?\b"
     r"|납품|설치사례|최근.{0,40}프로젝트", re.I | re.S,
 )
+# 패널 / 피치 were missing, so a Korean letter could claim what we manufacture
+# without ever reaching the product gate — its English half could not.
 _PRODUCT_CLAIM_RE = re.compile(
     r"\bP\s*\d+(?:\.\d+)?\b|\bpixel\s+pitch\b|\bindoor\b|\boutdoor\b"
-    r"|\bpanels?\b|실내|실외|제품", re.I,
+    r"|\bpanels?\b|실내|실외|제품|패널|피치", re.I,
 )
 
 
