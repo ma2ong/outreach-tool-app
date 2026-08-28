@@ -4,7 +4,7 @@ import re
 import time
 from typing import Callable
 
-from app import campaigns
+from app import campaigns, recontact
 from app.personalize import render
 
 # per-channel: which lead column holds the contact target
@@ -129,10 +129,9 @@ def eligible(conn, lead_nos: list[int], channel: str) -> list[dict]:
               AND l.no NOT IN (
                   SELECT lead_no FROM send_log
                   WHERE date(sent_at, 'localtime')=date('now', 'localtime'))
-              AND l.no NOT IN (
-                  SELECT lead_no FROM outreach WHERE channel=? AND status IN ('messaged','replied'))
+              AND l.no NOT IN ({recontact.BLOCKED_SQL})
             ORDER BY l.no""",
-        [*lead_nos, channel, channel],
+        [*lead_nos, channel, *recontact.blocked_params(channel)],
     ).fetchall()
     return [dict(r) for r in rows]
 

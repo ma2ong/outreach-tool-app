@@ -61,6 +61,21 @@ def _distinctive_terms(lead: dict) -> list[str]:
     return list(dict.fromkeys(terms))
 
 
+def can_be_addressed(lead: dict) -> bool:
+    """Whether a first cold letter to this lead could pass `check` at all.
+
+    Callers that build a queue use this to leave out records the guard would refuse
+    anyway. Enrolling them regardless does not send more mail — it parks them in
+    `quality_hold` and quietly shortens the day, which is the failure seed_angle2 found
+    110 follow-ups sitting in.
+    """
+    name = str(lead.get("company_en") or "").strip()
+    # A row whose company name is somebody's mailbox cannot be written to by name.
+    if not name or "@" in name:
+        return False
+    return bool(_distinctive_terms(lead))
+
+
 def check(body: str, lead: dict, *, subject: str = "", channel: str = "email",
           step_order: int = 0) -> Verdict:
     """Judge exactly the subject/body that would be handed to the sender."""

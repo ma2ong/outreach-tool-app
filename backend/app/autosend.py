@@ -169,6 +169,55 @@ def should_run(conn, now: _dt.datetime | None = None) -> bool:
     return True
 
 
+def _top_up(conn, gap: int) -> int:
+    """Fill a thin day with companies that have gone cold long enough (docs/73 R3).
+
+    Relaxing `eligible_leads` alone changes nothing: this runs the due sequence steps and
+    never looks at that pool, so without a way in, the 322 re-approachable companies stay
+    exactly as idle as the bookkeeping had left them.
+
+    Korea keeps Korean and every other country gets English (docs/67 R1), decided by
+    country here rather than left to the sequence — `language_blocked` only guards the
+    Korean sequence, so an unrouted Korean lead would quietly receive the English letter.
+    """
+    from app import message_guard, recontact, sequences
+    from app.seed_angle2 import EN_NAME, KO_NAME
+
+    # Cooled down is not the same as writable. 44 of the 321 re-approachable records have
+    # somebody's mailbox in the company-name column, and another 77 carry a real name with
+    # nothing personal to say about it; the guard refuses both at send time. Filtering here
+    # means `gap` is filled with letters that will actually go out.
+    candidates = recontact.reapproachable(conn, "email")
+    if not candidates:
+        return 0
+    # `IN (...)` does not preserve order, so the longest-silent-first ordering that
+    # `reapproachable` established is re-applied here rather than lost to rowid order.
+    facts = {r["no"]: dict(r) for r in conn.execute(
+        "SELECT no, company_en, website, city, hook FROM leads WHERE no IN (%s)"
+        % ",".join("?" * len(candidates)), candidates)}
+    ids = []
+    for no in candidates:
+        if message_guard.can_be_addressed(facts.get(no, {})):
+            ids.append(no)
+            if len(ids) >= gap:
+                break
+    if not ids:
+        return 0
+    sid = {}
+    for name in (EN_NAME, KO_NAME):
+        row = conn.execute("SELECT id FROM sequences WHERE name=?", (name,)).fetchone()
+        if row:
+            sid[name] = row["id"]
+    if KO_NAME not in sid or EN_NAME not in sid:
+        return 0
+    # Leads the Korean sequence does *not* block are the Korean-country ones.
+    korean = set(ids) - set(sequences.language_blocked(conn, sid[KO_NAME], ids))
+    added = sequences.enroll_leads(conn, sid[KO_NAME], sorted(korean))
+    added += sequences.enroll_leads(
+        conn, sid[EN_NAME], [i for i in ids if i not in korean])
+    return added
+
+
 def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None = None,
              email_delay=EMAIL_DELAY) -> dict:
     """Evaluate and send today's due EMAIL steps within budget; record the outcome."""
@@ -181,6 +230,13 @@ def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None =
         from app import local_time
 
         due = sequences.due_queue(conn, "email")
+        # A day with fewer follow-ups due than budget is not a day to send less; it is a
+        # day to bring back companies that have been silent long enough to be prospects
+        # again (docs/73 R3). Top up to the budget, never past it.
+        from app import outreach as _outreach
+        gap = _outreach.remaining_today(conn) - len(due)
+        if gap > 0 and _top_up(conn, gap):
+            due = sequences.due_queue(conn, "email")
         # His window is the outer bound (R1); the recipient's small hours are the veto
         # (R2). Anything held back stays due and goes tomorrow — these are follow-ups,
         # and a day costs nothing (docs/66 R4).

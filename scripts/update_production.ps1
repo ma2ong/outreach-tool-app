@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 
 function Assert-LastExit([string]$Step) {
     if ($LASTEXITCODE -ne 0) {

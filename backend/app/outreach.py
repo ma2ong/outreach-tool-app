@@ -3,7 +3,7 @@ import random
 import time
 from typing import Callable
 
-from app import campaigns, message_guard
+from app import campaigns, message_guard, recontact
 from app.personalize import render
 
 # Email needs the same anti-ban discipline as WhatsApp/Instagram. A single mailbox that
@@ -55,10 +55,9 @@ def eligible_leads(conn, lead_nos: list[int], channel: str) -> list[dict]:
               AND l.no NOT IN (
                   SELECT lead_no FROM send_log
                   WHERE date(sent_at, 'localtime')=date('now', 'localtime'))
-              AND l.no NOT IN (
-                  SELECT lead_no FROM outreach WHERE channel=? AND status IN ('messaged','replied'))
+              AND l.no NOT IN ({recontact.BLOCKED_SQL})
             ORDER BY l.no""",
-        [*lead_nos, channel],
+        [*lead_nos, *recontact.blocked_params(channel)],
     ).fetchall()
     return [dict(r) for r in rows]
 
