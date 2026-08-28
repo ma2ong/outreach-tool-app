@@ -5,10 +5,10 @@ line — and never invents a new classifier. Change a customer's type in the lea
 the next letter changes with it, which is the point: the segment is his judgement, stored
 where he already keeps it.
 
-`general` is not a leftover bin. It is the largest segment (789 companies), and it exists
-because guessing wrongly is worse than writing neutrally: a letter that opens by telling
-a signage company how their rental business works has already lost. docs/45 applies to
-copy as much as to CRM fields — not knowing what they do means not pretending to.
+`general` is not a leftover bin. It is the second-largest segment, and it exists because
+guessing wrongly is worse than writing neutrally: a letter that opens by telling a signage
+company how their rental business works has already lost. docs/45 applies to copy as much
+as to CRM fields — not knowing what they do means not pretending to.
 """
 from __future__ import annotations
 
@@ -16,21 +16,25 @@ import re
 
 from app import customer_types as ct
 
-SEGMENTS = ("rental", "install", "outdoor", "indoor", "reseller", "general")
+SEGMENTS = ("rental", "install", "outdoor", "general")
 
 LABEL = {
     "rental": "活动租赁", "install": "固定安装", "outdoor": "户外为主",
-    "indoor": "室内为主", "reseller": "代理批发", "general": "类型未知",
+    "general": "中性版",
 }
 
 # Allen's tags come first: they are the only signal he set by hand.
+#
+# 透明屏 (3 companies) and 代理商/批发商 (20) had segments of their own until Allen folded
+# them into the neutral letter: "室内为主，代理批发也都归类到中性版". 23 companies do not
+# pay for a version of the copy that has to be rewritten in two languages every time he
+# changes his mind about the pitch. They are absent here rather than mapped to "general"
+# so the fall-through does the work in one place.
 FROM_TYPE = {
     "租赁商": "rental",
     "工程商": "install", "系统集成商": "install",
     "广告商": "outdoor",
-    "透明屏": "indoor",
-    "代理商": "reseller", "批发商": "reseller",
-    # 终端用户 buys for itself, which says nothing about indoor vs outdoor — it falls
+    # 终端用户 buys for itself, which says nothing about how they use a screen — it falls
     # through to the business text rather than being forced into a segment.
 }
 
@@ -39,15 +43,11 @@ FROM_FIT = (
     ("租赁", "rental"),
     ("集成", "install"), ("AV", "install"),
     ("标识", "outdoor"), ("广告牌", "outdoor"),
-    ("经销", "reseller"),
 )
 
 _OUTDOOR_WORDS = re.compile(
     r"billboard|out-?of-?home|\bDOOH\b|facade|fa[çc]ade|stadium|highway|roadside"
     r"|户外|广告牌|楼体|led 옥외|옥외", re.I)
-_INDOOR_WORDS = re.compile(
-    r"retail store|showroom|broadcast studio|tv studio|control room|boardroom"
-    r"|conference room|室内|演播|控制室|会议室|실내", re.I)
 _RENTAL_WORDS = re.compile(
     r"\brental\b|\bstaging\b|concert|festival|touring|live event|舞台|演唱会|租赁"
     r"|렌탈|무대", re.I)
@@ -75,8 +75,6 @@ def segment_of(lead: dict) -> str:
         return "install"
     if _OUTDOOR_WORDS.search(text):
         return "outdoor"
-    if _INDOOR_WORDS.search(text):
-        return "indoor"
     return "general"
 
 

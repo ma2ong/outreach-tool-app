@@ -63,25 +63,6 @@ We build outdoor LED in Shenzhen — {fit}. P4-P10, 5,500-8,000 nits, front-serv
 What size and viewing distance are you working with? One line back and I'll send the
 sheet for that pitch.
 """),
-    "indoor": ("{company} — how close does your audience get?", """Hi {contact},
-
-{hook}
-
-We build indoor LED in Shenzhen — {fit}. Fine pitch P0.7-P1.8 for close viewing, P2-P3
-for rooms.
-
-How close do people stand? That one number decides the pitch, and I'll send the sheet
-for it.
-"""),
-    "reseller": ("{company} — the factory, not a trader", """Hi {contact},
-
-{hook}
-
-We make the panels ourselves in Shenzhen — {fit}. P0.7 through P10, our own cabinets,
-so the lead time is ours to promise rather than pass on.
-
-Which line do your customers ask for most? I'll send that sheet and what we can do on it.
-"""),
     "general": ("{company} — which cabinet are you running?", """Hi {contact},
 
 {hook}
@@ -97,8 +78,6 @@ EN_SECOND = {
     "rental": "Just the brand of cabinet you use is enough — that tells me whether our\npanels will mix with your stock.",
     "install": "Even a rough size and pitch is enough — that tells me whether we're worth\nputting on your vendor list.",
     "outdoor": "Even the screen size is enough — that tells me which pitch and brightness\nyou'd be comparing.",
-    "indoor": "Even the room and the viewing distance is enough — that tells me the pitch.",
-    "reseller": "Just the pitch your customers ask for most is enough to tell me whether\nwe're a fit.",
     "general": "Just the brand of cabinet you use is enough — that tells me whether we're\nworth your time.",
 }
 
@@ -134,25 +113,6 @@ P4-P10, 전면·후면 유지보수 모두 됩니다.
 
 크기와 시청 거리가 어떻게 되나요? 한 줄만 주시면 해당 피치 사양서를 보내드리겠습니다.
 """),
-    "indoor": ("{company} — 시청 거리가 어떻게 되나요?", """안녕하세요, {contact}님.
-
-{hook_ko}
-
-저희는 선전에서 실내 LED를 직접 만듭니다 — {fit_ko}. 근거리는 파인피치 P0.7-P1.8,
-일반 공간은 P2-P3입니다.
-
-사람이 얼마나 가까이서 보나요? 그 거리 하나로 피치가 정해집니다. 알려주시면 사양서
-보내드리겠습니다.
-"""),
-    "reseller": ("{company} — 중간상이 아니라 공장입니다", """안녕하세요, {contact}님.
-
-{hook_ko}
-
-저희는 선전에서 직접 생산합니다 — {fit_ko}. P0.7부터 P10까지, 캐비닛도 자체 생산이라
-납기를 저희가 약속드릴 수 있습니다.
-
-고객사에서 가장 많이 찾는 피치가 어떤 건가요? 그 라인 사양서와 조건 보내드리겠습니다.
-"""),
     "general": ("{company} — 현재 어떤 캐비닛 쓰고 계신가요?", """안녕하세요, {contact}님.
 
 {hook_ko}
@@ -168,8 +128,6 @@ KO_SECOND = {
     "rental": "쓰시는 캐비닛 브랜드만 알려주셔도 됩니다. 기존 장비와 맞는지 바로 판단됩니다.",
     "install": "대략적인 크기와 피치만으로도 충분합니다. 협력업체 목록에 넣을 만한지 판단됩니다.",
     "outdoor": "화면 크기만 알려주셔도 됩니다. 어떤 피치와 밝기를 비교하실지 나옵니다.",
-    "indoor": "공간과 시청 거리만 알려주셔도 피치가 나옵니다.",
-    "reseller": "고객사에서 가장 많이 찾는 피치만 알려주셔도 충분합니다.",
     "general": "쓰시는 캐비닛 브랜드만 알려주셔도 충분합니다.",
 }
 

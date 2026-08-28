@@ -16,9 +16,6 @@ from app import copy_segments as cs
     ("工程商", "install"),
     ("系统集成商", "install"),
     ("广告商", "outdoor"),
-    ("透明屏", "indoor"),
-    ("代理商", "reseller"),
-    ("批发商", "reseller"),
 ])
 def test_allens_own_tag_decides(tag, segment):
     assert cs.segment_of({"tags": tag}) == segment
@@ -42,11 +39,17 @@ def test_target_fit_is_used_when_no_type_was_set():
     assert cs.segment_of({"target_fit": "标识/广告牌 (70)"}) == "outdoor"
 
 
+@pytest.mark.parametrize("tag", ["透明屏", "代理商", "批发商"])
+def test_the_folded_segments_get_the_neutral_letter(tag):
+    """These had segments of their own until Allen folded them in: "室内为主，代理批发
+    也都归类到中性版". 23 companies do not pay for copy maintained in two languages."""
+    assert cs.segment_of({"tags": tag}) == "general"
+
+
 @pytest.mark.parametrize("text,segment", [
     ("We provide staging and rental LED for concerts", "rental"),
     ("Systems integrator, commercial AV installation", "install"),
     ("Digital billboard and facade advertising", "outdoor"),
-    ("Retail store and broadcast studio displays", "indoor"),
     ("무대 렌탈 전문", "rental"),
     ("LED 시공 전문 업체", "install"),
 ])
@@ -64,6 +67,10 @@ def test_an_end_user_is_not_forced_into_a_segment():
     business text rather than inventing indoor or outdoor."""
     assert cs.segment_of({"tags": "终端用户"}) == "general"
     assert cs.segment_of({"tags": "终端用户", "business": "stadium facade"}) == "outdoor"
+
+
+def test_there_are_only_four_segments():
+    assert cs.SEGMENTS == ("rental", "install", "outdoor", "general")
 
 
 def test_every_segment_has_a_label_and_a_sequence():
