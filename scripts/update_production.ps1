@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 
 function Assert-LastExit([string]$Step) {
     if ($LASTEXITCODE -ne 0) {
@@ -45,12 +45,36 @@ npm --prefix "$repo\frontend" run build
 Assert-LastExit 'frontend build'
 
 Write-Host "`n[4/6] Restart local service" -ForegroundColor Green
+# The task is configured to restart on failure, so killing its process makes Task
+# Scheduler bring a new one up on its own. A blind sleep here then races that restart:
+# both processes reach for port 8000, the loser exits with WinError 10048, and the
+# deployment fails on a port that a healthy process is holding. So: wait for the port to
+# actually be free before starting, and wait for it to actually be taken afterwards.
+function Wait-Port8000([bool]$wantListening, [int]$seconds) {
+    for ($i = 0; $i -lt $seconds; $i++) {
+        $listening = [bool](Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue)
+        if ($listening -eq $wantListening) { return $true }
+        Start-Sleep -Seconds 1
+    }
+    return $false
+}
+
 Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" |
+    Where-Object { $_.CommandLine -like '*run_server.py*' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue |
     ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
-Start-Sleep -Seconds 3
+if (-not (Wait-Port8000 $false 30)) {
+    throw 'Port 8000 is still held after 30s. Something outside this script owns it.'
+}
 Start-ScheduledTask -TaskName $taskName
-Start-Sleep -Seconds 12
+if (-not (Wait-Port8000 $true 60)) {
+    Write-Host 'Service did not bind within 60s. Last lines of the server log:' -ForegroundColor Yellow
+    $log = Join-Path $repo ("backend\logs\server-{0:yyyy-MM-dd}.log" -f (Get-Date))
+    if (Test-Path $log) { Get-Content $log -Tail 25 | ForEach-Object { Write-Host "  $_" } }
+    throw 'Service failed to start.'
+}
 
 Write-Host "`n[5/6] Backup and runtime acceptance" -ForegroundColor Green
 Push-Location "$repo\backend"
