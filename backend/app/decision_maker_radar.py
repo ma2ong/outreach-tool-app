@@ -14,6 +14,7 @@ import re
 import sqlite3
 import urllib.parse
 
+from app import sales_intelligence
 from app.agent import proposals
 
 
@@ -416,9 +417,54 @@ def _scan_due(last_scanned: str | None, days: int, today: dt.date) -> bool:
     return (today - previous).days >= days
 
 
+def _cold_accounts_missing_authority(conn, today: dt.date, seen: set) -> list[dict]:
+    """Companies we are cold-emailing with nobody named to write to (docs/74 R3).
+
+    Until now the radar only read `opportunity_coach.portfolio` — accounts with an open
+    opportunity — so the leads that most need a name were the ones it never looked at. On
+    2026-08-28 that was 77 companies whose letters were refused for exactly this.
+
+    Emailing them is no longer blocked on knowing who buys; the gap becomes work instead
+    of silence, and this is the work.
+    """
+    # score_lead is called with _ensure=False per lead below, so its tables have to be
+    # there before the loop rather than created 77 times inside it.
+    sales_intelligence.ensure_schema(conn)
+    rows = conn.execute(
+        "SELECT DISTINCT e.lead_no, l.company_en, l.website FROM sequence_enrollments e"
+        " JOIN leads l ON l.no = e.lead_no"
+        " WHERE e.status='active' AND COALESCE(l.do_not_contact,0)=0"
+        "   AND COALESCE(l.stage,'new') NOT IN ('won','lost')"
+        " ORDER BY e.lead_no").fetchall()
+    out = []
+    for row in rows:
+        lead_no = row["lead_no"]
+        if lead_no in seen or not _domain(row["website"]):
+            continue
+        sales = sales_intelligence.score_lead(conn, lead_no, _ensure=False)
+        if not (sales or {}).get("missing_decision_maker"):
+            continue
+        scan_row = conn.execute(
+            "SELECT scanned_at FROM decision_maker_scans WHERE lead_no=?", (lead_no,)
+        ).fetchone()
+        # A cold account changes slowly; 30 days is the same floor the coach uses for its
+        # least urgent tier, and re-reading the same About page weekly is a signature.
+        if not _scan_due(scan_row["scanned_at"] if scan_row else None, 30, today):
+            continue
+        seen.add(lead_no)
+        out.append({"lead_no": lead_no, "company_en": row["company_en"], "stage": "cold",
+                    "severity": "low", "urgency": "cold",
+                    "missing_roles": list(ROLE_KINDS)})
+    return out
+
+
 def due_accounts(conn: sqlite3.Connection, *, today: dt.date | None = None,
                  limit: int = MAX_SWEEP_ACCOUNTS) -> list[dict]:
-    """High-value open opportunities missing authority, with a bounded research cadence."""
+    """Accounts missing authority, with a bounded research cadence.
+
+    Open opportunities come first — a deal that is live is worth more than a cold letter —
+    and cold accounts we are actively writing to fill whatever room is left.
+    """
     from app.agent import opportunity_coach
 
     ensure_schema(conn)
@@ -447,6 +493,9 @@ def due_accounts(conn: sqlite3.Connection, *, today: dt.date | None = None,
         })
         if len(out) >= max(1, min(int(limit), MAX_SWEEP_ACCOUNTS)):
             break
+    room = max(1, min(int(limit), MAX_SWEEP_ACCOUNTS)) - len(out)
+    if room > 0:
+        out.extend(_cold_accounts_missing_authority(conn, today, seen)[:room])
     return out
 
 

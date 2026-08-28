@@ -25,7 +25,9 @@ def conn(tmp_path, monkeypatch):
     return c, sid, eid
 
 
-def test_sequence_step_zero_uses_strict_first_touch_gate(conn, monkeypatch):
+def test_step_zero_still_goes_through_the_first_touch_gate(conn, monkeypatch):
+    """The gate stays; docs/74 R3 only took the decision-maker requirement out of it.
+    A company we cannot name a buyer at is exactly who this letter is for."""
     c, _, eid = conn
     monkeypatch.setattr(
         followup_decision.sales_intelligence, "score_lead",
@@ -33,9 +35,25 @@ def test_sequence_step_zero_uses_strict_first_touch_gate(conn, monkeypatch):
                          "data_incomplete": False, "missing_decision_maker": True},
     )
     d = followup_decision.evaluate(c, eid)
+    assert d["action"] == "continue"
+    assert "PR #20" in d["reason"]
+
+
+def test_a_letter_that_says_nothing_personal_is_still_refused(conn, monkeypatch):
+    """What replaced the score gate is not "no gate": docs/49 still stops a letter that
+    could have been sent to anyone."""
+    c, sid, eid = conn
+    c.execute("UPDATE sequence_steps SET body='Hello, we make LED panels.',"
+              " subject='LED' WHERE sequence_id=? AND step_order=0", (sid,))
+    c.commit()
+    monkeypatch.setattr(
+        followup_decision.sales_intelligence, "score_lead",
+        lambda *a, **k: {"score": 82, "grade": "A", "best_signal": None,
+                         "data_incomplete": False, "missing_decision_maker": False},
+    )
+    d = followup_decision.evaluate(c, eid)
     assert d["action"] == "change_angle"
-    assert "自主首触质量门" in d["reason"]
-    assert "决策联系人" in d["reason"]
+    assert "Guard" in d["reason"] or "个性化" in d["reason"]
 
 
 def test_sequence_step_zero_can_pass_when_pr20_requirements_are_met(conn, monkeypatch):
@@ -50,7 +68,7 @@ def test_sequence_step_zero_can_pass_when_pr20_requirements_are_met(conn, monkey
     assert "PR #20" in d["reason"]
 
 
-def test_autosend_sequence_first_touch_is_held_before_sender(conn, monkeypatch):
+def test_a_missing_decision_maker_no_longer_stops_the_sender(conn, monkeypatch):
     c, _, eid = conn
     monkeypatch.setattr(
         followup_decision.sales_intelligence, "score_lead",
@@ -62,6 +80,5 @@ def test_autosend_sequence_first_touch_is_held_before_sender(conn, monkeypatch):
         c, [eid], sender=lambda *a: sent.append(a), email_delay=(0, 0),
         autonomous_quality=True,
     )
-    assert res["sent"] == 0 and res["quality_held"] == 1
-    assert sent == []
-    assert c.execute("SELECT status FROM sequence_enrollments WHERE id=?", (eid,)).fetchone()[0] == "quality_hold"
+    assert res["sent"] == 1 and res["quality_held"] == 0
+    assert len(sent) == 1

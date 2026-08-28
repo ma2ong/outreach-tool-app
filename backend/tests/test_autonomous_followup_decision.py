@@ -61,28 +61,29 @@ def test_good_due_followup_continues(conn):
     assert d["score"] == 72
 
 
-def test_low_value_account_is_delayed_not_declared_uninterested(conn, monkeypatch):
+def test_a_low_score_no_longer_postpones_the_letter(conn, monkeypatch):
+    """docs/74 R1. A score of 45 used to buy a 14-day delay; on 2026-08-28 that pattern
+    silenced 77 of 113 due letters to real LED companies."""
     c, _, eid = conn
     _touch(c, 1, 10)
     monkeypatch.setattr(
         followup_decision.sales_intelligence, "score_lead",
         lambda *a, **k: {"score": 45, "grade": "C", "best_signal": None},
     )
-    today = dt.date(2026, 8, 25)
-    d = followup_decision.evaluate(c, eid, today=today)
-    assert d["action"] == "delay"
-    assert d["next_due_date"] == "2026-09-08"
-    assert "不感兴趣" not in d["reason"]
+    d = followup_decision.evaluate(c, eid, today=dt.date(2026, 8, 25))
+    assert d["action"] == "continue"
 
 
-def test_very_low_value_account_holds_for_new_angle(conn, monkeypatch):
+def test_even_the_lowest_score_still_gets_written_to(conn, monkeypatch):
+    # A cold lead scores low because it is cold. Refusing on that basis argues in a circle.
     c, _, eid = conn
     monkeypatch.setattr(
         followup_decision.sales_intelligence, "score_lead",
         lambda *a, **k: {"score": 20, "grade": "D", "best_signal": None},
     )
     d = followup_decision.evaluate(c, eid)
-    assert d["action"] == "change_angle"
+    assert d["action"] == "continue"
+    assert d["score"] == 20   # still computed and reported, just no longer obeyed
 
 
 def test_too_soon_is_delayed_by_touch_count_cadence(conn):

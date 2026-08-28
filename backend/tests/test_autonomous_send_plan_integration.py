@@ -45,7 +45,7 @@ def _template_and_mailbox(conn):
 def test_auto_plan_keeps_only_ready_accounts_and_records_why(conn):
     _template_and_mailbox(conn)
     _strong(conn, 2)
-    conn.execute("UPDATE leads SET email='weak@example.com', email_status=NULL WHERE no=3")
+    conn.execute("UPDATE leads SET email=NULL WHERE no=3")
     conn.commit()
     proposals.set_autonomy(conn, "send_outreach", "auto")
 
@@ -55,7 +55,6 @@ def test_auto_plan_keeps_only_ready_accounts_and_records_why(conn):
     })
     assert clean["payload"]["lead_nos"] == [2]
     audit = clean["payload"]["autonomous_decision"]
-    assert audit["minimum_score"] == 65
     assert audit["accepted"][0]["lead_no"] == 2
     assert audit["rejected"][0]["lead_no"] == 3
     assert audit["rejected"][0]["blockers"]
@@ -63,7 +62,7 @@ def test_auto_plan_keeps_only_ready_accounts_and_records_why(conn):
 
 def test_auto_plan_rejects_batch_when_nobody_is_worth_sending(conn):
     _template_and_mailbox(conn)
-    conn.execute("UPDATE leads SET email='weak@example.com', email_status=NULL WHERE no=2")
+    conn.execute("UPDATE leads SET email=NULL WHERE no=2")
     conn.commit()
     proposals.set_autonomy(conn, "send_outreach", "auto")
     with pytest.raises(plan.Rejected, match="自主发送质量门槛"):

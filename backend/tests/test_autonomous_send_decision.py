@@ -38,27 +38,39 @@ def test_strong_evidenced_account_is_ready_for_a_factual_template(conn):
         body="Hi {contact},\n\n{hook}\nAre LED displays part of any current project at {company}?",
     )
     assert d["ready"] is True
-    assert d["score"] >= send_decision.MIN_AUTONOMOUS_SCORE
     assert d["message_guard"]["blocked"] is False
     assert any("采购信号" in x for x in d["positives"])
 
 
-def test_missing_decision_maker_blocks_autonomous_first_touch(conn):
+def test_not_knowing_who_buys_is_why_we_write_not_why_we_stop(conn):
+    """docs/74 R3. The letter asks who handles displays; withholding it because we cannot
+    already answer that question is backwards, and it blocked ~22 letters on 2026-08-28."""
     no = _ready(conn)
     conn.execute("DELETE FROM contacts WHERE lead_no=?", (no,))
     conn.commit()
     d = send_decision.evaluate_account(conn, no)
-    assert d["ready_for_template_check"] is False
-    assert any("决策联系人" in x for x in d["blockers"])
+    assert d["ready_for_template_check"] is True
+    assert not any("决策联系人" in x for x in d["blockers"])
 
 
-def test_unverified_primary_email_blocks_autonomous_first_touch(conn):
+def test_an_unverified_address_is_not_a_known_bad_one(conn):
+    """`invalid` — where every bounced address sits — is still excluded by eligibility.
+    NULL just means nobody has checked, and Allen's rule is that bounce risk may not
+    reduce volume (docs/67)."""
     no = _ready(conn)
     conn.execute("UPDATE leads SET email_status=NULL WHERE no=?", (no,))
     conn.commit()
     d = send_decision.evaluate_account(conn, no)
+    assert d["ready_for_template_check"] is True
+
+
+def test_a_lead_with_no_address_at_all_is_still_blocked(conn):
+    no = _ready(conn)
+    conn.execute("UPDATE leads SET email=NULL WHERE no=?", (no,))
+    conn.commit()
+    d = send_decision.evaluate_account(conn, no)
     assert d["ready_for_template_check"] is False
-    assert any("尚未验证" in x for x in d["blockers"])
+    assert any("没有邮箱" in x for x in d["blockers"])
 
 
 def test_due_internal_task_owns_the_next_action(conn):

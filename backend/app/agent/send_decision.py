@@ -13,7 +13,6 @@ from app import case_library, message_guard, sales_intelligence
 from app.agent import product_advisor
 from app.personalize import render
 
-MIN_AUTONOMOUS_SCORE = 65
 GOOD_EMAIL_STATUSES = {"valid", "role"}
 
 # A prospect question such as "Are you working on a current project?" is not a claim
@@ -65,28 +64,28 @@ def evaluate_account(conn, lead_no: int, *, sales: dict | None = None,
     score = int((sales or {}).get("score") or 0)
     grade = (sales or {}).get("grade") or "D"
 
-    if score < MIN_AUTONOMOUS_SCORE:
-        blockers.append(f"销售优先级 {score}/100，低于自主首触阈值 {MIN_AUTONOMOUS_SCORE}")
-    else:
-        positives.append(f"销售优先级 {score}/100（{grade}）")
+    # docs/74 R1. The score orders the queue; it does not decide whether to write. A cold
+    # lead scores low because it is cold — refusing to send on that basis argues in a
+    # circle, and on 2026-08-28 it killed 77 of 113 due letters to companies like SNA
+    # Displays and Trans-Lux, whose only failing was an empty decision-maker column.
+    positives.append(f"销售优先级 {score}/100（{grade}）")
 
-    if (sales or {}).get("data_incomplete"):
-        blockers.append("客户资料证据不完整：先补官网/ICP/联系方式时效")
-    else:
+    # docs/74 R3. Not knowing who buys displays is the reason to write the letter, not a
+    # reason to withhold it — the letter asks that question. The gap becomes work instead
+    # of silence: `decision_maker_radar` picks these accounts up.
+    if not (sales or {}).get("data_incomplete"):
         positives.append("官网/ICP/联系方式证据完整")
-
-    if (sales or {}).get("missing_decision_maker"):
-        blockers.append("还没有 Owner / Purchasing / Project 决策联系人")
-    else:
+    if not (sales or {}).get("missing_decision_maker"):
         positives.append("已有决策联系人")
 
     email_status = str(lead["email_status"] or "").strip().lower()
     if not lead["email"]:
         blockers.append("没有邮箱")
-    elif email_status not in GOOD_EMAIL_STATUSES:
-        blockers.append("首触邮箱尚未验证为 valid/role")
-    else:
+    elif email_status in GOOD_EMAIL_STATUSES:
         positives.append(f"邮箱状态 {email_status}")
+    # An unverified address is not a known-bad one. `invalid` — where all 36 bounced
+    # addresses sit — is still excluded upstream by eligibility, and Allen's rule is that
+    # bounce risk may not reduce volume (docs/67).
 
     if lead["do_not_contact"]:
         blockers.append("客户已标记不再联系")

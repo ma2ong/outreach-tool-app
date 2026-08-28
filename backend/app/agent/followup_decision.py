@@ -15,8 +15,9 @@ import sqlite3
 
 from app import sales_intelligence
 
-MIN_FOLLOWUP_SCORE = 50
-HOLD_SCORE = 35
+# docs/74 R1: the two score thresholds that used to decide whether to send are gone.
+# The score still orders the queue and still appears in every decision's reason line —
+# it just no longer answers "should this letter go out at all".
 ANGLE_AFTER_UNANSWERED = 3
 FRESH_SIGNAL = 60
 STRONG_FRESH_SIGNAL = 70
@@ -231,20 +232,6 @@ def evaluate(conn: sqlite3.Connection, enrollment_id: int,
                 "signal_confidence": signal_confidence, "signal": signal_headline,
                 "next_due_date": None, "memory": memory_ctx}
 
-    if score < HOLD_SCORE:
-        return {**data, "action": "change_angle",
-                "reason": f"当前销售优先级仅 {score}/100，继续同一冷序列价值过低，先补证据",
-                "score": score, "touch_count": touches,
-                "signal_confidence": signal_confidence, "signal": signal_headline,
-                "next_due_date": None, "memory": memory_ctx}
-    if score < MIN_FOLLOWUP_SCORE:
-        delayed_to = today + dt.timedelta(days=14)
-        return {**data, "action": "delay",
-                "reason": f"销售优先级 {score}/100，未达到自主跟进阈值 {MIN_FOLLOWUP_SCORE}，14 天后重评",
-                "score": score, "touch_count": touches,
-                "signal_confidence": signal_confidence, "signal": signal_headline,
-                "next_due_date": delayed_to.isoformat(), "memory": memory_ctx}
-
     # Fresh strong intent may follow the sequence's explicit due date; otherwise enforce
     # a minimum gap from the last actual send so an old/bad due date cannot cause spam.
     if latest and signal_confidence < STRONG_FRESH_SIGNAL:
@@ -273,23 +260,43 @@ _ANGLE_SUFFIX = "·角度"
 def _switch_angle(conn, enrollment_id: int) -> bool:
     """Re-open this follow-up on the next angle for the same language, if there is one."""
     row = conn.execute(
-        "SELECT e.id, s.name FROM sequence_enrollments e"
+        "SELECT e.id, e.sequence_id, s.name FROM sequence_enrollments e"
         " JOIN sequences s ON s.id = e.sequence_id WHERE e.id=?", (enrollment_id,)).fetchone()
     if row is None:
         return False
     # 冷邮件 3 步跟进（英语） and 冷邮件 3 步跟进（英语·角度二） share everything up to the
     # closing bracket, so the bracket has to come off before the prefix will match.
     base = row["name"].split(_ANGLE_SUFFIX)[0].rstrip("）)")
+    # Angles only ever move forward. `ORDER BY id LIMIT 1` alone was safe while angle two
+    # was the last one; the moment angle three existed it would have sent an enrollment on
+    # angle three back to angle two, and round again forever.
     nxt = conn.execute(
-        "SELECT id FROM sequences WHERE name LIKE ? AND name <> ? ORDER BY id LIMIT 1",
-        (f"{base}{_ANGLE_SUFFIX}%", row["name"])).fetchone()
+        "SELECT id FROM sequences WHERE name LIKE ? AND id > ? ORDER BY id LIMIT 1",
+        (f"{base}{_ANGLE_SUFFIX}%", row["sequence_id"])).fetchone()
     if nxt is None:
         return False   # angles exhausted — parking is a real answer now, and reportable
     conn.execute(
         "UPDATE sequence_enrollments SET sequence_id=?, current_step=0, status='active',"
-        " next_due_date=date('now') WHERE id=? AND status='active'",
+        " next_due_date=date('now') WHERE id=? AND status IN ('active', 'quality_hold')",
         (nxt["id"], enrollment_id))
     return True
+
+
+def revive_parked(conn) -> int:
+    """Move everything parked for want of an angle onto the angle that now exists.
+
+    A parked enrollment is `quality_hold`, and `due_queue` only reads `active`, so it is
+    never re-evaluated — adding a new angle does nothing for the letters that were waiting
+    for one unless something goes and gets them. 110 follow-ups sat still for weeks the
+    last time this was left to fix itself (docs/67).
+    """
+    moved = 0
+    for row in conn.execute(
+            "SELECT id FROM sequence_enrollments WHERE status='quality_hold'").fetchall():
+        if _switch_angle(conn, row["id"]):
+            moved += 1
+    conn.commit()
+    return moved
 
 
 def apply(conn: sqlite3.Connection, decision: dict, *, _ensure: bool = True) -> dict:

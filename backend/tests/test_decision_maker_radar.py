@@ -172,3 +172,56 @@ def test_manual_promotion_is_explicit_override_for_staged_candidate(conn):
     assert promoted["status"] == "promoted"
     person = contacts.get(conn, promoted["promoted_contact_id"])
     assert person["name"] == "Alex Kim" and person["role"] == "other"
+
+
+# --- the radar also looks at cold accounts now (docs/74 R3) -------------------------
+
+def _enrol_cold(conn, lead_no):
+    from app import sequences
+    sid = sequences.create_sequence(conn, "冷邮件（英语·角度二）", "email", [
+        {"day_offset": 0, "subject": "s", "body": "b"}])
+    sequences.enroll_leads(conn, sid, [lead_no])
+    conn.commit()
+
+
+def test_a_cold_account_with_nobody_named_is_researched(conn):
+    """It used to read only `opportunity_coach.portfolio`, so the leads that most needed a
+    name — 77 of them on 2026-08-28 — were the ones it never looked at."""
+    _enrol_cold(conn, 2)
+    due = decision_maker_radar.due_accounts(conn, today=TODAY, limit=2)
+    assert any(row["lead_no"] == 2 and row["stage"] == "cold" for row in due)
+
+
+def test_an_account_that_already_has_a_buyer_named_is_left_alone(conn):
+    _enrol_cold(conn, 2)
+    contacts.create(conn, 2, {"name": "Jane Smith", "title": "Purchasing Manager",
+                              "role": "decision_maker"})
+    conn.commit()
+    assert not any(row["lead_no"] == 2 for row in
+                   decision_maker_radar.due_accounts(conn, today=TODAY, limit=2))
+
+
+def test_a_live_opportunity_is_still_researched_before_a_cold_letter(conn):
+    opportunities.create(conn, 1, {"title": "Retail wall", "stage": "requirements",
+                                   "use_case": "Retail"})
+    _enrol_cold(conn, 2)
+    due = decision_maker_radar.due_accounts(conn, today=TODAY, limit=2)
+    assert due[0]["lead_no"] == 1
+
+
+def test_a_cold_account_is_not_re_read_every_sweep(conn):
+    # The sweep runs every 15 minutes; re-reading the same About page that often is a
+    # signature, not research.
+    _enrol_cold(conn, 2)
+    decision_maker_radar.scan(conn, 2, role_kinds={"commercial"},
+                              search_fn=lambda q, n: [], fetch_fn=lambda u: "")
+    assert not any(row["lead_no"] == 2 for row in
+                   decision_maker_radar.due_accounts(conn, today=TODAY, limit=2))
+
+
+def test_a_customer_who_bought_is_never_researched_as_a_cold_lead(conn):
+    _enrol_cold(conn, 2)
+    conn.execute("UPDATE leads SET stage='won' WHERE no=2")
+    conn.commit()
+    assert not any(row["lead_no"] == 2 for row in
+                   decision_maker_radar.due_accounts(conn, today=TODAY, limit=2))

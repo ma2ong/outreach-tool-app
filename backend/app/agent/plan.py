@@ -201,7 +201,6 @@ def _validate(conn, action: dict) -> dict:
                 "channel": "email",
                 "lead_nos": decision["accepted"],
                 "autonomous_decision": {
-                    "minimum_score": send_decision.MIN_AUTONOMOUS_SCORE,
                     "accepted": [send_decision.compact(d) for d in decision["decisions"] if d["ready"]],
                     "rejected": [send_decision.compact(d) for d in decision["rejected"]],
                 },
