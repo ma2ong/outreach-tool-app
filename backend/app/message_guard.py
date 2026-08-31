@@ -21,6 +21,41 @@ _PRICE = re.compile(
     re.I,
 )
 
+# docs/82 R1. Sentences that hand the recipient the "don't reply" option, in our own
+# words. Allen banned the whole shape after reading one go out:
+#
+#     If ours won't mix with your stock I'll say so and leave it there.
+#
+# His reasoning is the right one: a cold email from an unknown Shenzhen factory puts the
+# reader under no pressure at all, so offering a way out of a pressure that does not
+# exist only says the quiet part for them. Four years and 3,031 letters in his own hand
+# contain none of this — docs/82 records what they contain instead.
+#
+# This sits beside the pricing rule rather than only in the seed copy, because copy is
+# rows in a database and can be edited from the UI; the rule has to live on the send path.
+_EXIT_LINE = re.compile(
+    r"leave it there"
+    r"|i'?ll (?:say so and )?(?:stop|leave)(?: here| it there| you (?:alone|be))?"
+    r"|last (?:note|email|message)\b"
+    r"|this is my last"
+    r"|won'?t (?:contact|bother|email|write to) you again"
+    r"|(?:that'?s|that is) a fine answer"
+    r"|fill up your inbox"
+    r"|worth your time"
+    r"|sorry to (?:bother|disturb|trouble)"
+    r"|feel free to ignore"
+    r"|no (?:hard feelings|worries) if"
+    r"|더 연락(?:드리지|하지) ?않겠"
+    r"|마지막 (?:메일|메시지)"
+    r"|그것으로 충분한 답변"
+    r"|귀찮게"
+    r"|불편하시면"
+    r"|시간을 뺏"
+    r"|不再(?:打扰|联系)"
+    r"|最后一封",
+    re.I)
+
+
 _WORD = re.compile(r"[a-z0-9]+")
 _GENERIC_NAME_WORDS = {
     "led", "display", "displays", "screen", "screens", "visual", "video", "wall",
@@ -86,6 +121,15 @@ def check(body: str, lead: dict, *, subject: str = "", channel: str = "email",
             True,
             "pricing",
             f"最终文本里出现价格「{price.group(0).strip()}」——冷邮件自动化不能代替 Allen 定价",
+        )
+    # Every channel, every language, no override (docs/82 R1).
+    exit_line = _EXIT_LINE.search(text)
+    if exit_line:
+        return Verdict(
+            True,
+            "exit_line",
+            f"最终文本里出现退出语「{exit_line.group(0).strip()}」——"
+            "不许主动提出不再联系、声明这是最后一封、或替对方把「没需求」说成好答案（docs/82）",
         )
     if channel not in GUARDED_CHANNELS or step_order > 0:
         return Verdict(False)

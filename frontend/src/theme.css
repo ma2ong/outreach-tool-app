@@ -171,10 +171,17 @@ textarea.input { width: 100%; resize: vertical; }
   position: fixed; inset: 0; z-index: 40;
   background: rgba(0, 0, 0, 0.45); display: flex; justify-content: flex-end;
 }
+/* 640px 而不是 440：440 下「官网 / Instagram / Facebook」三列挤成一列，
+   公司名和业务描述都要换行才放得下。小满的客户详情抽屉大约 610px，
+   照那个宽度来，两列字段才排得开。窄屏仍然让 max-width 收住。 */
 .drawer {
-  width: 440px; max-width: 92vw; height: 100vh; overflow-y: auto;
+  width: 640px; max-width: 94vw; height: 100vh; overflow-y: auto;
   background: var(--surface); border-left: 1px solid var(--border);
-  padding: 20px; box-shadow: -8px 0 24px rgba(0, 0, 0, 0.3);
+  padding: 22px 24px; box-shadow: -8px 0 24px rgba(0, 0, 0, 0.3);
+}
+/* 宽了之后三列才有意义：官网 / Instagram / Facebook 一行放得下 */
+@media (min-width: 900px) {
+  .drawer .field-grid { grid-template-columns: repeat(3, 1fr); }
 }
 .drawer h2 { margin: 0 0 2px; font-size: 18px; }
 .drawer-close {
