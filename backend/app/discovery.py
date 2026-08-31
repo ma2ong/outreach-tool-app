@@ -35,6 +35,24 @@ def _name_from_domain(domain: str | None) -> str:
     return " ".join(word.capitalize() for word in label.split())
 
 
+# docs/78 R1. Three kinds of string that reach us as a company name and are never one.
+# What they have in common matters more than the strings themselves: when the name came
+# from one of these pages, the page was not this company's page — so the brief, the hook
+# and the ICP score read off it are all fabricated. thesupersignguy.com was filed as an
+# AV integrator with a fit of 85, entirely on the strength of a Cloudflare screen.
+_NOT_A_COMPANY = re.compile(
+    r"^(url source:|https?://)"
+    r"|robot challenge|checking your browser|just a moment|attention required"
+    r"|access denied|enable javascript|page not found|security check|are you a robot"
+    r"|님의블로그|네이버 블로그|- tistory",
+    re.I)
+
+
+def looks_like_a_company(name: str) -> bool:
+    """False when this string is a bot wall, an error page, or a blog's title."""
+    return not _NOT_A_COMPANY.search(str(name or "").strip())
+
+
 def candidate_name(candidate: dict) -> str:
     """A conservative company name for unattended imports.
 
@@ -150,6 +168,12 @@ def import_candidates(conn, candidates: list[dict], default_country: str | None 
     for candidate in candidates:
         website = candidate.get("website") or candidate.get("domain")
         company = candidate_name(candidate)
+        # No override on this one: there is no case where Allen wants to write to a
+        # company called "Robot Challenge Screen" (docs/78 R1).
+        if not looks_like_a_company(company):
+            skipped.append({"company_en": company, "website": website,
+                            "not_a_company": "读到的是反爬页/错误页/博客标题，不是这家公司的页面"})
+            continue
         duplicate = repo.find_duplicate(conn, website=website,
                                         instagram=candidate.get("instagram"))
         if duplicate:

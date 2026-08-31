@@ -58,6 +58,19 @@ _DIRECTORY_HOSTS = (
     "justdial.com", "kompass.com", "listcompany.org", "aeroleads.com",
     "europages.com", "yellowpages.com", "manta.com", "dnb.com", "zoominfo.com",
     "thomasnet.com", "go4worldbusiness.com", "hktdc.com", "1688.com", "taobao.com",
+    # Company-search and trade-data platforms. They read as a perfect fit — a page
+    # about LED companies is full of LED words — which is exactly why the score cannot
+    # be what keeps them out (docs/78 R2).
+    "ensun.io", "trademo.com", "f6s.com", "crunchbase.com", "owler.com",
+    "similarweb.com", "importyeti.com", "panjiva.com", "volza.com",
+)
+
+# Blogging and content platforms. A blog post about LED displays is not a company, and
+# a Naver blog's "official site" is Naver's (docs/78 R2).
+_CONTENT_HOSTS = (
+    "blog.naver.com", "m.blog.naver.com", "cafe.naver.com", "post.naver.com",
+    "tistory.com", "brunch.co.kr", "medium.com", "blogspot.com", "wordpress.com",
+    "wixsite.com", "substack.com", "linktr.ee", "notion.site",
 )
 
 # Countries whose companies are our competitors, not our customers.
@@ -259,12 +272,19 @@ def is_directory(domain: str | None) -> bool:
     return any(d == h or d.endswith("." + h) for h in _DIRECTORY_HOSTS)
 
 
+def _is_content_platform(domain: str | None) -> bool:
+    d = str(domain or "").strip().lower().lstrip("www.")
+    return any(d == h or d.endswith("." + h) for h in _CONTENT_HOSTS)
+
+
 def screen(cand: dict, exclude_countries: list[str] | None = None,
            exclude_peers: bool = True) -> dict:
     """Return {country, excluded, exclude_reason} for one candidate."""
     country = detect_country(cand)
     if is_directory(cand.get("domain")):
         return {"country": country, "excluded": True, "exclude_reason": "B2B 目录站/平台"}
+    if _is_content_platform(cand.get("domain") or cand.get("website")):
+        return {"country": country, "excluded": True, "exclude_reason": "博客/内容平台，不是公司官网"}
     if exclude_peers and country in PEER_COUNTRIES:
         return {"country": country, "excluded": True, "exclude_reason": f"同行/供应商（{country}）"}
     if exclude_peers:

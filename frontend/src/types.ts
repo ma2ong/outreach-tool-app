@@ -146,6 +146,9 @@ export interface Candidate {
   source?: string | null;
   icp_type?: string | null;
   fit_score?: number | null;
+  // 官网上读到的可引用事实和开场白。后端一直在返回，类型里漏了。
+  brief?: string | null;
+  hook?: string | null;
   country?: string | null;
   excluded?: boolean;
   exclude_reason?: string | null;

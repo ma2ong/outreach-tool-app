@@ -58,9 +58,13 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
           if (j.result && "candidates" in j.result) {
             const all = j.result.candidates;
             setCands(all);
-            // 被排除的（同行/目录站/排除国家）绝不自动勾选
+            // 被排除的（同行/目录站/排除国家）绝不自动勾选。
+            // docs/78 R3：还要有 hook 或 brief——没有一句能引用的话，就没有一封能写的信。
+            // 从页面上扒到一个电话就自动打勾，是那几篇 naver 博客混进客户库的原因。
+            // 不要求 ICP 有类型：那会连 avidex 这种真集成商一起挡掉。手动仍可勾任何一条。
             setPicked(new Set(all
-              .filter((c) => !c.excluded && !c.duplicate_of && (c.email || c.phone || c.instagram))
+              .filter((c) => !c.excluded && !c.duplicate_of
+                && (c.email || c.phone || c.instagram) && (c.hook || c.brief))
               .map((c) => c.domain)));
             const cut = all.filter((c) => c.excluded).length;
             setMsg(`找到 ${all.length} 个候选${cut ? `，其中 ${cut} 家已筛掉（同行/目录站/排除国家）` : ""}`);

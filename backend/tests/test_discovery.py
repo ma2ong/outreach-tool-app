@@ -1,6 +1,8 @@
 import threading
 
-from app import discovery
+import pytest
+
+from app import discovery, screening
 
 
 def test_run_discovery_flags_duplicates_and_progress(conn):
@@ -112,3 +114,60 @@ def test_import_keeps_the_detected_country(conn):
     row = conn.execute("SELECT country FROM leads WHERE no=?",
                        (result["imported_lead_nos"][0],)).fetchone()
     assert row["country"] == "USA"
+
+
+# --- docs/78: a blog post is not a customer ----------------------------------------
+
+@pytest.mark.parametrize("name", [
+    "Robot Challenge Screen",
+    "Checking your browser",
+    "Just a moment...",
+    "URL Source: https://m.blog.naver.com/x",
+    "contact-us님의블로그 : 네이버 블로그",
+    "Attention Required! | Cloudflare",
+    "Page not found",
+])
+def test_a_bot_wall_is_not_a_company(name):
+    assert not discovery.looks_like_a_company(name)
+
+
+@pytest.mark.parametrize("name", [
+    "Avidex", "LED Factory Chile", "AVDG", "옥외나우", "Big Screen Solutions",
+])
+def test_a_real_company_still_reads_as_one(name):
+    assert discovery.looks_like_a_company(name)
+
+
+def test_a_candidate_read_off_a_bot_wall_never_becomes_a_lead(conn):
+    """docs/78 R1. thesupersignguy.com was filed as an AV integrator on a Cloudflare
+    screen — the brief, the hook and the 85 all came off a page that was not theirs."""
+    result = discovery.import_candidates(conn, [{
+        "company_en": "Robot Challenge Screen", "domain": "thesupersignguy.com",
+        "email": "info@thesupersignguy.com", "icp_type": "integrator", "fit_score": 85,
+    }])
+    assert result["imported"] == 0
+    assert result["skipped"][0]["not_a_company"]
+    assert conn.execute("SELECT COUNT(*) FROM leads WHERE website LIKE '%supersign%'"
+                        ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("domain", [
+    "blog.naver.com", "m.blog.naver.com", "ledplus.tistory.com", "brunch.co.kr",
+    "ensun.io", "trademo.com", "f6s.com",
+])
+def test_a_content_or_data_platform_is_screened_out(domain):
+    """docs/78 R2. These score high precisely because they are pages about the trade."""
+    out = screening.screen({"domain": domain})
+    assert out["excluded"]
+    assert out["exclude_reason"]
+
+
+def test_an_integrator_the_classifier_could_not_type_still_gets_in(conn):
+    """docs/78 R1's last row: avidex is a real AV integrator whose homepage says none
+    of the words. Rejecting unknown ICP would throw it away with the blogs."""
+    result = discovery.import_candidates(conn, [{
+        "company_en": "Avidex", "domain": "avidex.com", "email": "info@avidex.com",
+        "icp_type": "unknown", "fit_score": 0,
+        "brief": 'The site mentions "audio visual".',
+    }])
+    assert result["imported"] == 1
