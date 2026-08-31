@@ -14,8 +14,7 @@ from app import copy_segments as cs
 @pytest.mark.parametrize("tag,segment", [
     ("租赁商", "rental"),
     ("工程商", "install"),
-    ("系统集成商", "install"),
-    ("广告商", "outdoor"),
+    ("批发商", "general"),
 ])
 def test_allens_own_tag_decides(tag, segment):
     assert cs.segment_of({"tags": tag}) == segment
@@ -86,10 +85,38 @@ def test_counts_covers_the_whole_book_exactly_once(conn):
     conn.executescript("""
         DELETE FROM leads;
         INSERT INTO leads(no, company_en, tags) VALUES
-            (1,'A','租赁商'), (2,'B','工程商'), (3,'C',NULL), (4,'D','广告商');
+            (1,'A','租赁商'), (2,'B','工程商'), (3,'C',NULL), (4,'D','批发商');
     """)
     conn.commit()
     counts = cs.counts(conn)
     assert sum(counts.values()) == 4
     assert counts["rental"] == 1 and counts["install"] == 1
-    assert counts["outdoor"] == 1 and counts["general"] == 1
+    # 批发商 and the untagged company both read as general (docs/60 R2)
+    assert counts["outdoor"] == 0 and counts["general"] == 2
+
+
+# --- docs/60 R2: three types, and the old vocabulary still routes -------------------
+
+def test_there_are_only_three_customer_types():
+    """Allen cut eight to three: 只保留工程商，租赁商，批发商，其他都删去."""
+    from app import customer_types as ct
+    assert set(ct.KNOWN) == {"工程商", "租赁商", "批发商"}
+
+
+@pytest.mark.parametrize("retired,survivor", [
+    ("系统集成商", "工程商"),   # both build and install
+    ("广告商", "工程商"),       # an outdoor sign is a fixed-install job
+    ("代理商", "批发商"),       # both resell; docs/76 already gave them one letter
+])
+def test_a_retired_type_still_reaches_its_letter(retired, survivor):
+    """The book was migrated, but the old words can arrive again on an import. A row
+    saying 系统集成商 must not fall quietly through to the neutral letter."""
+    assert cs.segment_of({"tags": retired}) == cs.segment_of({"tags": survivor})
+
+
+@pytest.mark.parametrize("dropped", ["透明屏", "终端用户"])
+def test_a_dropped_type_names_no_buyer(dropped):
+    """透明屏 is a product and 终端用户 says nothing about how they use a screen."""
+    from app import customer_types as ct
+    assert ct.canonical_type(dropped) is None
+    assert cs.segment_of({"tags": dropped}) == "general"

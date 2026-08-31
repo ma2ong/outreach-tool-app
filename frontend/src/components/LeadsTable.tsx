@@ -23,6 +23,12 @@ export function waNumber(phone: string): string | null {
   return digits.length >= 8 && digits.length <= 15 ? digits : null;
 }
 
+// 库里存的是裸域名（"cleverox.com"），href 不带协议会被当成站内相对路径。
+function siteUrl(site: string): string {
+  const host = site.trim().replace(/^https?:\/\//i, "");
+  return host ? `https://${host}` : "";
+}
+
 function igUrl(handle: string): string {
   const h = handle.replace(/^@/, "");
   return h.includes("instagram.com") ? `https://${h.replace(/^https?:\/\//, "")}` : `https://instagram.com/${h}`;
@@ -78,7 +84,17 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
   );
   return (
     <div className="table-wrap table-scroll">
-      <table className="table">
+      {/* 列宽写死。原来是 auto 布局按内容分配，一行长联系人名就能把「客户名称」撑到
+          三倍宽，旁边留一片空白；每列宽度改成有意为之的数字，横向滚动兜住剩下的。 */}
+      <table className="table table-fixed">
+        <colgroup>
+          <col style={{ width: 34 }} /><col style={{ width: 54 }} />
+          <col style={{ width: 190 }} /><col style={{ width: 92 }} />
+          <col style={{ width: 148 }} /><col style={{ width: 140 }} />
+          <col style={{ width: 112 }} /><col style={{ width: 224 }} />
+          <col style={{ width: 150 }} /><col style={{ width: 168 }} />
+          <col style={{ width: 150 }} /><col style={{ width: 172 }} />
+        </colgroup>
         <thead><tr>
           <th><input type="checkbox" checked={allChecked} onChange={(e) => onToggleAll(e.target.checked)} /></th>
           <Sortable col="no">#</Sortable><Sortable col="company_en">公司</Sortable>
@@ -86,7 +102,7 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
           <Sortable col="fit">客户类型</Sortable>
           <th>客户名称</th>
           <Sortable col="country">国家</Sortable>
-          <th>邮箱</th><th>电话 / WhatsApp</th><th>IG</th><th>FB</th><th>渠道状态</th>
+          <th>邮箱</th><th>电话 / WhatsApp</th><th>社媒</th><th>官网</th><th>渠道状态</th>
         </tr></thead>
         <tbody>
           {leads.map((l) => {
@@ -112,21 +128,21 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
                   {!row(l).tags && l.target_fit && l.target_fit !== "discovered" &&
                     <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>系统推断：{l.target_fit}</div>}
                 </td>
-                <td>{l.primary_contact
+                <td className="cell-clip">{l.primary_contact
                   ? <>
-                      <div>{l.primary_contact}</div>
+                      <div title={l.primary_contact}>{l.primary_contact}</div>
                       {l.primary_title && <div className="muted" style={{ fontSize: 12 }}>{l.primary_title}</div>}
                     </>
                   : <span className="muted">—</span>}</td>
-                <td>{l.country}</td>
-                <td onClick={stop}>{l.email
+                <td className="cell-clip">{l.country}</td>
+                <td onClick={stop} className="cell-clip">{l.email
                   ? <>
-                      <a href={`mailto:${l.email}`}>{l.email}</a>
+                      <a href={`mailto:${l.email}`} title={l.email}>{l.email}</a>
                       {l.email_status === "invalid" && <span title="邮箱无效（无 MX 记录），发送时自动跳过" style={{ color: "var(--warn)", marginLeft: 6, fontSize: 11 }}>⚠ 无效</span>}
                       {l.email_status === "role" && <span title="角色邮箱（info@/sales@ 等），可发但优先级较低" className="muted" style={{ marginLeft: 6, fontSize: 11 }}>角色</span>}
                     </>
                   : <span className="muted">—</span>}</td>
-                <td className="num" onClick={stop}>{l.phone
+                <td className="num cell-clip" onClick={stop}>{l.phone
                   ? (wa
                     ? <a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer"
                         title="点击打开 WhatsApp 对话" style={{ color: "var(--green)" }}>
@@ -134,11 +150,23 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
                       </a>
                     : l.phone)
                   : <span className="muted">—</span>}</td>
-                <td onClick={stop}>{l.instagram
-                  ? <a href={igUrl(l.instagram)} target="_blank" rel="noreferrer">@{l.instagram.replace(/^@/, "")}</a>
-                  : <span className="muted">—</span>}</td>
-                <td onClick={stop}>{l.facebook
-                  ? <a href={fbUrl(l.facebook)} target="_blank" rel="noreferrer">{l.facebook.replace(/^https?:\/\/(www\.)?facebook\.com\//, "")}</a>
+                {/* IG 和 FB 合成一列：两列各自大半是空的，合起来一列才填得满 */}
+                <td onClick={stop} className="cell-clip">
+                  {!l.instagram && !l.facebook && <span className="muted">—</span>}
+                  {l.instagram && <div className="social-line">
+                    <span className="social-tag">IG</span>
+                    <a href={igUrl(l.instagram)} target="_blank" rel="noreferrer"
+                      title={l.instagram}>@{l.instagram.replace(/^@/, "")}</a>
+                  </div>}
+                  {l.facebook && <div className="social-line">
+                    <span className="social-tag">FB</span>
+                    <a href={fbUrl(l.facebook)} target="_blank" rel="noreferrer"
+                      title={l.facebook}>{l.facebook.replace(/^https?:\/\/(www\.)?facebook\.com\//, "")}</a>
+                  </div>}
+                </td>
+                <td onClick={stop} className="cell-clip">{l.website
+                  ? <a href={siteUrl(l.website)} target="_blank" rel="noreferrer"
+                      title={l.website}>{l.website.replace(/^https?:\/\/(www\.)?/, "")}</a>
                   : <span className="muted">—</span>}</td>
                 <td onClick={stop}>
                   {CHANNELS.map(({ key, label }) => {

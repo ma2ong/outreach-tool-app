@@ -65,9 +65,11 @@ export function CustomerTypePicker({ value, options, onChange }: {
   return (
     <div ref={box} style={{ position: "relative" }}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      {/* 一行一个类型。并排时两个标签挤在一格里读起来像一个复合词，而且列一窄就换行，
+          同一列里有的行一排有的行两排。竖排之后每个类型各占一行，宽窄都一样。 */}
       <div onClick={() => setOpen(true)}
-        style={{ display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center",
-                 minHeight: 22, cursor: "pointer" }}>
+        style={{ display: "flex", flexDirection: "column", alignItems: "flex-start",
+                 gap: 3, minHeight: 22, cursor: "pointer" }}>
         {picked.map((t) => (
           // ✕ 只在编辑态出现：平时这里是一份名单，不是一排删除按钮
           <span key={t} className="tag-chip"
@@ -78,7 +80,7 @@ export function CustomerTypePicker({ value, options, onChange }: {
         ))}
         {picked.length === 0 && <span className="muted">—</span>}
         {/* 图标位置常驻，只切换可见性：凭空出现会把标签推一下，鼠标每次经过都抖 */}
-        <span className="muted" style={{ fontSize: 12, width: 12, display: "inline-block",
+        <span className="muted" style={{ fontSize: 12, height: 12, lineHeight: "12px",
                                          visibility: hover && !open ? "visible" : "hidden" }}>✎</span>
       </div>
 

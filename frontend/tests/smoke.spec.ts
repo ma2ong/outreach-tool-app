@@ -20,8 +20,9 @@ test("shell loads with sidebar and leads table", async ({ page }) => {
   await expect(page.locator("table tbody tr").first()).toBeVisible();
   // full columns present
   await expect(page.getByRole("columnheader", { name: "电话 / WhatsApp" })).toBeVisible();
-  await expect(page.getByRole("columnheader", { name: "IG" })).toBeVisible();
-  await expect(page.getByRole("columnheader", { name: "FB" })).toBeVisible();
+  // IG 和 FB 合成了一列「社媒」，官网跟在它后面
+  await expect(page.getByRole("columnheader", { name: "社媒" })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "官网" })).toBeVisible();
 });
 
 test("untouched filter option exists", async ({ page }) => {

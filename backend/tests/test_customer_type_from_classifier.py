@@ -17,10 +17,9 @@ from app.db import connect, init_schema
 
 @pytest.mark.parametrize("icp_type,expected", [
     ("rental", "租赁商"),
-    ("integrator", "系统集成商"),
-    ("signage", "广告商"),
-    ("reseller", "代理商"),
-    ("end-user", "终端用户"),
+    ("integrator", "工程商"),
+    ("signage", "工程商"),
+    ("reseller", "批发商"),
 ])
 def test_each_classifier_verdict_maps_to_his_own_word(icp_type, expected):
     assert ct.derive(f"icp:{icp_type}") == expected

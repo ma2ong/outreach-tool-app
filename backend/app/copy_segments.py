@@ -30,12 +30,15 @@ LABEL = {
 # pay for a version of the copy that has to be rewritten in two languages every time he
 # changes his mind about the pitch. They are absent here rather than mapped to "general"
 # so the fall-through does the work in one place.
+# Three types now (docs/60 R2), so three entries. 系统集成商 and 广告商 were folded into
+# 工程商 when Allen cut the list, and his tag wins over everything below it — so those 41
+# advertisers now get the fixed-install letter, which is what he chose: 户外广告牌多数是
+# 固定安装工程. `outdoor` is still reachable, but only for companies he never tagged, via
+# FROM_FIT and their own site words.
 FROM_TYPE = {
     "租赁商": "rental",
-    "工程商": "install", "系统集成商": "install",
-    "广告商": "outdoor",
-    # 终端用户 buys for itself, which says nothing about how they use a screen — it falls
-    # through to the business text rather than being forced into a segment.
+    "工程商": "install",
+    "批发商": "general",
 }
 
 # `target_fit` is the classifier's, and only consulted when Allen set no type.
@@ -58,9 +61,14 @@ _INSTALL_WORDS = re.compile(
 def segment_of(lead: dict) -> str:
     """One of SEGMENTS. Allen's tag wins; then the classifier's fit; then the words the
     company uses about itself; then `general`."""
+    # Through `canonical_type`, not the raw tag: the book was migrated to the three types
+    # but the old vocabulary can still arrive on an import, and a row that says
+    # 系统集成商 must reach the same letter as one that says 工程商 rather than falling
+    # quietly through to the neutral one.
     for tag in ct.customer_types(lead.get("tags")):
-        if tag in FROM_TYPE:
-            return FROM_TYPE[tag]
+        segment = FROM_TYPE.get(ct.canonical_type(tag) or "")
+        if segment:
+            return segment
 
     fit = str(lead.get("target_fit") or "")
     for needle, segment in FROM_FIT:

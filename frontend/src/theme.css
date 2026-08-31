@@ -151,6 +151,24 @@ textarea.input { width: 100%; resize: vertical; }
 .table tbody tr:hover td { background: var(--surface-2); }
 .num { font-variant-numeric: tabular-nums; }
 
+/* 客户库表格：列宽由 <colgroup> 定，不再让浏览器按内容分配。
+   auto 布局下，一行长联系人名就能把「客户名称」撑成邻列的三倍，旁边空出一大块——
+   Allen 圈出来的正是那一块。固定布局之后每列宽度都是有意为之的，横向滚动兜住总宽。 */
+.table.table-fixed { table-layout: fixed; min-width: 1634px; }
+.table-fixed td, .table-fixed th { overflow-wrap: anywhere; }
+/* 超长的邮箱/域名截断成一行，完整值在 title 里，行高才不会一行高一行矮 */
+.table-fixed td.cell-clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.table-fixed td.cell-clip > div { overflow: hidden; text-overflow: ellipsis; }
+
+/* IG 和 FB 合成一列：各自大半是空的，合起来才填得满一列 */
+.social-line { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.social-line + .social-line { margin-top: 2px; }
+.social-line a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.social-tag {
+  flex: none; font-size: 10px; font-weight: 600; letter-spacing: .04em;
+  color: var(--dim); width: 18px;
+}
+
 /* Channel status badges: LED-dot language */
 .badge {
   display: inline-flex; align-items: center; gap: 5px;

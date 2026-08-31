@@ -9,11 +9,39 @@ him — so the two have to be told apart before either is shown as a customer ty
 """
 from __future__ import annotations
 
-# Ordered by how much of his book each one covers. 租赁客户 and 租赁商 named the same
-# thing, so the picker offers one of them — Allen picked 租赁商 — and the records
-# carrying the other were renamed rather than losing their tag.
-KNOWN = ("工程商", "租赁商", "批发商", "广告商", "透明屏",
-         "系统集成商", "代理商", "终端用户")
+# Three types, because Allen cut it to three: 只保留工程商，租赁商，批发商，其他都删去.
+#
+# Eight had grown up over years of Xiaoman tagging and several named the same commercial
+# relationship twice. Nothing was thrown away in the reduction — every retired type was
+# folded into the one that describes the same buyer, so no company lost its classification:
+#
+#   系统集成商 → 工程商   both build and install; his own word for them is 工程商
+#   代理商     → 批发商   both resell; docs/76 already gave them one letter
+#   广告商     → 工程商   an outdoor sign is a fixed install job
+#   透明屏     → (dropped) a product, not a kind of buyer — 2 companies
+#   终端用户   → (dropped) says nothing about how they use a screen — 1 company
+#
+# Ordered by how much of his book each covers.
+KNOWN = ("租赁商", "工程商", "批发商")
+
+# What the retired types became. Kept as data rather than a one-off migration script so
+# the same mapping can clean an import that still carries the old vocabulary.
+RETIRED = {
+    "系统集成商": "工程商",
+    "代理商": "批发商",
+    "广告商": "工程商",
+    "租赁客户": "租赁商",
+    "透明屏": None,
+    "终端用户": None,
+}
+
+
+def canonical_type(tag: str) -> str | None:
+    """The surviving type for a tag, or None when it names no kind of buyer."""
+    tag = tag.strip()
+    if tag in KNOWN:
+        return tag
+    return RETIRED.get(tag, None) if tag in RETIRED else None
 
 # The classifier writes its own tags into the same column; they are working notes.
 MACHINE_PREFIXES = ("icp:", "auto:", "sys:")
@@ -42,10 +70,11 @@ def customer_types(raw: str | None) -> list[str]:
 # blank, not a category, and giving it a name only adds a useless filter option.
 FROM_ICP = {
     "rental": "租赁商",
-    "integrator": "系统集成商",
-    "signage": "广告商",
-    "reseller": "代理商",
-    "end-user": "终端用户",
+    "integrator": "工程商",
+    "signage": "工程商",
+    "reseller": "批发商",
+    # end-user has no surviving type: buying for yourself says nothing about how you use
+    # a screen, and a category nobody can act on is a filter option that wastes a click.
 }
 
 def from_icp(icp_type: str | None) -> str | None:
