@@ -41,7 +41,8 @@ def get_plan(conn=Depends(get_conn)):
         allowed, why = local_time.may_email(item.get("_lead_country"), now)
         body = render(item.get("body") or "", dict(lead))
         subject = render(item.get("subject") or "", dict(lead))
-        verdict = message_guard.check(body, dict(lead), subject=subject)
+        verdict = message_guard.check(
+            body, dict(lead), subject=subject, step_order=item.get("step_order", 0))
         entry = {
             "lead_no": lead["no"], "company": lead["company_en"],
             "country": lead["country"], "email": lead["email"],

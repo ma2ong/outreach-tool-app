@@ -21,7 +21,7 @@ def conn(tmp_path):
 def _send(conn, lead_nos, *, campaign=None):
     """These tests exercise metrics/limits, not the generic-copy hold rule."""
     return outreach.send_campaign(
-        conn, lead_nos, subject="{company} — LED display supply",
+        conn, lead_nos, subject="LED display supply",
         body="Hello {company}, we manufacture LED displays.", attachment=None,
         sender=lambda *a: None, delay_range=(0, 0), campaign=campaign,
     )

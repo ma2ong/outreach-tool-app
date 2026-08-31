@@ -19,7 +19,7 @@ def _client(tmp_path):
 
 
 _SEQ = {"name": "Cold 3-touch", "channel": "email", "steps": [
-    {"day_offset": 0, "subject": "Hi {name}", "body": "First"},
+    {"day_offset": 0, "subject": "LED panel specs", "body": "First for {name}"},
     {"day_offset": 3, "body": "Second"},
 ]}
 

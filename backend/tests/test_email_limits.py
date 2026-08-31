@@ -21,7 +21,7 @@ def _sender(sent):
 
 def test_blast_respects_batch_cap(conn):
     sent = []
-    res = outreach.send_campaign(conn, list(range(1, 61)), "{company}", "Hello {company}", None,
+    res = outreach.send_campaign(conn, list(range(1, 61)), "LED panel specs", "Hello {company}", None,
                                  sender=_sender(sent), delay_range=(0, 0),
                                  max_send=outreach.remaining_today(conn))
     assert len(sent) == min(outreach.DAILY_CAP, outreach.MAX_BATCH)
@@ -33,7 +33,7 @@ def test_daily_cap_across_runs(conn):
     sent = []
     total = 0
     for _ in range(4):
-        res = outreach.send_campaign(conn, list(range(1, 61)), "{company}", "Hello {company}", None,
+        res = outreach.send_campaign(conn, list(range(1, 61)), "LED panel specs", "Hello {company}", None,
                                      sender=_sender(sent), delay_range=(0, 0),
                                      max_send=outreach.remaining_today(conn))
         total += res["sent"]
@@ -57,7 +57,9 @@ def test_mailbox_rotation_raises_the_ceiling(conn):
 
 
 def test_sequence_send_is_capped_too(conn):
-    sid = sequences.create_sequence(conn, "S", "email", [{"day_offset": 0, "body": "hi {name}"}])
+    sid = sequences.create_sequence(conn, "S", "email", [{
+        "day_offset": 0, "subject": "LED panel specs", "body": "hi {name}"
+    }])
     sequences.enroll_leads(conn, sid, list(range(1, 61)))
     due = sequences.due_queue(conn)
     sent = []

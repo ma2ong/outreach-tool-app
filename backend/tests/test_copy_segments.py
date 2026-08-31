@@ -74,12 +74,14 @@ def test_there_are_only_four_segments():
 
 
 def test_every_segment_has_a_label_and_a_sequence():
-    from app.seed_sequences import name_for, steps_for
+    from app.seed_sequences import SINGLE_TOUCH, name_for, steps_for
     for segment in cs.SEGMENTS:
         assert segment in cs.LABEL
         for korean in (False, True):
             assert name_for(segment, korean)
-            assert len(steps_for(segment, korean)) == 3
+            # docs/82 R10: 英语中性版和固定安装只发一封，Allen 删掉了它们的第 2、3 封
+            expected = 1 if (segment, korean) in SINGLE_TOUCH else 3
+            assert len(steps_for(segment, korean)) == expected
 
 
 def test_counts_covers_the_whole_book_exactly_once(conn):

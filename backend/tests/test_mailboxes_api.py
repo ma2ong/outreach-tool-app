@@ -51,7 +51,7 @@ def test_email_send_rotates_across_mailboxes(tmp_path):
     send_api.email_adapter.send_via = lambda mbx, to, s, b, a: used.append(mbx["email"])
     send_api.DELAY_RANGE = (0, 0)
     r = client.post("/api/send/email", json={
-        "lead_nos": [1, 2, 3], "subject": "Hi {company}", "body": "Hello {company}"})
+        "lead_nos": [1, 2, 3], "subject": "LED panel specs", "body": "Hello {company}"})
     assert r.json()["will_send"] == 2
     job = client.get(f"/api/send/jobs/{r.json()['job_id']}").json()
     assert job["status"] == "done"
@@ -180,7 +180,7 @@ def _seed_first_touch(db: str) -> None:
         " VALUES ('冷邮件 3 步跟进（英语）','email',1,'2026-08-01')").lastrowid
     conn.execute(
         "INSERT INTO sequence_steps(sequence_id, step_order, day_offset, subject, body)"
-        " VALUES (?,0,0,'{company} — LED display supply','Hi,\n\n{hook}\n\nAllen')", (sid,))
+        " VALUES (?,0,0,'LED panel specs','Hi,\n\n{hook}\n\nAllen')", (sid,))
     conn.commit()
     conn.close()
 

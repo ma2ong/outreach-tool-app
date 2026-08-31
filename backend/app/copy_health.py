@@ -30,10 +30,12 @@ _IDEAL_LEAD = {
 }
 
 
-def _judge(subject: str | None, body: str | None, channel: str) -> dict | None:
+def _judge(subject: str | None, body: str | None, channel: str,
+           step_order: int = 0) -> dict | None:
     verdict = message_guard.check(
         render(body, _IDEAL_LEAD), _IDEAL_LEAD,
-        subject=render(subject or "", _IDEAL_LEAD), channel=channel)
+        subject=render(subject or "", _IDEAL_LEAD), channel=channel,
+        step_order=step_order)
     if not verdict.blocked:
         return None
     return {"reason": verdict.reason, "detail": verdict.detail}
@@ -56,7 +58,8 @@ def scan(conn) -> dict:
             " FROM sequence_steps st JOIN sequences s ON s.id = st.sequence_id"
             " WHERE s.active = 1"):
         checked += 1
-        bad = _judge(row["subject"], row["body"], row["channel"] or "email")
+        bad = _judge(
+            row["subject"], row["body"], row["channel"] or "email", row["step_order"])
         if bad:
             refused.append({"kind": "sequence_step", "id": row["id"],
                             "name": f"{row['name']} 第 {row['step_order'] + 1} 步",

@@ -81,9 +81,12 @@ def test_the_segments_do_not_all_get_the_same_letter():
 def test_the_last_letter_is_deliberately_shared():
     """Differences cost maintenance; by the third letter it no longer matters whether
     they rent or install (docs/76 R2)."""
+    from app.seed_sequences import SINGLE_TOUCH
     for korean in (False, True):
+        # docs/82 R10: 只发一封的分段没有第三封可比
         closings = {seed_sequences.steps_for(s, korean)[2][3]
-                    for s in copy_segments.SEGMENTS}
+                    for s in copy_segments.SEGMENTS
+                    if (s, korean) not in SINGLE_TOUCH}
         assert len(closings) == 1
 
 

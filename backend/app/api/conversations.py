@@ -86,9 +86,19 @@ def send_reply(no: int, payload: Reply, conn=Depends(get_conn)):
     body = payload.body.strip()
     if not body:
         raise HTTPException(400, "回复内容是空的")
-    subject = (payload.subject or "").strip() or f"Re: {lead['company_en'] or ''}".strip()
+    subject = (payload.subject or "").strip()
+    if not subject:
+        latest = conn.execute(
+            "SELECT subject FROM inbox_messages WHERE lead_no=? AND kind='reply'"
+            " AND COALESCE(subject,'')!='' ORDER BY received_at DESC, id DESC LIMIT 1",
+            (no,),
+        ).fetchone()
+        original = str(latest["subject"] if latest else "LED display").strip()
+        subject = original if original.lower().startswith("re:") else f"Re: {original}"
 
-    verdict = message_guard.check(body, dict(lead), subject=subject)
+    # This is an answer inside an existing conversation, not a cold first touch. Keep
+    # every commercial/safety rule, but do not demand first-touch personalization.
+    verdict = message_guard.check(body, dict(lead), subject=subject, step_order=1)
     if verdict.blocked and not payload.override:
         # 428: the request is fine, it needs a decision first.
         raise HTTPException(428, {"reason": verdict.reason, "detail": verdict.detail})
