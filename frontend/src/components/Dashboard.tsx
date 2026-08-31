@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { fetchQuota, fetchCampaignStats, fetchQualityStats, fetchDue, sendDue, fetchJob, fetchOpportunityStats, fetchActivityStats, type CampaignStat, type CountryStat, type QualityStat, type Deliverability } from "../api";
 import type { Stats, ChannelReach, DueItem, SendJob, OpportunityStats, ActivityStats } from "../types";
 import { fetchDailyReport } from "../agentApi";
+import { fetchSocialQueue } from "../socialQueueApi";
 import { StatCards } from "./StatCards";
 import { ReadinessPanel } from "./ReadinessPanel";
 import { DailyReportCards } from "./DailyReportCards";
@@ -48,6 +49,10 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
   const [report, setReport] = useState<string>("");
   const [activityStats, setActivityStats] = useState<ActivityStats | null>(null);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
+  // 仪表盘分两块：「今天要做的」是每天开二十次的那一屏，「库存分析」一周看一次。
+  // 一个每天开二十次的工具，第一屏以下的东西约等于不存在——所以分析不是往下滚，是另一个标签。
+  const [tab, setTab] = useState<"today" | "stock">("today");
+  const [socialPending, setSocialPending] = useState(0);
   const pollRef = useRef<number | null>(null);
   const reportLoadError = (name: string, error: unknown) => {
     setLoadErrors((old) => [...new Set([...old, `${name}：${String(error)}`])]);
@@ -119,13 +124,80 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
   const maxC = countries[0]?.[1] ?? 1;
   useEffect(() => {
     fetchDailyReport().then((r) => setReport(r.text || "")).catch(() => setReport(""));
+    fetchSocialQueue().then((q) => setSocialPending(q.items.length)).catch(() => setSocialPending(0));
   }, []);
+
+  // 今天唯一需要他动手的那些事，合成一栏。它们以前散在三个页面和四张卡上——
+  // 「142 项逾期」要点进销售任务才看得到，而那正是最该先看见的一行。
+  const decisions: { key: string; count: number; unit: string; what: string;
+                     note?: string; go: string; page: string; urgent?: boolean }[] = [];
+  if (socialPending > 0) decisions.push({
+    key: "social", count: socialPending, unit: "条", what: "社媒私信备好了，等你按发送",
+    go: "去确认", page: "social" });
+  if ((activityStats?.overdue ?? 0) > 0) decisions.push({
+    key: "overdue", count: activityStats!.overdue, unit: "项", what: "销售任务已逾期",
+    note: `全部未完成 ${activityStats?.open_count ?? 0}`, go: "去处理", page: "activities", urgent: true });
+  if (pendingReplies > 0) decisions.push({
+    key: "replies", count: pendingReplies, unit: "封", what: "客户回复等你处理",
+    go: "去查看", page: "inbox", urgent: true });
+  if (sendableToday > 0) decisions.push({
+    key: "due", count: sendableToday, unit: "条", what: "跟进邮件今天额度内能发",
+    note: dueSeq.length > sendableToday ? `到期 ${dueSeq.length} 条，其余明天` : undefined,
+    go: "去发送", page: "sequences" });
+  if (due > 0) decisions.push({
+    key: "followup", count: due, unit: "家", what: "客户到了你设的跟进日期",
+    go: "去跟进", page: "__followup" });
 
   return (
     <>
+      <div className="dash-tabs">
+        <button className={`dash-tab${tab === "today" ? " on" : ""}`} onClick={() => setTab("today")}>
+          今天要做的
+          {decisions.length > 0 && <span className="dash-tab-n">{decisions.length} 件待定</span>}
+        </button>
+        <button className={`dash-tab${tab === "stock" ? " on" : ""}`} onClick={() => setTab("stock")}>
+          库存分析
+          <span className="dash-tab-n">{(stats.funnel?.total ?? stats.total).toLocaleString()} 家</span>
+        </button>
+      </div>
+
+      {tab === "today" && <>
+      {decisions.length > 0 && (
+        <div className="card" style={{ marginBottom: 16, borderLeft: "3px solid var(--warn)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+            <div className="stat-label" style={{ margin: 0 }}>⚠ 要你定的</div>
+            <span className="muted" style={{ fontSize: 12 }}>今天只有这几件需要你动手</span>
+          </div>
+          {decisions.map((d) => (
+            <div key={d.key} className="decision-row"
+              onClick={() => (d.page === "__followup" ? onGotoFollowUp() : onGoto(d.page))}
+              title={`打开${d.go}`}>
+              <b className="decision-n" style={d.urgent ? { color: "var(--danger)" } : undefined}>{d.count}</b>
+              <span className="muted" style={{ fontSize: 12 }}>{d.unit}</span>
+              <span>{d.what}</span>
+              {d.note && <span className="muted" style={{ fontSize: 12 }}>{d.note}</span>}
+              {/* 跟进邮件就地能发：这一行以前带着「🚀 发送今日 N 条」按钮，
+                  合并卡片时不能把它一起带走。看到的地方就是动手的地方。 */}
+              {d.key === "due"
+                ? <button className="btn btn-green btn-sm decision-go"
+                    onClick={(e) => { e.stopPropagation(); sendToday(); }} disabled={sending}>
+                    {sending ? "发送中…" : `发送 ${d.count} 条`}
+                  </button>
+                : <span className="decision-go">{d.go} →</span>}
+            </div>
+          ))}
+          {(sendMsg || sendJob) && (
+            <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+              {sendMsg}
+              {sendJob && ` 进度 ${sendJob.done}/${sendJob.total}`}
+              {sendJob?.status === "done" && sendJob.result && "sent" in sendJob.result &&
+                ` — 成功 ${sendJob.result.sent}，失败 ${sendJob.result.failed}${sendJob.result.deferred ? `，延后 ${sendJob.result.deferred}` : ""}`}
+            </div>
+          )}
+        </div>
+      )}
       {report && <DailyReportCards text={report} />}
       <TodayPlanCard onGoto={onGoto} />
-      <ReadinessPanel onGoto={onGoto} />
       {loadErrors.length > 0 && (
         <div className="card" style={{ marginBottom: 16, borderColor: "var(--danger)" }}>
           <b>部分数据加载失败</b>
@@ -143,75 +215,6 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
           </div>
           <button className="btn btn-sm" style={{ marginTop: 8 }}
             onClick={() => onGoto("channels")}>去恢复收信 →</button>
-        </div>
-      )}
-      <div className="card" style={{ marginBottom: 16, cursor: "pointer", borderColor: (activityStats?.overdue ?? 0) > 0 ? "var(--danger)" : undefined }}
-        onClick={() => onGoto("activities")} title="打开销售任务">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-          <div>
-            <div className="stat-label">✓ 今日销售任务</div>
-            <div className="stat-value">
-              今天 {activityStats?.today ?? 0} 项
-              <span style={{ color: (activityStats?.overdue ?? 0) > 0 ? "var(--danger)" : undefined, marginLeft: 12 }}>
-                逾期 {activityStats?.overdue ?? 0} 项
-              </span>
-            </div>
-            <div className="muted" style={{ fontSize: 12 }}>
-              全部未完成 {activityStats?.open_count ?? 0} · 未来 {activityStats?.upcoming ?? 0} · 未排日期 {activityStats?.no_due ?? 0}
-            </div>
-          </div>
-          <span className="btn btn-primary btn-sm">开始处理 →</span>
-        </div>
-      </div>
-      {(dueSeq.length > 0 || pendingReplies > 0) && (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <h3 style={{ marginTop: 0 }}>☀️ 今日工作台</h3>
-          <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "center" }}>
-            {dueSeq.length > 0 && (
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div>
-                  <div className="stat-label">待发跟进</div>
-                  <div className="stat-value">{sendableToday}<span className="muted" style={{ fontSize: 14 }}> / {dueSeq.length} 条</span></div>
-                  <div className="muted" style={{ fontSize: 12 }}>今天额度内能发 {sendableToday} 条，其余明天继续</div>
-                  {(sendMsg || sendJob) && (
-                    <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                      {sendMsg}
-                      {sendJob && ` 进度 ${sendJob.done}/${sendJob.total}`}
-                      {sendJob?.status === "done" && sendJob.result && "sent" in sendJob.result &&
-                        ` — 成功 ${sendJob.result.sent}，失败 ${sendJob.result.failed}${sendJob.result.deferred ? `，延后 ${sendJob.result.deferred}` : ""}`}
-                    </div>
-                  )}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <button className="btn btn-green btn-sm" onClick={sendToday} disabled={sending || sendableToday === 0}>
-                    {sending ? "发送中…" : `🚀 发送今日 ${sendableToday} 条`}
-                  </button>
-                  <button className="btn btn-sm" onClick={() => onGoto("sequences")}>查看/编辑 →</button>
-                </div>
-              </div>
-            )}
-            {pendingReplies > 0 && (
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div>
-                  <div className="stat-label">待处理回复</div>
-                  <div className="stat-value" style={{ color: "var(--green)" }}>{pendingReplies} 封</div>
-                  <div className="muted" style={{ fontSize: 12 }}>读过也不会消失；回复客户或安排下一步后再标记完成</div>
-                </div>
-                <button className="btn btn-green btn-sm" onClick={() => onGoto("inbox")}>去查看 →</button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-      {due > 0 && (
-        <div className="card" style={{ marginBottom: 16, borderColor: "var(--warn)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between" }}
-          onClick={onGotoFollowUp} title="查看待跟进客户">
-          <div>
-            <div className="stat-label">⏰ 该跟进了</div>
-            <div className="stat-value" style={{ color: "var(--warn)" }}>{due} 家客户</div>
-            <div className="muted" style={{ fontSize: 12 }}>已触达超过 7 天没回复、或到了你设的跟进日期 —— 点这里去处理</div>
-          </div>
-          <span className="btn btn-primary btn-sm">去跟进 →</span>
         </div>
       )}
       <div className="card" style={{ marginBottom: 16, cursor: "pointer" }}
@@ -233,7 +236,6 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
           <span className="btn btn-primary btn-sm">管理商机 →</span>
         </div>
       </div>
-      <StatCards stats={stats} />
       <div className="cards-row">
         {["email", "whatsapp", "instagram", "facebook"].map((ch) => quota[ch] && (
           <div key={ch} className="card stat-card">
@@ -244,6 +246,11 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
         ))}
       </div>
 
+      </>}
+
+      {tab === "stock" && <>
+      <StatCards stats={stats} />
+      <ReadinessPanel onGoto={onGoto} />
       <div className="card" style={{ marginBottom: 16 }}>
         <h3>触达漏斗</h3>
         <div className="funnel-grid">
@@ -347,6 +354,7 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
           </div>
         ))}
       </div>
+      </>}
     </>
   );
 }

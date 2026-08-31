@@ -49,23 +49,32 @@ test("clicking a lead row opens detail drawer with stage and notes", async ({ pa
   await expect(page.getByText("销售阶段")).toBeVisible();
   await expect(page.getByText("下一步行动", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "安排任务" })).toBeVisible();
+  // 公司信息和联系人在开场白正下方：打开一家客户，先要看的是这家是谁、官网在哪、找谁谈
+  await expect(page.getByText("公司信息")).toBeVisible();
+  await expect(page.getByRole("link", { name: /打开/ }).first()).toBeVisible();
   await expect(page.getByText(/联系人（\d+）/)).toBeVisible();
   await expect(page.getByRole("button", { name: "＋ 新建联系人" })).toBeVisible();
-  await expect(page.getByText("销售优先级")).toBeVisible();
-  await expect(page.getByText(/不是成交概率/)).toBeVisible();
+  await expect(page.getByText("往来记录")).toBeVisible();
+  // 评分卡按 Allen 的判断删掉了；采购信号那种带出处的证据留着
+  await expect(page.getByText(/不是成交概率/)).toHaveCount(0);
   await expect(page.getByText("LED 项目 / 商机")).toBeVisible();
   await expect(page.getByText("跟进记录", { exact: true })).toBeVisible();
   await page.locator(".drawer-close").click();
   await expect(page.locator(".drawer")).toHaveCount(0);
 });
 
-test("dashboard shows stats", async ({ page }) => {
+test("dashboard splits today's work from the stock analysis", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /仪表盘/ }).click();
+  // 默认落在「今天要做的」
+  await expect(page.getByRole("button", { name: /今天要做的/ })).toBeVisible();
+  // 库存统计不在第一屏 —— 那正是这次拆分的意义
+  await expect(page.getByText(/国家分布/)).toHaveCount(0);
+  await page.getByRole("button", { name: /库存分析/ }).click();
   await expect(page.getByText("客户总数").first()).toBeVisible();
   await expect(page.getByText(/国家分布/)).toBeVisible();
-  await expect(page.getByText("今日销售任务")).toBeVisible();
   await expect(page.getByText("生成订单")).toBeVisible();
+  await expect(page.getByText(/触达漏斗/)).toBeVisible();
 });
 
 // SAFETY: reads the task workbench and creation controls, but does not create or complete anything.
