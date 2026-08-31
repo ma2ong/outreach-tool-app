@@ -4,11 +4,10 @@ import type { Activity, Contact, Lead, LeadIntelligence, Opportunity } from "../
 import { fetchLeadIntelligence } from "../salesIntelligenceApi";
 import { fetchLeadMemory, writeLeadMemory, forgetLeadMemory, type MemoryItem } from "../agentApi";
 import { CustomerTypePicker } from "./CustomerTypePicker";
+import { CorrespondencePanel } from "./CorrespondencePanel";
 import { fetchCustomerTypes } from "../api";
 import { STAGES, STAGE_LABEL, OPPORTUNITY_STAGE_LABEL } from "../types";
 
-const CH_LABEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", instagram: "Instagram" };
-const STATE_TEXT: Record<string, string> = { replied: "已回复", messaged: "已触达" };
 const ROLE_LABEL: Record<string, string> = {
   decision_maker: "决策人 / 采购", influencer: "影响人", technical: "技术",
   finance: "财务", other: "其他 / 未确认",
@@ -22,6 +21,17 @@ function fmtTs(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
   return isNaN(+d) ? iso : d.toLocaleString();
+}
+
+// 库里存的官网是裸域名（"thorav.us"），href 不带协议会被当成站内相对路径。
+// 社媒存的是 handle，不是链接，所以各自补各自的前缀。
+function externalUrl(kind: "website" | "instagram" | "facebook", raw: string | null): string {
+  const value = (raw ?? "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  const handle = value.replace(/^@/, "");
+  if (kind === "website") return `https://${handle}`;
+  return `https://www.${kind}.com/${handle.replace(/^.*\.com\//, "")}`;
 }
 
 function localToday(): string {
@@ -302,6 +312,23 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
     </div>
   );
 
+  // 官网和社媒是拿来点开的，不是拿来读的。以前要看一眼客户官网得先选中、复制、
+  // 切浏览器、粘贴——一天做十次就是一天里最没道理的十次操作。
+  const linkField = (k: "website" | "instagram" | "facebook", label: string) => {
+    const href = externalUrl(k, draft[k] as string | null);
+    return (
+      <div className="field">
+        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {label}
+          {href && <a href={href} target="_blank" rel="noreferrer"
+            style={{ fontSize: 12, fontWeight: 400 }} title={href}>打开 ↗</a>}
+        </label>
+        <input className="input" value={(draft[k] as string) ?? ""}
+          onChange={(e) => set(k, e.target.value)} />
+      </div>
+    );
+  };
+
   return (
     <div className="drawer-overlay" onClick={onClose}>
       <div className="drawer" onClick={(e) => e.stopPropagation()}>
@@ -326,11 +353,62 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
           <input className="input" value={draft.hook ?? ""} onChange={(e) => set("hook", e.target.value)}
             placeholder="留空则消息里这句自动消失" />
         </div>
-        <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>
+        {recheckMsg && <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>{recheckMsg}</div>}
+
+        {/* 公司资料和联系人挪到开场白正下方：打开一家客户，先要看的是这家是谁、
+            官网在哪、找谁谈。评分、阶段、任务是看完这些之后才有意义的判断。 */}
+        <div className="section-title">公司信息</div>
+        <div className="field-grid">
+          {linkField("website", "官网")}
+          {linkField("instagram", "Instagram")}
+          {linkField("facebook", "Facebook")}
+        </div>
+        <div className="field-grid">
+          {field("company_en", "公司名")}
+          {field("country", "国家")}
+          {field("city", "城市")}
+        </div>
+        <div className="field">
+          <label>业务描述</label>
+          <textarea className="input" style={{ height: 64 }} value={draft.business ?? ""} onChange={(e) => set("business", e.target.value)} />
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
           邮箱来源：{SOURCE_LABEL[draft.email_source ?? ""] ?? "未标注"}
           {draft.recheck_due ? ` · 下次复检 ${draft.recheck_due}` : ""}
         </div>
-        {recheckMsg && <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>{recheckMsg}</div>}
+        <button className="btn btn-primary" onClick={save} disabled={!dirty || saving}>
+          {saving ? "保存中…" : dirty ? "保存修改" : "已保存"}
+        </button>
+        {err && <span className="error-text" style={{ marginLeft: 10 }}>{err}</span>}
+
+        <div className="section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>联系人（{contacts.length}）</span>
+          <button className="btn btn-sm" onClick={() => setShowNewContact(!showNewContact)}>＋ 新建联系人</button>
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+          主要联系人是邮件、WhatsApp 和话术个性化的默认对象；次要联系人不会被自动群发。
+        </div>
+        {showNewContact && (
+          <div className="card" style={{ padding: 10, marginBottom: 10 }}>
+            <div className="field-grid">
+              <div className="field"><label>姓名</label><input className="input" value={contactName} onChange={(e) => setContactName(e.target.value)} /></div>
+              <div className="field"><label>职位</label><input className="input" value={contactTitle} onChange={(e) => setContactTitle(e.target.value)} /></div>
+              <div className="field"><label>邮箱</label><input className="input" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} /></div>
+              <div className="field"><label>电话 / WhatsApp</label><input className="input" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} /></div>
+              <div className="field"><label>采购角色</label>
+                <select className="input" value={contactRole} onChange={(e) => setContactRole(e.target.value)}>
+                  {Object.entries(ROLE_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </div>
+            </div>
+            <button className="btn btn-primary btn-sm" onClick={addContact} disabled={contactBusy}>添加联系人</button>
+          </div>
+        )}
+        {contacts.length === 0 ? <div className="muted">还没有联系人；添加采购、技术或财务联系人后再安排触达。</div> :
+          contacts.map((contact) => <ContactCard key={contact.id} contact={contact}
+            onRefresh={refreshContacts} onError={setErr} />)}
+
+        <CorrespondencePanel leadNo={lead.no} outreach={draft.outreach} />
 
         <div className="section-title">销售优先级</div>
         {intelligence ? <div className="card" style={{ padding: 10, marginBottom: 10 }}>
@@ -361,6 +439,12 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
           <select className="input" value={draft.stage} onChange={(e) => saveStage(e.target.value)}>
             {STAGES.map((s) => <option key={s} value={s}>{STAGE_LABEL[s]}</option>)}
           </select>
+        </div>
+
+        <div className="field">
+          <label>客户类型</label>
+          <CustomerTypePicker value={draft.tags ?? ""} options={typeOptions}
+            onChange={(next) => set("tags", next)} />
         </div>
 
         <div className="field">
@@ -417,60 +501,6 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
             ))}
           </details>
         )}
-        <div className="field">
-          <label>客户类型</label>
-          <CustomerTypePicker value={draft.tags ?? ""} options={typeOptions}
-            onChange={(next) => set("tags", next)} />
-        </div>
-
-        <div className="section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>联系人（{contacts.length}）</span>
-          <button className="btn btn-sm" onClick={() => setShowNewContact(!showNewContact)}>＋ 新建联系人</button>
-        </div>
-        <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
-          主要联系人是邮件、WhatsApp 和话术个性化的默认对象；次要联系人不会被自动群发。
-        </div>
-        {showNewContact && (
-          <div className="card" style={{ padding: 10, marginBottom: 10 }}>
-            <div className="field-grid">
-              <div className="field"><label>姓名</label><input className="input" value={contactName} onChange={(e) => setContactName(e.target.value)} /></div>
-              <div className="field"><label>职位</label><input className="input" value={contactTitle} onChange={(e) => setContactTitle(e.target.value)} /></div>
-              <div className="field"><label>邮箱</label><input className="input" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} /></div>
-              <div className="field"><label>电话 / WhatsApp</label><input className="input" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} /></div>
-              <div className="field"><label>采购角色</label>
-                <select className="input" value={contactRole} onChange={(e) => setContactRole(e.target.value)}>
-                  {Object.entries(ROLE_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-              </div>
-            </div>
-            <button className="btn btn-primary btn-sm" onClick={addContact} disabled={contactBusy}>添加联系人</button>
-          </div>
-        )}
-        {contacts.length === 0 ? <div className="muted">还没有联系人；添加采购、技术或财务联系人后再安排触达。</div> :
-          contacts.map((contact) => <ContactCard key={contact.id} contact={contact}
-            onRefresh={refreshContacts} onError={setErr} />)}
-
-        <div className="section-title">公司渠道与资料</div>
-        <div className="field-grid">
-          {field("website", "官网")}
-          {field("instagram", "Instagram")}
-          {field("facebook", "Facebook")}
-        </div>
-        <div className="field-grid">
-          {field("company_en", "公司名")}
-          {field("country", "国家")}
-          {field("city", "城市")}
-        </div>
-        <div className="field">
-          <label>业务描述</label>
-          <textarea className="input" style={{ height: 64 }} value={draft.business ?? ""} onChange={(e) => set("business", e.target.value)} />
-        </div>
-
-        <button className="btn btn-primary" onClick={save} disabled={!dirty || saving}>
-          {saving ? "保存中…" : dirty ? "保存修改" : "已保存"}
-        </button>
-        {err && <span className="error-text" style={{ marginLeft: 10 }}>{err}</span>}
-
         <div className="section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span>LED 项目 / 商机</span>
           <button className="btn btn-sm" onClick={() => setShowNewOpportunity(!showNewOpportunity)}>
@@ -509,15 +539,6 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
                 {o.overdue ? " · ⚠ 已逾期" : o.stale ? " · ⚠ 已停滞" : ""}
               </div>
             </div>
-          ))}
-
-        <div className="section-title">触达状态</div>
-        {draft.outreach.length === 0 ? <div className="muted">尚未触达</div> :
-          draft.outreach.map((o) => (
-            <span key={o.channel} className={`badge badge-${o.status === "replied" ? "replied" : o.status === "messaged" ? "messaged" : "untouched"}`} style={{ marginRight: 6 }}>
-              <i />{CH_LABEL[o.channel] ?? o.channel}：{STATE_TEXT[o.status] ?? o.status}
-              {o.message_sent_date ? ` (${o.message_sent_date})` : ""}
-            </span>
           ))}
 
         {/* 客户记忆：Agent 从往来里合成的事实，加上 Allen 手写的。手写的 Agent 不会改。 */}

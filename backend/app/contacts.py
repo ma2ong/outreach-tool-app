@@ -388,6 +388,21 @@ def find_phone(conn: sqlite3.Connection, value: str, lead_no: int) -> dict | Non
     return dict(matches[0]) if len(matches) == 1 else None
 
 
+def _fold_into(conn: sqlite3.Connection, target_id: int, row: sqlite3.Row) -> None:
+    """Point everything that referenced `row` at `target_id`, then drop `row`."""
+    conn.execute("UPDATE inbox_messages SET contact_id=? WHERE contact_id=?",
+                 (target_id, row["id"]))
+    # Formal documents keep the exact addressee when duplicate companies merge.
+    if conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='quotes'"
+    ).fetchone():
+        conn.execute("UPDATE quotes SET contact_id=? WHERE contact_id=?",
+                     (target_id, row["id"]))
+        conn.execute("UPDATE orders SET contact_id=? WHERE contact_id=?",
+                     (target_id, row["id"]))
+    conn.execute("DELETE FROM contacts WHERE id=?", (row["id"],))
+
+
 def merge_lead_contacts(conn: sqlite3.Connection, keep: int, duplicate: int) -> None:
     ensure_schema(conn)
     # Dedupe is also used by scripts/tests before the startup migration. Adopt both
@@ -417,17 +432,7 @@ def merge_lead_contacts(conn: sqlite3.Connection, keep: int, duplicate: int) -> 
                     f"UPDATE contacts SET {', '.join(f'{k}=?' for k in updates)} WHERE id=?",
                     [*updates.values(), existing["id"]],
                 )
-            conn.execute("UPDATE inbox_messages SET contact_id=? WHERE contact_id=?",
-                         (existing["id"], row["id"]))
-            # Formal documents keep the exact addressee when duplicate companies merge.
-            if conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='quotes'"
-            ).fetchone():
-                conn.execute("UPDATE quotes SET contact_id=? WHERE contact_id=?",
-                             (existing["id"], row["id"]))
-                conn.execute("UPDATE orders SET contact_id=? WHERE contact_id=?",
-                             (existing["id"], row["id"]))
-            conn.execute("DELETE FROM contacts WHERE id=?", (row["id"],))
+            _fold_into(conn, existing["id"], row)
             continue
         if row["is_primary"] and keep_primary:
             keeper_reachable = bool(keep_primary["email"] or keep_primary["phone"])
@@ -436,6 +441,28 @@ def merge_lead_contacts(conn: sqlite3.Connection, keep: int, duplicate: int) -> 
                 conn.execute("UPDATE contacts SET is_primary=0 WHERE id=?", (keep_primary["id"],))
                 keep_primary = row
             else:
+                # Both are reachable, but often on different channels: one row carries
+                # the number, the other the address. Demoting one used to end with
+                # `_sync_lead` writing the demoted channel back onto the lead as NULL —
+                # merging two records of the same Korean company left it with no email
+                # at all, which quietly removes it from every email path. Only blanks
+                # are filled, so nothing the keeper already knew is overwritten.
+                fill = {f: row[f] for f in
+                        ("name", "title", "email", "phone", "linkedin", "email_status", "note")
+                        if not keep_primary[f] and row[f]}
+                if fill:
+                    fill["updated_at"] = _now()
+                    conn.execute(
+                        f"UPDATE contacts SET {', '.join(f'{k}=?' for k in fill)} WHERE id=?",
+                        [*fill.values(), keep_primary["id"]])
+                    keep_primary = conn.execute(
+                        "SELECT * FROM contacts WHERE id=?", (keep_primary["id"],)).fetchone()
+                # Taking its address makes it the same address, which is the case the
+                # branch above already handles: fold the row away rather than move a
+                # now-colliding copy across.
+                if row["email"] and (keep_primary["email"] or "").lower() == row["email"].lower():
+                    _fold_into(conn, keep_primary["id"], row)
+                    continue
                 conn.execute("UPDATE contacts SET is_primary=0 WHERE id=?", (row["id"],))
         conn.execute("UPDATE contacts SET lead_no=?, updated_at=? WHERE id=?",
                      (keep, _now(), row["id"]))

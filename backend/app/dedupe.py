@@ -61,9 +61,19 @@ def find_duplicate_groups(conn) -> list[dict]:
     return sorted(groups, key=lambda g: g["keep"])
 
 
+# What survives a merge. brief/hook/email_source were missing: two records of the same
+# Korean company had all the researched copy on the row being deleted and none on the
+# row being kept, so merging them threw away the only sentence we could open with.
 _FILL_COLS = ["company_local", "country", "region", "city", "contact_name", "title",
               "email", "phone", "website", "instagram", "facebook", "linkedin",
-              "business", "target_fit", "tags", "follow_up_date", "next_action", "email_status"]
+              "business", "target_fit", "tags", "follow_up_date", "next_action",
+              "email_status", "brief", "hook", "email_source", "recheck_due",
+              "whatsapp_status"]
+
+# Stage is not a blank to fill — both rows have one, and the merged company is as far
+# along as the further of the two. Losing "contacted" would make an already-worked
+# customer look untouched and get it opened with a cold letter.
+_STAGE_RANK = ["new", "contacted", "replied", "qualified", "quoted", "won", "lost"]
 
 _STATUS_RANK = {"replied": 3, "messaged": 2}
 
@@ -92,6 +102,10 @@ def merge_leads(conn, keep: int, dups: list[int]) -> None:
             if (keeper[col] is None or keeper[col] == "") and dup[col] not in (None, ""):
                 sets.append(f"{col}=?")
                 params.append(dup[col])
+        if dup["stage"] in _STAGE_RANK and keeper["stage"] in _STAGE_RANK and (
+                _STAGE_RANK.index(dup["stage"]) > _STAGE_RANK.index(keeper["stage"])):
+            sets.append("stage=?")
+            params.append(dup["stage"])
         if sets:
             conn.execute(f"UPDATE leads SET {', '.join(sets)} WHERE no=?", [*params, keep])
             keeper = conn.execute("SELECT * FROM leads WHERE no=?", (keep,)).fetchone()
@@ -113,6 +127,13 @@ def merge_leads(conn, keep: int, dups: list[int]) -> None:
         conn.execute("UPDATE send_log SET lead_no=? WHERE lead_no=?", (keep, d))
         conn.execute("UPDATE inbox_messages SET lead_no=? WHERE lead_no=?", (keep, d))
         conn.execute("UPDATE activities SET lead_no=? WHERE lead_no=?", (keep, d))
+        # The relationship timeline and what the Agent remembers are the two places a
+        # merge used to silently drop history on the floor.
+        for table in ("relationship_events", "lead_memory_items"):
+            try:
+                conn.execute(f"UPDATE {table} SET lead_no=? WHERE lead_no=?", (keep, d))
+            except Exception:  # noqa: BLE001 — an older database may not have it yet
+                pass
         from app import sales_intelligence
         sales_intelligence.merge_lead_signals(conn, keep, d)
         from app import contacts

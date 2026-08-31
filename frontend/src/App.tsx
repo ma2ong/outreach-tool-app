@@ -92,6 +92,17 @@ function LoginGate({ onSuccess }: { onSuccess: () => void }) {
   );
 }
 
+// 韩国和美国是他现在的两个主要市场（300 家和 525 家），一天里要选它们几十次；
+// 其余国家按字母序，因为找它们靠的是拼写而不是记忆。
+const PINNED_COUNTRIES = ["South Korea", "USA"];
+
+function sortCountries(all: string[]): string[] {
+  const pinned = PINNED_COUNTRIES.filter((c) => all.includes(c));
+  const rest = all.filter((c) => !pinned.includes(c))
+    .sort((a, b) => a.trim().localeCompare(b.trim()));
+  return [...pinned, ...rest];
+}
+
 export function App() {
   const [page, setPage] = useState<Page>("dashboard");
   const [theme, toggleTheme] = useTheme();
@@ -328,7 +339,7 @@ export function App() {
                 <select className="input" value={country} onChange={(e) => { setCountry(e.target.value); filterReset(); }}>
                   <option value="">全部国家</option>
                   {/* 国家为空的那一档要有名字：一个空白选项看不出选的是什么 */}
-                  {stats && Object.keys(stats.by_country).sort()
+                  {stats && sortCountries(Object.keys(stats.by_country))
                     .map((c) => <option key={c} value={c}>{c.trim() || "（国家未知）"}</option>)}
                 </select>
                 <select className="input" value={channel} onChange={(e) => { setChannel(e.target.value); filterReset(); }}>
