@@ -41,6 +41,37 @@ def remaining_today(conn) -> int:
     return max(0, DAILY_CAP - sent_today(conn))
 
 
+def never_touched(conn, channel: str = "email") -> list[int]:
+    """Companies in the book that have never been written to on this channel (docs/81).
+
+    The sibling of `recontact.reapproachable`, and the pool that had no way in at all:
+    `_top_up` only ever drew from companies already messaged, so 69 real prospects — most
+    of them carrying a hook — sat in the book without a single letter. They arrived
+    before importing enrolled anything (docs/54, and the discovery batches that predate
+    `_enroll_imported`), so nothing was ever going to pick them up.
+
+    Excludes exactly what `reapproachable` excludes; a customer who has already bought
+    never enters a cold sequence.
+    """
+    col = {"email": "email", "whatsapp": "phone",
+           "instagram": "instagram", "facebook": "facebook"}[channel]
+    rows = conn.execute(
+        f"""SELECT l.no FROM leads l
+             WHERE COALESCE(l.do_not_contact, 0) = 0
+               AND (l.stage IS NULL OR l.stage NOT IN ('won', 'lost'))
+               AND l.{col} IS NOT NULL AND l.{col} != ''
+               {"AND (l.email_status IS NULL OR l.email_status NOT IN ('invalid','bounced'))"
+                if channel == "email" else ""}
+               AND NOT EXISTS (SELECT 1 FROM outreach o
+                                WHERE o.lead_no = l.no AND o.channel = ?
+                                  AND o.status IN ('messaged', 'replied'))
+               AND NOT EXISTS (SELECT 1 FROM sequence_enrollments e WHERE e.lead_no = l.no)
+             -- docs/81 R2, same rule as docs/80 R3: something specific to say goes first.
+             ORDER BY CASE WHEN COALESCE(l.hook, '') = '' THEN 1 ELSE 0 END, l.no""",
+        (channel,)).fetchall()
+    return [r["no"] for r in rows]
+
+
 def eligible_leads(conn, lead_nos: list[int], channel: str) -> list[dict]:
     if not lead_nos:
         return []

@@ -264,3 +264,51 @@ def test_the_longest_silent_writable_company_is_topped_up_first(conn):
     autosend._top_up(conn, 1)
     assert [r["lead_no"] for r in conn.execute(
         "SELECT lead_no FROM sequence_enrollments")] == [2]
+
+
+# --- docs/81: a company we never wrote to has no way in at all ----------------------
+
+def test_a_company_never_written_to_is_a_candidate(conn):
+    """69 real prospects sat in the book with no letter and no path to one: `_top_up`
+    only ever drew from companies already messaged."""
+    _lead(conn, 1)
+    conn.commit()
+    assert recontact.reapproachable(conn, "email") == []   # never messaged, so not here
+    assert outreach.never_touched(conn, "email") == [1]
+
+
+def test_a_customer_who_already_bought_is_never_a_cold_candidate(conn):
+    """docs/81 R3, and the whole point of docs/54: this is the worst thing it can do."""
+    _lead(conn, 1, stage="won")
+    _lead(conn, 2, stage="lost")
+    _lead(conn, 3, do_not_contact=1)
+    _lead(conn, 4, email_status="invalid")
+    _lead(conn, 5, email="")
+    conn.commit()
+    assert outreach.never_touched(conn, "email") == []
+
+
+def test_a_company_already_in_a_sequence_is_not_offered_again(conn):
+    _lead(conn, 1)
+    conn.execute("INSERT INTO sequences(id,name,channel,active) VALUES (1,'s','email',1)")
+    conn.execute("INSERT INTO sequence_enrollments(lead_no,sequence_id,current_step,status,"
+                 "enrolled_at,next_due_date) VALUES (1,1,0,'active',date('now'),date('now'))")
+    conn.commit()
+    assert outreach.never_touched(conn, "email") == []
+
+
+def test_something_specific_to_say_goes_first(conn):
+    """docs/81 R2, the same rule docs/80 R3 put on the DM queue."""
+    _lead(conn, 1)                                     # no hook
+    _lead(conn, 2, hook="Saw the arena job on your site.")
+    conn.commit()
+    assert outreach.never_touched(conn, "email") == [2, 1]
+
+
+def test_a_messaged_company_is_not_in_the_never_touched_pool(conn):
+    """The two pools do not overlap: one is 'never', the other is 'again'."""
+    _lead(conn, 1)
+    _sent(conn, 1, 400)
+    conn.commit()
+    assert outreach.never_touched(conn, "email") == []
+    assert recontact.reapproachable(conn, "email") == [1]

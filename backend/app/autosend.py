@@ -170,7 +170,8 @@ def should_run(conn, now: _dt.datetime | None = None) -> bool:
 
 
 def _top_up(conn, gap: int) -> int:
-    """Fill a thin day with companies that have gone cold long enough (docs/73 R3).
+    """Fill a thin day: first companies never written to, then ones that have gone cold
+    long enough (docs/81 R1, docs/73 R3).
 
     Relaxing eligibility alone changes nothing: this runs the due sequence steps and
     never looks at that pool, so without a way in, the re-approachable companies stay
@@ -180,13 +181,17 @@ def _top_up(conn, gap: int) -> int:
     the same routing an imported lead gets, so a rental company and an integrator do not
     receive the same opener merely because they came in through this path.
     """
-    from app import message_guard, recontact, sequences
+    from app import message_guard, outreach, recontact, sequences
     from app.agent import executors
 
+    # docs/81 R1. Never-written-to first, cooled-down second. A company that has not
+    # heard from us is worth more than one that read a letter and did not answer, and
+    # until now only the second had any way in at all.
+    #
     # Cooled down is not the same as writable. Records with a mailbox in the company-name
     # column, or with nothing personal to say, are refused by the guard at send time;
     # filtering here means `gap` is filled with letters that will actually go out.
-    candidates = recontact.reapproachable(conn, "email")
+    candidates = outreach.never_touched(conn, "email") + recontact.reapproachable(conn, "email")
     if not candidates:
         return 0
     facts = {r["no"]: dict(r) for r in conn.execute(

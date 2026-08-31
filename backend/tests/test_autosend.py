@@ -194,3 +194,33 @@ def test_a_restart_storm_does_not_retry_instantly(conn, monkeypatch):
     assert autosend.should_run(conn, _noon() + dt.timedelta(minutes=1)) is False
     assert autosend.should_run(
         conn, _noon() + dt.timedelta(minutes=autosend.RETRY_AFTER_MINUTES + 1)) is True
+
+
+def test_top_up_writes_to_the_never_contacted_before_the_ignored(conn, monkeypatch):
+    """docs/81 R1. A company that has not heard from us is worth more than one that read
+    a letter and did not answer — and until now only the second had any way in."""
+    from app import recontact, sequences as seq
+    from app.seed_sequences import name_for
+
+    # `_sequence_for` routes by docs/76 segment name; the fixture's "邮件序列" is not one.
+    seq.create_sequence(conn, name_for("general", False), "email",
+                        [{"day_offset": 0, "body": "hi {name}"}])
+    conn.execute("INSERT INTO leads(no, company_en, country, email, email_status)"
+                 " VALUES (500, 'Fresh Co', 'USA', 'fresh@x.com', 'valid')")
+    conn.execute("INSERT INTO leads(no, company_en, country, email, email_status)"
+                 " VALUES (501, 'Cold Co', 'USA', 'cold@x.com', 'valid')")
+    conn.execute("INSERT INTO outreach(lead_no, channel, status, touch_count,"
+                 " message_sent_date) VALUES (501, 'email', 'messaged', 1,"
+                 " date('now', '-400 days'))")
+    conn.commit()
+    fresh = outreach.never_touched(conn, "email")
+    assert 500 in fresh
+    assert 501 in recontact.reapproachable(conn, "email")
+    assert 501 not in fresh, "the two pools do not overlap"
+
+    picked = []
+    monkeypatch.setattr("app.sequences.enroll_leads",
+                        lambda _c, _sid, nos: picked.extend(nos) or len(nos))
+    autosend._top_up(conn, 1)
+    assert len(picked) == 1, "never past the gap"
+    assert picked[0] in fresh, "the one slot goes to a company never written to"
