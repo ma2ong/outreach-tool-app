@@ -1,0 +1,68 @@
+"""Would this copy actually go out? (docs/82)
+
+Every template and every sequence step is judged by `message_guard` at send time, and a
+refusal there is invisible until Allen picks that template and gets a block he cannot
+explain. On 2026-08-31 twelve of the fourteen templates in the table were in that state:
+three carried the exit lines docs/82 bans, the rest have no {company} anywhere and read
+as impersonal. Nothing said so.
+
+The test is deliberately the most favourable one: every piece of copy is rendered against
+a lead with every field filled in. A refusal under those conditions is not "this lead is
+thin", it is **this copy can never be sent to anyone**.
+"""
+from __future__ import annotations
+
+from app import message_guard
+from app.personalize import render
+
+# Everything a token could want. Anything refused against this lead is refused always.
+_IDEAL_LEAD = {
+    "no": 0,
+    "company_en": "Verum Staging",
+    "contact_name": "Sam Rivera",
+    "country": "USA",
+    "city": "Austin",
+    "website": "verumstaging.com",
+    "email": "sam@verumstaging.com",
+    "hook": "Saw the rental and touring work you do around Austin.",
+    "brief": 'The site mentions "rental" and "touring".',
+    "tags": "租赁商,icp:rental",
+}
+
+
+def _judge(subject: str | None, body: str | None, channel: str) -> dict | None:
+    verdict = message_guard.check(
+        render(body, _IDEAL_LEAD), _IDEAL_LEAD,
+        subject=render(subject or "", _IDEAL_LEAD), channel=channel)
+    if not verdict.blocked:
+        return None
+    return {"reason": verdict.reason, "detail": verdict.detail}
+
+
+def scan(conn) -> dict:
+    """Which stored copy the guard would refuse, and why."""
+    refused: list[dict] = []
+    checked = 0
+
+    for row in conn.execute("SELECT id, name, channel, subject, body FROM templates"):
+        checked += 1
+        bad = _judge(row["subject"], row["body"], row["channel"] or "email")
+        if bad:
+            refused.append({"kind": "template", "id": row["id"], "name": row["name"],
+                            "channel": row["channel"], **bad})
+
+    for row in conn.execute(
+            "SELECT st.id, s.name, s.channel, st.step_order, st.subject, st.body"
+            " FROM sequence_steps st JOIN sequences s ON s.id = st.sequence_id"
+            " WHERE s.active = 1"):
+        checked += 1
+        bad = _judge(row["subject"], row["body"], row["channel"] or "email")
+        if bad:
+            refused.append({"kind": "sequence_step", "id": row["id"],
+                            "name": f"{row['name']} 第 {row['step_order'] + 1} 步",
+                            "channel": row["channel"], **bad})
+
+    by_reason: dict[str, int] = {}
+    for item in refused:
+        by_reason[item["reason"]] = by_reason.get(item["reason"], 0) + 1
+    return {"checked": checked, "refused": refused, "by_reason": by_reason}

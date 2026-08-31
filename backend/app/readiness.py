@@ -17,13 +17,35 @@ def _reply_error_text(result) -> str:
 
 
 def browser_installed() -> bool:
-    """Whether Playwright has a chromium to launch. Cheap: it is a directory test, and
-    the answer changes only when someone runs an install."""
+    """Whether Playwright has the chromium *it will ask for*. Cheap: two file reads, and
+    the answer changes only when someone runs an install or upgrades the package.
+
+    It used to glob `chromium*` and accept any revision found. That passes while every
+    launch fails, which is the failure shape this whole module exists to prevent: an
+    upgrade leaves the old revision on disk, Playwright asks for the new one, and the
+    check says the browser is there. Ask the package which revision it wants.
+    """
     import glob
+    import json
     import os
+
     root = os.path.join(os.path.expanduser("~"), "AppData", "Local", "ms-playwright")
-    return bool(glob.glob(os.path.join(root, "chromium*", "chrome-win*", "chrome.exe"))
-                or glob.glob(os.path.join(root, "chromium*", "chrome-linux", "chrome")))
+    wanted = None
+    try:
+        import playwright
+        manifest = os.path.join(os.path.dirname(playwright.__file__),
+                                "driver", "package", "browsers.json")
+        with open(manifest, encoding="utf-8") as fh:
+            for browser in json.load(fh).get("browsers", []):
+                if browser.get("name") == "chromium":
+                    wanted = str(browser.get("revision") or "")
+                    break
+    except Exception:  # noqa: BLE001 — an unreadable manifest falls back to the old test
+        wanted = None
+
+    pattern = f"chromium-{wanted}" if wanted else "chromium*"
+    return bool(glob.glob(os.path.join(root, pattern, "chrome-win*", "chrome.exe"))
+                or glob.glob(os.path.join(root, pattern, "chrome-linux", "chrome")))
 
 
 def _check(check_id: str, label: str, status: str, detail: str, action_page: str) -> dict:
@@ -167,6 +189,24 @@ def build(conn) -> dict:
             "Playwright 的 Chromium 没装（升级后需重新下载）：在 backend 目录运行 "
             "python -m playwright install chromium。WhatsApp/Instagram 的连接、"
             "回复扫描和社媒起草在此之前都用不了", "channels"))
+
+    # Copy that the guard will refuse is invisible until Allen picks it and gets a block
+    # he cannot explain. Judged against a lead with every field filled in, so a refusal
+    # here means this copy can never go to anyone (docs/82).
+    from app import copy_health
+    copy_scan = copy_health.scan(conn)
+    if copy_scan["refused"]:
+        names = "、".join(str(x["name"])[:16] for x in copy_scan["refused"][:3])
+        more = f" 等 {len(copy_scan['refused'])} 条" if len(copy_scan["refused"]) > 3 else ""
+        why = "、".join(f"{k} {v}" for k, v in copy_scan["by_reason"].items())
+        checks.append(_check(
+            "copy", "文案可发性", "attention",
+            f"{names}{more}发不出去（{why}）——选中它们发送会被拦下，"
+            "改掉或退役；{company} 缺失和退出语是最常见的两个原因", "outreach"))
+    else:
+        checks.append(_check(
+            "copy", "文案可发性", "ok",
+            f"{copy_scan['checked']} 条模板和序列步骤都能通过发送前检查", "outreach"))
 
     pending_proposals = agent_status["pending"]
     checks.append(_check(
