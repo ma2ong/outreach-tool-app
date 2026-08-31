@@ -78,6 +78,62 @@ _TEMPLATES = (
 )
 
 
+# What goes out when the site published nothing quotable (docs/80 R2). Separate from
+# `_TEMPLATES` rather than a blank {hook}, because three of those four lean on the hook
+# to make sense — "that kind of work", "exactly this", "the sort of work" all point at
+# the sentence before them, and with it removed they point at nothing.
+#
+# Not one generic line either: the segment comes from `copy_segments`, which is Allen's
+# own tag first. Nothing here states a fact about the recipient — every sentence is about
+# us — so docs/45 is untouched even when the segment is wrong. A wrong segment costs a
+# sentence that misses; it cannot cost a false claim.
+_GENERIC: dict[str, tuple[str, ...]] = {
+    "rental": (
+        "Hi{contact_comma} we manufacture LED panels for event and rental work — stage, "
+        "touring, festivals. If you have a job coming up, tell me the pitch and size and "
+        "I'll send specs.",
+        "Hi{contact_comma} we build the LED panels rental and staging companies put on "
+        "the road. Happy to send specs and pricing if something is in the calendar.",
+        "Hi{contact_comma} we're an LED manufacturer working with event and rental "
+        "companies direct — no distributor in between. Worth a conversation?",
+        "Hi{contact_comma} stage and touring LED is what we build. Happy to be the "
+        "spec-and-pricing contact next time a show needs panels.",
+    ),
+    "install": (
+        "Hi{contact_comma} we manufacture LED display panels and work with AV integrators "
+        "and installers directly. Happy to be a spec-and-pricing contact whenever a "
+        "project needs one.",
+        "Hi{contact_comma} we're an LED display manufacturer supplying integrators direct. "
+        "If you have a fixed install coming up, send me the pitch and size and I'll come "
+        "back with specs.",
+        "Hi{contact_comma} fixed-install LED is what we make — indoor and outdoor, direct "
+        "from the factory. Worth a conversation if anything is in the pipeline?",
+        "Hi{contact_comma} we build LED panels for integrators and installation companies. "
+        "Send me a pitch and a size and I'll come back with specs and pricing.",
+    ),
+    "outdoor": (
+        "Hi{contact_comma} we manufacture outdoor LED displays — billboards, facades, "
+        "roadside. Happy to send specs and pricing if something is coming up.",
+        "Hi{contact_comma} we build the outdoor LED panels behind billboards and building "
+        "facades. Worth a conversation if you have a site in planning?",
+        "Hi{contact_comma} outdoor LED is what we manufacture, direct from the factory. "
+        "Tell me the pitch and the size and I'll send specs.",
+        "Hi{contact_comma} we're an LED manufacturer working with outdoor advertising "
+        "companies direct. Happy to be a spec-and-pricing contact when a site comes up.",
+    ),
+    "general": (
+        "Hi{contact_comma} we're an LED display manufacturer and work with rental, AV and "
+        "signage companies directly. Worth a conversation if anything is in the pipeline?",
+        "Hi{contact_comma} we manufacture LED display panels and sell to the trade direct. "
+        "If you have a project coming up, tell me the pitch and size and I'll send specs.",
+        "Hi{contact_comma} LED display panels are what we build — direct from the factory, "
+        "no distributor in between. Happy to send specs whenever something comes up.",
+        "Hi{contact_comma} we're an LED panel manufacturer. Happy to be a spec-and-pricing "
+        "contact whenever a project needs one — tell me the pitch and the size.",
+    ),
+}
+
+
 def ensure_schema(conn) -> None:
     conn.executescript(SCHEMA)
     conn.commit()
@@ -112,11 +168,17 @@ def _fit_score(target_fit: str | None) -> int:
 def _candidates(conn, now: dt.datetime) -> list[dict]:
     """Leads worth a DM today, best first.
 
-    Excluded: no hook (a DM that says nothing about the recipient is worse than a cold
-    email — an email at least has a subject line), already reached on that channel,
-    do-not-contact, and anyone the email sequence is touching today. We had just
-    finished untangling leads enrolled in two sequences at once; putting a customer in
-    an email and a DM on the same morning is the same mistake wearing a different hat.
+    Excluded: already reached on that channel, do-not-contact, and anyone the email
+    sequence is touching today. We had just finished untangling leads enrolled in two
+    sequences at once; putting a customer in an email and a DM on the same morning is
+    the same mistake wearing a different hat.
+
+    A missing hook is no longer an exclusion (docs/80 R1). It used to be, on the
+    reasoning that a DM saying nothing about the recipient is worse than a cold email.
+    That reasoning confused "nothing to say about them" with "nothing to say" — and it
+    only ever bound here: email has always sent to these companies, because
+    `personalize.render` simply drops the token. They still rank below companies we can
+    open with something specific; the ordering below does that on its own.
     """
     from app import sales_intelligence
 
@@ -125,14 +187,13 @@ def _candidates(conn, now: dt.datetime) -> list[dict]:
         """
         SELECT l.no, l.company_en, l.contact_name, l.country, l.city, l.website,
                l.hook, l.brief, l.phone, l.instagram, l.facebook, l.target_fit,
-               l.whatsapp_status,
+               l.whatsapp_status, l.tags, l.business,
                COALESCE(MAX(CASE WHEN b.status != 'dismissed' THEN b.confidence END), 0) signal,
                EXISTS(SELECT 1 FROM outreach o WHERE o.lead_no=l.no
                       AND o.status IN ('messaged','replied')) touched
         FROM leads l
         LEFT JOIN buying_signals b ON b.lead_no = l.no
         WHERE COALESCE(l.do_not_contact, 0) = 0
-          AND COALESCE(l.hook, '') != ''
           AND l.no NOT IN (SELECT lead_no FROM send_log
                            WHERE date(sent_at, 'localtime') = date(?))
           AND l.no NOT IN (SELECT e.lead_no FROM sequence_enrollments e
@@ -146,7 +207,12 @@ def _candidates(conn, now: dt.datetime) -> list[dict]:
     # The ICP score lives inside `target_fit` as "租赁公司 (98)", so ranking happens here
     # rather than in SQL.
     leads = [dict(r) for r in rows]
+    # docs/80 R3. A hook ranks above a generic opener, but below a buying signal and
+    # below ICP fit: a company that is buying right now is worth the slot even if all
+    # we can say is what we make. There are 8-15 slots a day, so this is the whole of
+    # "generic messages are allowed, and they go last".
     leads.sort(key=lambda r: (-int(r["signal"] or 0), -_fit_score(r["target_fit"]),
+                              0 if str(r["hook"] or "").strip() else 1,
                               int(r["touched"] or 0), r["no"]))
     return leads
 
@@ -183,8 +249,15 @@ def _channel_for(conn, lead: dict, taken: set[str]) -> tuple[str, str] | None:
 
 
 def _compose(lead: dict) -> str:
+    from app import copy_segments
+
     contact = str(lead.get("contact_name") or "").strip()
-    template = _TEMPLATES[int(lead.get("no") or 0) % len(_TEMPLATES)]
+    no = int(lead.get("no") or 0)
+    if str(lead.get("hook") or "").strip():
+        family = _TEMPLATES
+    else:
+        family = _GENERIC[copy_segments.segment_of(lead)]
+    template = family[no % len(family)]
     # replace(), not format(): the template still carries {hook} for the renderer.
     text = template.replace("{contact_comma}", f" {contact}," if contact else ",")
     return render(text, lead).strip()
@@ -232,7 +305,14 @@ def build_today(conn, now: dt.datetime | None = None) -> dict:
             continue
         channel, target = picked
         body = _compose(lead)
-        verdict = message_guard.check(body, lead, channel="email")  # judge as a first touch
+        # The personalization rule is an email rule — `GUARDED_CHANNELS` says so — and
+        # this queue used to opt into it by claiming the channel was email. Keep that
+        # opt-in where there is a hook: there it catches a render that silently dropped
+        # the one sentence about the recipient, and sends "…behind that kind of work"
+        # pointing at nothing. Drop it where there never was one, which is the case
+        # docs/80 is about. The price check runs either way, on every channel.
+        guarded_as = "email" if str(lead.get("hook") or "").strip() else channel
+        verdict = message_guard.check(body, lead, channel=guarded_as)
         if verdict.blocked:
             holds.append({"lead_no": lead["no"], "company": lead["company_en"],
                           "reason": verdict.reason, "detail": verdict.detail})

@@ -97,14 +97,19 @@ def test_a_lead_getting_email_today_is_left_alone(conn):
     assert conn.execute("SELECT 1 FROM social_dm_queue WHERE lead_no=1").fetchone() is None
 
 
-def test_a_lead_with_nothing_to_say_about_it_is_not_queued(conn):
-    """A cold DM that says nothing about the recipient is worse than a cold email: an
-    email at least has a subject line, a DM is only that one sentence."""
+def test_a_lead_with_a_hook_is_queued_before_one_without(conn):
+    """docs/80 replaced the old rule here. It used to be that a company with no hook was
+    left out entirely; Allen's call is that a generic trade-to-trade opener is fine, so
+    the ranking does the work instead of an exclusion."""
     conn.execute("UPDATE leads SET hook='' WHERE no <= 55")
     conn.commit()
     social_queue.build_today(conn, now=_monday())
-    queued = {r["lead_no"] for r in conn.execute("SELECT lead_no FROM social_dm_queue")}
-    assert queued and all(no > 55 for no in queued)
+    queued = [r["lead_no"] for r in conn.execute(
+        "SELECT lead_no FROM social_dm_queue ORDER BY rank_order")]
+    assert queued
+    hooked = [no for no in queued if no > 55]
+    assert hooked, "the five companies with a hook should all be in"
+    assert queued[:len(hooked)] == hooked, "hooks first, then the generic ones"
 
 
 def test_buying_signals_come_first(conn):
@@ -199,3 +204,84 @@ def test_the_sentence_shape_varies_too(conn):
     assert len(bodies) >= 5
     openings = {b.split(".")[-2][-30:] for b in bodies if b.count(".") >= 2}
     assert len(openings) > 1, "所有私信的句式一模一样，只换了名词"
+
+
+# --- docs/80: no hook is not a reason not to write ---------------------------------
+
+@pytest.fixture
+def bare(tmp_path):
+    """Only the companies each test puts there: the shared fixture's 60 leads all carry
+    hooks and would fill the day's allowance before these ever ranked."""
+    c = connect(str(tmp_path / "bare.db"))
+    init_schema(c)
+    return c
+
+
+def _add(conn, no, handle, tags=None, hook=None):
+    conn.execute("INSERT INTO leads(no, company_en, country, instagram, tags, hook)"
+                 " VALUES (?,?,'USA',?,?,?)", (no, f"Co{no}", handle, tags, hook))
+    conn.commit()
+
+
+def _body(conn, no):
+    row = conn.execute("SELECT body FROM social_dm_queue WHERE lead_no=?", (no,)).fetchone()
+    assert row is not None, f"lead {no} never made the queue"
+    return row["body"]
+
+
+def test_a_company_with_no_hook_still_gets_a_dm(bare):
+    """It used to be excluded outright, while email had always written to it."""
+    _add(bare, 900, "silentco", tags="工程商")
+    social_queue.build_today(bare, now=_monday())
+    body = _body(bare, 900)
+    assert "{hook}" not in body
+    # The hook templates all point back at a sentence that would not be there.
+    for dangling in ("that kind of work", "exactly this", "the sort of work"):
+        assert dangling not in body
+
+
+def test_the_generic_message_follows_the_customer_type(bare):
+    """docs/80 R2. 工程商 is an installer, 租赁商 rents — the letter leads with each."""
+    _add(bare, 901, "installco", tags="工程商")
+    _add(bare, 902, "rentco", tags="租赁商")
+    social_queue.build_today(bare, now=_monday())
+    install, rental = _body(bare, 901), _body(bare, 902)
+    assert "integrator" in install or "install" in install
+    assert "rental" in rental or "stage" in rental
+
+
+def test_two_companies_in_one_segment_do_not_get_the_same_sentence(bare):
+    """docs/52 R6: a platform reads the shape, not the nouns."""
+    _add(bare, 910, "aco", tags="工程商")
+    _add(bare, 911, "bco", tags="工程商")
+    social_queue.build_today(bare, now=_monday())
+    assert _body(bare, 910) != _body(bare, 911)
+
+
+def test_a_company_with_a_hook_still_gets_the_hook_message(bare):
+    _add(bare, 920, "loudco", hook="Saw the arena job on your site.")
+    social_queue.build_today(bare, now=_monday())
+    assert "Saw the arena job on your site." in _body(bare, 920)
+
+
+def test_a_hook_still_outranks_a_generic_opener(bare):
+    """docs/80 R3. Eight to fifteen slots a day; the ones we can open with something
+    specific spend them first."""
+    _add(bare, 930, "generic1", tags="工程商")
+    _add(bare, 931, "specific", hook="Saw the arena job on your site.")
+    _add(bare, 932, "generic2", tags="工程商")
+    social_queue.build_today(bare, now=_monday())
+    order = [r["lead_no"] for r in bare.execute(
+        "SELECT lead_no FROM social_dm_queue ORDER BY rank_order")]
+    assert order[0] == 931
+
+
+def test_a_price_is_still_refused_in_a_generic_message(bare):
+    """docs/80 R3.1. Only the personalization half of the guard is dropped; the price
+    check runs before the channel gate and applies to every channel."""
+    from app import message_guard
+    lead = {"no": 940, "company_en": "Co940", "hook": ""}
+    verdict = message_guard.check(
+        "Hi, we manufacture LED panels. P2.5 at USD 320 per sqm.", lead,
+        channel="instagram")
+    assert verdict.blocked and verdict.reason == "pricing"
