@@ -90,10 +90,10 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
         <colgroup>
           <col style={{ width: 34 }} /><col style={{ width: 54 }} />
           <col style={{ width: 190 }} /><col style={{ width: 92 }} />
-          <col style={{ width: 148 }} /><col style={{ width: 140 }} />
-          <col style={{ width: 112 }} /><col style={{ width: 224 }} />
+          <col style={{ width: 108 }} /><col style={{ width: 140 }} />
+          <col style={{ width: 112 }} /><col style={{ width: 158 }} />
           <col style={{ width: 150 }} /><col style={{ width: 168 }} />
-          <col style={{ width: 150 }} /><col style={{ width: 172 }} />
+          <col style={{ width: 224 }} /><col style={{ width: 96 }} />
         </colgroup>
         <thead><tr>
           <th><input type="checkbox" checked={allChecked} onChange={(e) => onToggleAll(e.target.checked)} /></th>
@@ -102,7 +102,7 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
           <Sortable col="fit">客户类型</Sortable>
           <th>客户名称</th>
           <Sortable col="country">国家</Sortable>
-          <th>邮箱</th><th>电话 / WhatsApp</th><th>社媒</th><th>官网</th><th>渠道状态</th>
+          <th>官网</th><th>电话 / WhatsApp</th><th>社媒</th><th>邮箱</th><th>渠道状态</th>
         </tr></thead>
         <tbody>
           {leads.map((l) => {
@@ -135,12 +135,9 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
                     </>
                   : <span className="muted">—</span>}</td>
                 <td className="cell-clip">{l.country}</td>
-                <td onClick={stop} className="cell-clip">{l.email
-                  ? <>
-                      <a href={`mailto:${l.email}`} title={l.email}>{l.email}</a>
-                      {l.email_status === "invalid" && <span title="邮箱无效（无 MX 记录），发送时自动跳过" style={{ color: "var(--warn)", marginLeft: 6, fontSize: 11 }}>⚠ 无效</span>}
-                      {l.email_status === "role" && <span title="角色邮箱（info@/sales@ 等），可发但优先级较低" className="muted" style={{ marginLeft: 6, fontSize: 11 }}>角色</span>}
-                    </>
+                <td onClick={stop} className="cell-clip">{l.website
+                  ? <a href={siteUrl(l.website)} target="_blank" rel="noreferrer"
+                      title={l.website}>{l.website.replace(/^https?:\/\/(www\.)?/, "")}</a>
                   : <span className="muted">—</span>}</td>
                 <td className="num cell-clip" onClick={stop}>{l.phone
                   ? (wa
@@ -164,18 +161,21 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
                       title={l.facebook}>{l.facebook.replace(/^https?:\/\/(www\.)?facebook\.com\//, "")}</a>
                   </div>}
                 </td>
-                <td onClick={stop} className="cell-clip">{l.website
-                  ? <a href={siteUrl(l.website)} target="_blank" rel="noreferrer"
-                      title={l.website}>{l.website.replace(/^https?:\/\/(www\.)?/, "")}</a>
+                <td onClick={stop} className="cell-clip">{l.email
+                  ? <>
+                      <a href={`mailto:${l.email}`} title={l.email}>{l.email}</a>
+                      {l.email_status === "invalid" && <span title="邮箱无效（无 MX 记录），发送时自动跳过" style={{ color: "var(--warn)", marginLeft: 6, fontSize: 11 }}>⚠ 无效</span>}
+                      {l.email_status === "role" && <span title="角色邮箱（info@/sales@ 等），可发但优先级较低" className="muted" style={{ marginLeft: 6, fontSize: 11 }}>角色</span>}
+                    </>
                   : <span className="muted">—</span>}</td>
-                <td onClick={stop}>
+                {/* 三行，一个渠道一行。并排时三个胶囊挤成一条，看不出哪个是哪个渠道 */}
+                <td onClick={stop} className="channel-cell">
                   {CHANNELS.map(({ key, label }) => {
                     const st = channelState(l, key);
                     const clickable = st === "messaged";
                     return (
                       <span key={key}
                         className={`badge badge-${st}${clickable ? " clickable" : ""}`}
-                        style={{ marginRight: 4 }}
                         onClick={clickable ? () => onReply(l.no, key) : undefined}
                         title={clickable ? `${label} 已触达 — 点击标记为已回复` : `${label} ${STATE_TEXT[st]}`}>
                         <i />{label}
