@@ -222,27 +222,7 @@ OFFSETS = (0, 14, 28)
 
 
 def name_for(segment: str, korean: bool) -> str:
-    # The name may not lie about the length: two segments send one letter (SINGLE_TOUCH),
-    # and a sequence called 「3 步跟进」 that stops after one is the kind of quiet
-    # mismatch every bug found today shared.
-    # The space before 「3 步跟进」 is load-bearing: `seed()` matches an existing sequence
-    # by name, and a name that differs by one character creates a second sequence and
-    # orphans every enrollment pointing at the first.
-    steps = "单封" if (segment, korean) in SINGLE_TOUCH else " 3 步跟进"
-    return f"冷邮件{steps}（{'韩语' if korean else '英语'}·{LABEL[segment]}）"
-
-
-# docs/82 R10. Two English sequences send one letter and stop. Allen, on the second and
-# third of 中性版 and 固定安装: 整个都很垃圾 直接删去 永不复用.
-#
-# Worth writing down rather than only deleting, because the reason generalises: those two
-# segments are the ones with the least to say. 中性版 exists precisely because we do not
-# know what the company does, and 固定安装 covers work that moves on a project calendar
-# rather than a weekly one. A second and third letter to either repeats the same offer in
-# other words, which is the definition of pestering. The segments that keep three letters
-# are the ones where a follow-up carries something the opener could not: a rental
-# company's cabinet stock, an outdoor site's viewing distance.
-SINGLE_TOUCH = {("general", False), ("install", False)}
+    return f"冷邮件 3 步跟进（{'韩语' if korean else '英语'}·{LABEL[segment]}）"
 
 
 def steps_for(segment: str, korean: bool) -> list[tuple]:
@@ -254,12 +234,11 @@ def steps_for(segment: str, korean: bool) -> list[tuple]:
         greeting = "Hi {contact},\n\n"
     subject, body = opener[segment]
     follow = f"Re: {subject}"
-    steps = [(0, OFFSETS[0], subject, body + "\n" + sign)]
-    if (segment, korean) in SINGLE_TOUCH:
-        return steps
-    steps.append((1, OFFSETS[1], follow, greeting + second[segment] + "\n\n" + sign))
-    steps.append((2, OFFSETS[2], follow, last + "\n" + sign))
-    return steps
+    return [
+        (0, OFFSETS[0], subject, body + "\n" + sign),
+        (1, OFFSETS[1], follow, greeting + second[segment] + "\n\n" + sign),
+        (2, OFFSETS[2], follow, last + "\n" + sign),
+    ]
 
 
 def seed(conn, name: str, steps) -> int:

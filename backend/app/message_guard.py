@@ -50,6 +50,18 @@ _EXIT_LINE = re.compile(
     r"|sorry to (?:bother|disturb|trouble)"
     r"|feel free to ignore"
     r"|no (?:hard feelings|worries) if"
+    # Reassuring them that not needing us is fine. Same family as the farewell: it
+    # answers "should I reply?" on the reader's behalf, and the answer it gives is no.
+    # Anchored on what is being negated — need, interest, fit, plan — rather than on the
+    # polite phrase, so "Shipping to Brazil? No problem at all." and "if the pitch isn't
+    # right we can change it" are both still sentences we may write.
+    r"|\bif\b[^.!?\n]{0,60}\b(?:aren'?t|isn'?t|are not|is not|don'?t|do not|not|no"
+    r"|none|nothing|neither|never)\b"
+    r"[^.!?\n]{0,40}(?:on your (?:plan|radar)|a fit|of interest|interested|needed"
+    r"|need (?:it|them|this|led|displays|panels)|for you|useful|relevant|the right time)"
+    r"[^.!?\n]{0,40}\b(?:no problem|no worries|not a problem|perfectly fine|fine by me"
+    r"|(?:that'?s|that is|it'?s|it is) (?:totally |perfectly |completely |quite )?"
+    r"(?:fine|ok|okay|alright))"
     r"|no need to (?:reply|respond|answer|get back)"
     r"|(?:필요|관심)[^.!?\n]{0,24}않(?:으셔도|아도|더라도|으시면)[^.!?\n]{0,12}"
     r"(?:괜찮|무방|상관없|부담)"
@@ -63,55 +75,6 @@ _EXIT_LINE = re.compile(
     r"|시간을 뺏"
     r"|不再(?:打扰|联系)"
     r"|最后一封",
-    re.I)
-
-# docs/82 R6. Accommodating phrases, banned outright rather than only in the "you don't
-# have to reply" sense. An earlier version let "Shipping to Brazil? No problem at all"
-# through on the grounds that it was about capability; Allen's judgement — 这两句也很垃圾
-# 不能放 — is the better one. "No problem" answers a complaint nobody made and puts us in
-# the position of accommodating rather than being able. The sentence that says the same
-# thing from strength is shorter: "We ship to Brazil weekly."
-_HEDGING = re.compile(
-    r"\bno problem\b"
-    r"|\bnot a problem\b"
-    r"|\bno worries\b"
-    r"|(?:that'?s|that is|it'?s|it is) (?:totally |perfectly |completely |quite )?"
-    r"(?:fine|ok|okay|alright)\b"
-    r"|\bfine by me\b"
-    r"|\bhappy to accommodate\b"
-    r"|괜찮습니다"
-    r"|문제 ?없습니다"
-    r"|상관없습니다"
-    r"|没关系"
-    r"|没问题",
-    re.I)
-
-# docs/82 R4. Insisting we make it ourselves defends against a doubt the reader has not
-# raised. His own letters state the identity and move on: 심천 LED 전광판 업체
-# 맥스컬러입니다 / This is Allen from Shenzhen Maxcolor.
-_SELF_MADE = re.compile(
-    r"\bourselves\b"
-    r"|\bour own factory\b"
-    r"|\bin-?house factory\b"
-    r"|\bwe (?:build|make|manufacture|produce) (?:the |them |it |these )?"
-    r"(?:panels |displays |screens )?(?:ourselves|in our own)"
-    r"|rather than from a trader"
-    r"|not a trader"
-    r"|자체 ?공장"
-    r"|직접 (?:만듭|만들|생산|제조)"
-    r"|무역상[^.!?\n]{0,12}(?:거치지|아닌)"
-    r"|自己(?:生产|制造|工厂)",
-    re.I)
-
-# docs/82 R5. An imperative that asks the stranger to produce information, paired with
-# what we will do in return, is a trade proposed before they agreed to trade. His close
-# reports availability and leaves the move to them: 관심하신 제품 있으시면 연락주세요~
-_INSTRUCTION = re.compile(
-    r"(?:^|[.!?]\s+|\n)\s*"
-    r"(?:just )?(?:tell|send|give|reply to|get back to|forward|share with) me\b"
-    r"|(?:^|[.!?]\s+|\n)\s*(?:just )?(?:let me know|reply with|send over|send through)\b"
-    r"[^.!?\n]{0,60}\band (?:i'?ll|i will|you'?ll|you will)\b"
-    r"|(?:^|[.!?]\s+|\n)\s*(?:please )?(?:confirm|provide|specify) ",
     re.I)
 
 
@@ -155,32 +118,6 @@ def _distinctive_terms(lead: dict) -> list[str]:
     return list(dict.fromkeys(terms))
 
 
-# docs/82 R7. Allen: 邮件主题永远不要出现公司名…不然别人一看你的名字就不会看了。直接从
-# 名字就能够判断出这个邮件值不值得看。
-#
-# Both names are out, for opposite reasons. Ours is unknown to the reader and reads as a
-# supplier pitch before the subject has said anything. Theirs, sitting at the front of a
-# subject line, is the signature of mail merge — nobody types a customer's own name into
-# a subject except a machine. What is left has to earn the open on content alone, which
-# is what his own subjects do: 전후면 유지보수 OK! R3 렌탈형 제품 만나보세요.
-_OUR_BRAND = re.compile(r"maxcolor|맥스컬러|迈彩", re.I)
-
-
-def _company_in_subject(subject: str, lead: dict) -> str:
-    """The company name found in a subject line, or "" — ours or theirs."""
-    line = str(subject or "").strip()
-    if not line:
-        return ""
-    ours = _OUR_BRAND.search(line)
-    if ours:
-        return ours.group(0)
-    written = set(_WORD.findall(line.lower()))
-    for word in _WORD.findall(str(lead.get("company_en") or "").lower()):
-        if len(word) > 3 and word not in _GENERIC_NAME_WORDS and word in written:
-            return word
-    return ""
-
-
 def can_be_addressed(lead: dict) -> bool:
     """Whether a first cold letter to this lead could pass `check` at all.
 
@@ -215,43 +152,6 @@ def check(body: str, lead: dict, *, subject: str = "", channel: str = "email",
             "exit_line",
             f"最终文本里出现退出语「{exit_line.group(0).strip()}」——"
             "不许主动提出不再联系、声明这是最后一封、或替对方把「没需求」说成好答案（docs/82）",
-        )
-    hedge = _HEDGING.search(text)
-    if hedge:
-        return Verdict(
-            True,
-            "hedging",
-            f"最终文本里出现迎合语「{hedge.group(0).strip()}」——"
-            "「没问题/没关系」是在回答一个没人提出的抱怨，把我们放在让步的位置。"
-            "直接说能力：把「Shipping to Brazil? No problem at all」写成"
-            "「We ship to Brazil weekly」（docs/82 R6）",
-        )
-    self_made = _SELF_MADE.search(text)
-    if self_made:
-        return Verdict(
-            True,
-            "self_made",
-            f"最终文本里强调了自己制造「{self_made.group(0).strip()}」——"
-            "报身份就够了（an LED display manufacturer in Shenzhen / "
-            "심천 LED 디스플레이 제조업체），强调是在替一个没人提出的质疑辩护（docs/82 R4）",
-        )
-    named = _company_in_subject(subject, lead)
-    if named:
-        return Verdict(
-            True,
-            "subject_names_a_company",
-            f"主题里出现了公司名「{named}」——主题要靠自己的内容换来打开，"
-            "对方看到一个不认识的供应商名字就删了，看到自己的公司名则像群发。"
-            "写成一个产品加它最硬的那个参数（docs/82 R7）",
-        )
-    instruction = _INSTRUCTION.search(text)
-    if instruction:
-        return Verdict(
-            True,
-            "instruction",
-            f"最终文本里在给对方派活「{instruction.group(0).strip()}」——"
-            "收尾要说我们这边能提供什么，动作留给对方自己决定，"
-            "不要在对方还没同意做生意之前先要求他给信息（docs/82 R5）",
         )
     if channel not in GUARDED_CHANNELS or step_order > 0:
         return Verdict(False)

@@ -99,47 +99,13 @@ _HOOK_WORK_RE = re.compile(
     r"^Saw the (.+?) work(?: you do around (.+?))?(?: on your site)?\.$")
 
 
-# docs/82 R11. The hook is read off the company's website; the segment is chosen from
-# Allen's own tag first. When those two disagree the letter contradicts itself in its
-# first two lines — 都固定安装版了还说 Saw the rental and touring work you do around
-# Tampa？为啥还出现 rental 租赁这个词？是不是明显有错的。
-#
-# 23 companies in the book are in that state: tagged 工程商 by hand while their site
-# talks about rental. Neither source is wrong — his tag is a judgement, the hook is
-# evidence — so neither gets overruled. The hook is simply left out, and the letter
-# closes the gap on its own the way it already does for a company with no hook at all.
-_SEGMENT_WORDS = {
-    "rental": re.compile(r"\brental\b|\bstaging\b|\btouring\b|concert|festival"
-                         r"|렌탈|무대|공연", re.I),
-    "install": re.compile(r"\binstallation\b|\bintegrat|fixed install|시공|설치", re.I),
-    "outdoor": re.compile(r"billboard|out-?of-?home|outdoor advertis|facade|façade"
-                          r"|전광판|옥외", re.I),
-}
-
-
-def _hook_for(lead: dict) -> str:
-    """The stored hook, unless it describes a different trade than this letter is for."""
-    hook = (lead.get("hook") or "").strip()
-    if not hook:
-        return ""
-    from app import copy_segments
-
-    segment = copy_segments.segment_of(lead)
-    mine = _SEGMENT_WORDS.get(segment)
-    if mine is None or mine.search(hook):
-        return hook
-    contradicts = any(pattern.search(hook)
-                      for name, pattern in _SEGMENT_WORDS.items() if name != segment)
-    return "" if contradicts else hook
-
-
 def _hook_ko(lead: dict) -> str:
     """The stored English hook, said in Korean. Empty when the shape is unfamiliar.
 
     Empty is the right answer for anything unrecognised: a half-translated opener is
     worse than none, and the letter closes the gap on its own.
     """
-    hook = _hook_for(lead)
+    hook = (lead.get("hook") or "").strip()
     if not hook:
         return ""
     pitch = _HOOK_PITCH_RE.match(hook)
@@ -189,7 +155,7 @@ def render(text: str | None, lead: dict) -> str:
         "contact": contact.split()[0] if contact else "",
         "country": lead.get("country") or "",
         "city": lead.get("city") or "",
-        "hook": _hook_for(lead),
+        "hook": (lead.get("hook") or "").strip(),
         "fit": _fit_line(lead),
         "fit_ko": _fit_line(lead, _FIT_LINES_KO),
         "hook_ko": _hook_ko(lead),

@@ -76,7 +76,7 @@ def test_all_66_bundled_messages_are_enumerable():
         for korean in (False, True)
         for segment in SEGMENTS
     )
-    assert sequence_count == 20  # docs/82 R10: 两个英语分段各删掉第 2、3 封
+    assert sequence_count == 24
     assert len(list(_manual_copy())) == 22
     assert len(list(_social_copy())) == 20
 
