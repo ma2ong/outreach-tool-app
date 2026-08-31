@@ -249,22 +249,8 @@ textarea.input { width: 100%; resize: vertical; }
   * { transition: none !important; animation: none !important; }
 }
 
-/* 仪表盘两块：「今天要做的」和「库存分析」。分析一天之内答案不会变，
-   而第一屏以下的东西在一个每天开二十次的工具里约等于不存在——所以是标签，不是滚动。 */
-.dash-tabs {
-  display: flex; gap: 2px; margin-bottom: 16px;
-  border-bottom: 1px solid var(--border);
-}
-.dash-tab {
-  display: flex; align-items: baseline; gap: 7px;
-  padding: 9px 15px; border: none; background: none; cursor: pointer;
-  color: var(--dim); font-family: inherit; font-size: 14px;
-  border-bottom: 2px solid transparent; margin-bottom: -1px;
-}
-.dash-tab:hover { color: var(--text); }
-.dash-tab.on { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
-.dash-tab-n { font-size: 12px; font-weight: 400; color: var(--dim); }
-
+/* 「要你定的」把原来分散在四张卡上的今日事项并成一栏。仪表盘本身保持单页滚动——
+   分标签页试过一版，Allen 的判断是不如一屏看全。 */
 /* 「要你定的」的每一行：一件事、一个数、一个动作。 */
 .decision-row {
   display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap;

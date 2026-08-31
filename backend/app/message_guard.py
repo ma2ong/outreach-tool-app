@@ -50,6 +50,23 @@ _EXIT_LINE = re.compile(
     r"|sorry to (?:bother|disturb|trouble)"
     r"|feel free to ignore"
     r"|no (?:hard feelings|worries) if"
+    # Reassuring them that not needing us is fine. Same family as the farewell: it
+    # answers "should I reply?" on the reader's behalf, and the answer it gives is no.
+    # Anchored on what is being negated — need, interest, fit, plan — rather than on the
+    # polite phrase, so "Shipping to Brazil? No problem at all." and "if the pitch isn't
+    # right we can change it" are both still sentences we may write.
+    r"|\bif\b[^.!?\n]{0,60}\b(?:aren'?t|isn'?t|are not|is not|don'?t|do not|not|no"
+    r"|none|nothing|neither|never)\b"
+    r"[^.!?\n]{0,40}(?:on your (?:plan|radar)|a fit|of interest|interested|needed"
+    r"|need (?:it|them|this|led|displays|panels)|for you|useful|relevant|the right time)"
+    r"[^.!?\n]{0,40}\b(?:no problem|no worries|not a problem|perfectly fine|fine by me"
+    r"|(?:that'?s|that is|it'?s|it is) (?:totally |perfectly |completely |quite )?"
+    r"(?:fine|ok|okay|alright))"
+    r"|no need to (?:reply|respond|answer|get back)"
+    r"|(?:필요|관심)[^.!?\n]{0,24}않(?:으셔도|아도|더라도|으시면)[^.!?\n]{0,12}"
+    r"(?:괜찮|무방|상관없|부담)"
+    r"|답장[^.!?\n]{0,10}안 ?(?:하셔도|주셔도)[^.!?\n]{0,10}(?:괜찮|무방|됩니다)"
+    r"|不(?:需要|感兴趣)[^。！？\n]{0,10}也?没关系"
     r"|더 연락(?:드리지|하지) ?않겠"
     r"|마지막 (?:메일|메시지)"
     r"|그것으로 충분한 답변"

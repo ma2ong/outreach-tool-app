@@ -63,18 +63,14 @@ test("clicking a lead row opens detail drawer with stage and notes", async ({ pa
   await expect(page.locator(".drawer")).toHaveCount(0);
 });
 
-test("dashboard splits today's work from the stock analysis", async ({ page }) => {
+test("dashboard shows today's work and the stock analysis on one page", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /仪表盘/ }).click();
-  // 默认落在「今天要做的」
-  await expect(page.getByRole("button", { name: /今天要做的/ })).toBeVisible();
-  // 库存统计不在第一屏 —— 那正是这次拆分的意义
-  await expect(page.getByText(/国家分布/)).toHaveCount(0);
-  await page.getByRole("button", { name: /库存分析/ }).click();
+  // 单页：今天要做的和库存统计都在同一屏滚动里，不分标签（Allen 试过分页后的判断）
   await expect(page.getByText("客户总数").first()).toBeVisible();
   await expect(page.getByText(/国家分布/)).toBeVisible();
-  await expect(page.getByText("生成订单")).toBeVisible();
   await expect(page.getByText(/触达漏斗/)).toBeVisible();
+  await expect(page.getByText("生成订单")).toBeVisible();
 });
 
 // SAFETY: reads the task workbench and creation controls, but does not create or complete anything.

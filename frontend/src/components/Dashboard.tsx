@@ -49,9 +49,6 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
   const [report, setReport] = useState<string>("");
   const [activityStats, setActivityStats] = useState<ActivityStats | null>(null);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
-  // 仪表盘分两块：「今天要做的」是每天开二十次的那一屏，「库存分析」一周看一次。
-  // 一个每天开二十次的工具，第一屏以下的东西约等于不存在——所以分析不是往下滚，是另一个标签。
-  const [tab, setTab] = useState<"today" | "stock">("today");
   const [socialPending, setSocialPending] = useState(0);
   const pollRef = useRef<number | null>(null);
   const reportLoadError = (name: string, error: unknown) => {
@@ -150,18 +147,7 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
 
   return (
     <>
-      <div className="dash-tabs">
-        <button className={`dash-tab${tab === "today" ? " on" : ""}`} onClick={() => setTab("today")}>
-          今天要做的
-          {decisions.length > 0 && <span className="dash-tab-n">{decisions.length} 件待定</span>}
-        </button>
-        <button className={`dash-tab${tab === "stock" ? " on" : ""}`} onClick={() => setTab("stock")}>
-          库存分析
-          <span className="dash-tab-n">{(stats.funnel?.total ?? stats.total).toLocaleString()} 家</span>
-        </button>
-      </div>
 
-      {tab === "today" && <>
       {decisions.length > 0 && (
         <div className="card" style={{ marginBottom: 16, borderLeft: "3px solid var(--warn)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
@@ -198,6 +184,7 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
       )}
       {report && <DailyReportCards text={report} />}
       <TodayPlanCard onGoto={onGoto} />
+      <ReadinessPanel onGoto={onGoto} />
       {loadErrors.length > 0 && (
         <div className="card" style={{ marginBottom: 16, borderColor: "var(--danger)" }}>
           <b>部分数据加载失败</b>
@@ -236,6 +223,7 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
           <span className="btn btn-primary btn-sm">管理商机 →</span>
         </div>
       </div>
+      <StatCards stats={stats} />
       <div className="cards-row">
         {["email", "whatsapp", "instagram", "facebook"].map((ch) => quota[ch] && (
           <div key={ch} className="card stat-card">
@@ -246,11 +234,7 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
         ))}
       </div>
 
-      </>}
 
-      {tab === "stock" && <>
-      <StatCards stats={stats} />
-      <ReadinessPanel onGoto={onGoto} />
       <div className="card" style={{ marginBottom: 16 }}>
         <h3>触达漏斗</h3>
         <div className="funnel-grid">
@@ -354,7 +338,6 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
           </div>
         ))}
       </div>
-      </>}
     </>
   );
 }
