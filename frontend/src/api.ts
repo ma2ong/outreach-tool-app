@@ -254,7 +254,16 @@ export async function importLeads(country: string, candidates: {
   company_en: string; website: string; email: string | null; country?: string;
   phone?: string | null; instagram?: string | null; facebook?: string | null; linkedin?: string | null;
   source?: string | null; icp_type?: string | null; fit_score?: number | null;
-}[]): Promise<{ imported: number; skipped: { company_en: string; website: string | null; duplicate_of?: number; blocked_domain?: string }[] }> {
+  // 接口一直收这几个，客户端类型里漏了，于是开发页每次导入都把它们丢在原地。
+  brief?: string | null; hook?: string | null; email_source?: string | null;
+  city?: string | null; buying_signals?: Record<string, unknown>[];
+}[]): Promise<{
+  imported: number; imported_lead_nos: number[]; enriched_fields: number;
+  skipped: {
+    company_en: string; website: string | null; duplicate_of?: number;
+    blocked_domain?: string; not_a_company?: string; enriched?: string[];
+  }[];
+}> {
   const r = await fetch("/api/leads/import", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

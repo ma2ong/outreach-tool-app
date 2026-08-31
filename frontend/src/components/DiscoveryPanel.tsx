@@ -90,6 +90,11 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
         company_en: c.title, website: c.domain, email: c.email,
         phone: c.phone, instagram: c.instagram, facebook: c.facebook, linkedin: c.linkedin,
         source: c.source, icp_type: c.icp_type, fit_score: c.fit_score,
+        // 开发时已经从官网读出来的东西，以前在这一步全丢了：接口一直收 brief/hook/
+        // email_source/city/buying_signals，这里一个都没传。库里 645 家没有开场白就是
+        // 这么来的，而没有开场白的客户进不了社媒私信队列（docs/52），等于永久出局。
+        brief: c.brief, hook: c.hook, email_source: c.email_source, city: c.city,
+        buying_signals: c.buying_signals,
       })));
       const dups = res.skipped.filter((s) => s.duplicate_of);
       const blocked = res.skipped.filter((s) => s.blocked_domain);
@@ -99,7 +104,14 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
       const blockNote = blocked.length
         ? `；${blocked.length} 家在「永不再收录」名单里跳过（${blocked.map((s) => s.blocked_domain).join("、")}）`
         : "";
-      setMsg(`已导入 ${res.imported} 家${skipNote}${blockNote}`);
+      const junk = res.skipped.filter((s) => s.not_a_company);
+      const junkNote = junk.length
+        ? `；${junk.length} 家读到的是反爬页/博客，不是公司（${junk.map((s) => s.website).join("、")}）`
+        : "";
+      const gained = res.enriched_fields
+        ? `，另给 ${dups.length} 家已有客户补上了 ${res.enriched_fields} 项信息`
+        : "";
+      setMsg(`已导入 ${res.imported} 家${gained}${skipNote}${blockNote}${junkNote}`);
       // 表格状态列同步为已在库，避免误以为没导进去
       const dupMap = new Map(res.skipped.map((s) => [s.website, s.duplicate_of]));
       setCands((cs) => cs.map((c) => (picked.has(c.domain) && !c.duplicate_of
@@ -186,12 +198,17 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
           <div className="table-wrap">
             <table className="table">
               <thead><tr>
-                <th></th><th>网站</th><th>国家</th><th>类型</th><th>邮箱</th><th>电话 / WhatsApp</th><th>IG</th><th>FB</th><th>状态</th>
+                <th></th><th>网站</th><th>国家</th><th>类型</th><th>开场白</th><th>邮箱</th><th>电话 / WhatsApp</th><th>IG</th><th>FB</th><th>状态</th>
               </tr></thead>
               <tbody>
                 {cands.filter((c) => showExcluded || !c.excluded).map((c) => (
                   <tr key={c.domain} style={c.excluded ? { opacity: 0.5 } : undefined}>
-                    <td><input type="checkbox" disabled={!!c.duplicate_of} checked={picked.has(c.domain)} onChange={() => toggle(c.domain)} /></td>
+                    {/* 已在库的也可以勾：导入重复不是白跑，它会把这次读到的联系方式、
+                        职位、最近项目补到那家已有客户身上（docs/68 R4.3）。以前这个
+                        勾选框是灰的，那条价值从界面上根本够不着。 */}
+                    <td><input type="checkbox" disabled={c.duplicate_of === -1}
+                      checked={picked.has(c.domain)} onChange={() => toggle(c.domain)}
+                      title={c.duplicate_of && c.duplicate_of > 0 ? "已在库；勾选并导入会用这次读到的信息补全那家客户" : undefined} /></td>
                     <td><a href={`https://${c.domain}`} target="_blank" rel="noreferrer">{c.domain}</a></td>
                     <td>{c.excluded
                       ? <span className="warn-text" title="被筛掉：不会自动勾选">🚫 {c.exclude_reason}</span>
@@ -199,6 +216,11 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
                     <td>{c.icp_type && c.icp_type !== "unknown"
                       ? <span title={`契合分 ${c.fit_score}`}>{ICP_LABEL[c.icp_type] ?? c.icp_type} <span className="muted">{c.fit_score}</span></span>
                       : dash}</td>
+                    {/* 决定一条能不能勾的就是这一格：没有一句能引用的话，就没有一封能写的信。
+                        以前它不在表上，所以自动没勾的行看不出为什么。 */}
+                    <td style={{ maxWidth: 260 }}>{c.hook
+                      ? <span title={c.brief || c.hook}>{c.hook}</span>
+                      : <span className="warn-text" title="官网没读出可引用的具体信息，不会自动勾选">没有可引用的话</span>}</td>
                     <td>{c.email || dash}</td>
                     <td className="num">{c.phone
                       ? <a href={`https://wa.me/${c.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" style={{ color: "var(--green)" }}>{c.phone}</a>

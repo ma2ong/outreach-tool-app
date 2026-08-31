@@ -146,9 +146,13 @@ export interface Candidate {
   source?: string | null;
   icp_type?: string | null;
   fit_score?: number | null;
-  // 官网上读到的可引用事实和开场白。后端一直在返回，类型里漏了。
+  // 官网上读到的可引用事实和开场白。后端一直在返回，类型里漏了——于是开发页导入时
+  // 一个也没往回传，库里 645 家没有开场白就是这么来的。
   brief?: string | null;
   hook?: string | null;
+  email_source?: string | null;
+  city?: string | null;
+  buying_signals?: Record<string, unknown>[];
   country?: string | null;
   excluded?: boolean;
   exclude_reason?: string | null;

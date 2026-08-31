@@ -410,29 +410,17 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
 
         <CorrespondencePanel leadNo={lead.no} outreach={draft.outreach} />
 
-        <div className="section-title">销售优先级</div>
-        {intelligence ? <div className="card" style={{ padding: 10, marginBottom: 10 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
-            <b style={{ fontSize: 22 }}>{intelligence.score}</b>
-            <span>{intelligence.grade} 级</span>
-            <span className="muted">不是成交概率</span>
-          </div>
-          <div style={{ marginBottom: 7 }}><b>下一步：</b>{intelligence.next_action}</div>
-          <div className="muted" style={{ fontSize: 12 }}>
-            {intelligence.components.map((component) =>
-              component.label + " " + component.score + "/" + component.max).join(" · ")}
-          </div>
-          {intelligence.warnings.map((warning) =>
-            <div className="error-text" key={warning} style={{ marginTop: 4 }}>{warning}</div>)}
-          {intelligence.signals.length > 0 && <div style={{ marginTop: 9 }}>
-            <b>采购信号与证据</b>
-            {intelligence.signals.slice(0, 5).map((signal) => <div className="note-item" key={signal.id} style={{ marginTop: 6 }}>
-              <b>{signal.headline}</b> · 可信度 {signal.confidence}/100
-              <div className="muted" style={{ marginTop: 3 }}>{signal.evidence}</div>
-              <a href={signal.source_url} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>查看来源 ↗</a>
-            </div>)}
-          </div>}
-        </div> : <div className="muted" style={{ marginBottom: 8 }}>正在计算可解释销售优先级…</div>}
+        {/* 评分卡按 Allen 的判断删掉：78 分、B 级、五项分数，看完不会改变他做什么。
+            docs/74 早就定过分低不是少发的理由，那之后这张卡就只剩下占地方。
+            采购信号留下——那不是打分，是从公开页面上读到的、点得回去的证据。 */}
+        {intelligence && intelligence.signals.length > 0 && <>
+          <div className="section-title">采购信号与证据</div>
+          {intelligence.signals.slice(0, 5).map((signal) => <div className="note-item" key={signal.id} style={{ marginBottom: 6 }}>
+            <b>{signal.headline}</b> · 可信度 {signal.confidence}/100
+            <div className="muted" style={{ marginTop: 3 }}>{signal.evidence}</div>
+            <a href={signal.source_url} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>查看来源 ↗</a>
+          </div>)}
+        </>}
 
         <div className="field">
           <label>销售阶段</label>
