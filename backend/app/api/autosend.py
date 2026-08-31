@@ -57,11 +57,19 @@ def get_plan(conn=Depends(get_conn)):
             held.append({**entry, "reason": why})
 
     status = autosend.status(conn)
+    # Allen looked at 「待发 1 封」 and asked why the day was so thin. It was not thin:
+    # sixty had already gone out that morning and the budget was spent. The page could
+    # not say so, because the only numbers it had were what remained. Say what was sent
+    # and what is left, so the answer is on the page instead of in a question.
+    from app import outreach as _outreach
+    sent = _outreach.sent_today(conn)
+    left = _outreach.remaining_today(conn)
     return {
         "ready": rows, "held": held,
         "his_window": list(autosend.WINDOW),
         "their_window": list(local_time.EMAIL_WINDOW),
         "status": status,
+        "budget": {"sent_today": sent, "remaining": left, "cap": sent + left},
     }
 
 

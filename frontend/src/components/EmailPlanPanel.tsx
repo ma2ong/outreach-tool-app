@@ -15,6 +15,7 @@ type Plan = {
   ready: Row[]; held: Row[];
   his_window: [number, number]; their_window: [number, number];
   status: { enabled?: boolean; last_result?: string; last_date?: string } | null;
+  budget?: { sent_today: number; remaining: number; cap: number };
 };
 
 async function fetchPlan(): Promise<Plan> {
@@ -116,12 +117,27 @@ export function EmailPlanPanel({ onOpenLead }: { onOpenLead?: (no: number) => vo
         {err && <div className="error-text" style={{ marginTop: 6 }}>{err}</div>}
       </div>
 
+      {/* 今天发了多少，先说。只写「待发 1 封」会读成「今天只有一封」——
+          实际是当天 60 封额度早上就发完了，剩下的才排在这里。 */}
+      {plan.budget && (
+        <div style={{ marginBottom: 8, display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+          <b style={{ fontSize: 13 }}>
+            今天已发 {plan.budget.sent_today}
+            <span className="muted" style={{ fontWeight: 400 }}> / {plan.budget.cap} 封</span>
+          </b>
+          {plan.budget.remaining === 0
+            ? <span className="warn-text" style={{ fontSize: 12 }}>今日额度已用完，剩下的明天继续</span>
+            : <span className="muted" style={{ fontSize: 12 }}>还能发 {plan.budget.remaining} 封</span>}
+        </div>
+      )}
       <div style={{ marginBottom: 6 }}>
         <b style={{ fontSize: 13 }}>待发 {plan.ready.length} 封</b>
       </div>
       {plan.ready.length === 0 && (
         <div className="muted" style={{ marginBottom: 12 }}>
-          今天没有到期的跟进邮件。序列里的下一步到期时会出现在这里。
+          {plan.budget && plan.budget.remaining === 0
+            ? "今天的额度已经发完了，到期的下一批明天开始发。"
+            : "今天没有到期的跟进邮件。序列里的下一步到期时会出现在这里。"}
         </div>
       )}
       {plan.ready.map((r) => <MailRow key={r.lead_no} r={r} onOpenLead={onOpenLead} />)}
