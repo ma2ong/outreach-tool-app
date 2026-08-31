@@ -4,6 +4,7 @@ import type { Stats, ChannelReach, DueItem, SendJob, OpportunityStats, ActivityS
 import { fetchDailyReport } from "../agentApi";
 import { StatCards } from "./StatCards";
 import { ReadinessPanel } from "./ReadinessPanel";
+import { DailyReportCards } from "./DailyReportCards";
 import { TodayPlanCard } from "./TodayPlanCard";
 
 const CH_LABEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook" };
@@ -45,7 +46,6 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
   const [opportunityStats, setOpportunityStats] = useState<OpportunityStats | null>(null);
   // 今天 Agent 做了什么：以前 18 点推到 WhatsApp，现在就摆在这里 —— 这是每天第一眼看的屏幕。
   const [report, setReport] = useState<string>("");
-  const [reportOpen, setReportOpen] = useState(false);
   const [activityStats, setActivityStats] = useState<ActivityStats | null>(null);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const pollRef = useRef<number | null>(null);
@@ -123,30 +123,7 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
 
   return (
     <>
-      {report && (
-        // 整张卡片可点：报告是拿来读的，为了读它还要先瞄准右上角一个按钮，
-        // 是把一次阅读变成了两次操作。
-        <div className="card" style={{ cursor: "pointer" }}
-          onClick={() => {
-            // 选中文字时不折叠：读完想复制一段，结果一松手报告没了，第三次就会烦。
-            if (window.getSelection()?.toString()) return;
-            setReportOpen((v) => !v);
-          }}
-          title={reportOpen ? "点击收起" : "点击展开完整报告"}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <h3 style={{ margin: 0, fontSize: 15 }}>今天做了什么</h3>
-            <span className="muted">Agent 今日报告</span>
-            <span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>
-              {reportOpen ? "收起 ▲" : "展开 ▼"}
-            </span>
-          </div>
-          {/* 报告靠换行和缩进排版，所以要 pre-wrap；但字体跟随全站，不用 pre 的等宽体 */}
-          <div style={{
-            fontFamily: "inherit", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap",
-            margin: "8px 0 0", maxHeight: reportOpen ? "none" : 132, overflow: "hidden",
-          }}>{report}</div>
-        </div>
-      )}
+      {report && <DailyReportCards text={report} />}
       <TodayPlanCard onGoto={onGoto} />
       <ReadinessPanel onGoto={onGoto} />
       {loadErrors.length > 0 && (
