@@ -90,6 +90,111 @@ EMAIL_SEQUENCES = [
 ]
 
 
+# docs/82. Written in Allen's own shape, learned from 2,956 letters he sent himself
+# between 2022 and 2025 — not copied from them. His order every time: greet warmly, say
+# which factory is writing and who you are, put the range and its real numbers in front
+# of the reader, then invite. 안녕하세요~ 심천 LED 전광판 업체 맥스컬러입니다 … 관심하신
+# 제품 있으시면 연락주세요~
+#
+# What is deliberately absent: a series name or a cabinet dimension. An earlier pass
+# lifted "R3 시리즈, 500×500 / 500×1000mm" straight out of his June 2025 emails and he
+# stopped it — 你毕竟不熟悉我的产品线，所以不用具体到哪个产品之类的. A series can be
+# renamed or dropped and this file would not know. Every number below is a row in
+# `products` with agent_approved=1.
+#
+# {company} is in every subject because the manual panel is judged by `message_guard`
+# like every other path, and the company name is what makes an automated letter read as
+# addressed to someone. Twelve of the fourteen older templates fail that check today.
+ALLEN_STYLE_TEMPLATES = [
+    ("工厂直供介绍（英语）", "en",
+     "{company} — LED panels direct from our factory in Shenzhen",
+     """Hi {contact},
+
+I hope this email finds you well. This is Allen Ma from Shenzhen Maxcolor Visual — we
+manufacture LED display panels in our own factory here in Shenzhen.
+
+A quick note on what we cover, in case it is useful to {company}:
+
+  · Fine pitch P0.7-P1.8, 600-1,000 nits — control rooms, studios, boardrooms
+  · Indoor commercial P2-P3, 800-1,200 nits — retail, conference, stage backdrop
+  · Rental P2.6-P3.9 indoor and P3.9-P4.8 outdoor, die-cast cabinets
+  · Outdoor fixed P4-P10, 5,500-8,000 nits — billboards and building facades
+
+If any of these is close to what you work with, tell me the pitch and the size and I will
+send the full spec sheet the same day — weight and power per cabinet included.
+
+Allen Ma · Shenzhen Maxcolor Visual
+WhatsApp/WeChat +86 135-7087-1001
+"""),
+    ("工厂直供介绍（韩语）", "ko",
+     "{company} — 심천 자체 공장에서 만드는 LED 디스플레이",
+     """안녕하세요~ {contact}님.
+
+심천 LED 전광판 업체 맥스컬러의 Allen 마이용입니다. 저희는 심천 자체 공장에서 LED
+디스플레이 패널을 직접 만들고 있습니다.
+
+{company}에서 검토하실 만한 범위를 간단히 정리해 드립니다.
+
+  · 미세 피치 P0.7-P1.8 (600-1,000 nits) — 관제실, 스튜디오, 회의실
+  · 실내 상업용 P2-P3 (800-1,200 nits) — 리테일, 컨퍼런스, 무대 배경
+  · 렌탈용 실내 P2.6-P3.9 / 실외 P3.9-P4.8, 다이캐스팅 캐비닛
+  · 실외 고정 P4-P10 (5,500-8,000 nits) — 옥외광고, 건물 외벽
+
+관심 있으신 피치와 크기만 알려주시면 당일에 사양서 보내드리겠습니다. 캐비닛별 무게와
+소비전력까지 함께 넣어 드립니다.
+
+Allen Ma · Shenzhen Maxcolor Visual
+Kakaotalk / WeChat +86 13570871001
+"""),
+    ("规格书索取（英语）", "en",
+     "{company} — spec sheet and drawing, same day",
+     """Hi {contact},
+
+This is Allen from Shenzhen Maxcolor. We build LED panels in our own factory, so the
+specs come from us rather than from a trader passing on a datasheet.
+
+Send me two things about the job {company} has coming up — the pitch and the screen
+size — and you will have back the same day:
+
+  · the full spec sheet for that pitch
+  · weight and power draw per cabinet, so it drops straight into your drawing
+  · indoor or outdoor brightness options for that viewing distance
+
+Allen Ma · Shenzhen Maxcolor Visual
+WhatsApp/WeChat +86 135-7087-1001
+"""),
+    ("规格书索取（韩语）", "ko",
+     "{company} — 사양서와 도면, 당일 발송",
+     """안녕하세요~ {contact}님.
+
+심천 맥스컬러의 Allen입니다. 저희는 자체 공장에서 패널을 직접 만들기 때문에, 사양도
+중간 무역상을 거치지 않고 저희가 바로 드립니다.
+
+{company}에서 진행하실 건의 피치와 화면 크기 두 가지만 알려주시면 당일에 아래를 함께
+보내드리겠습니다.
+
+  · 해당 피치 전체 사양서
+  · 캐비닛별 무게와 소비전력 — 도면에 그대로 넣으실 수 있습니다
+  · 시청 거리에 맞는 실내외 밝기 옵션
+
+Allen Ma · Shenzhen Maxcolor Visual
+Kakaotalk / WeChat +86 13570871001
+"""),
+]
+
+ALLEN_STYLE_DM = [
+    ("DM 工厂直供（英语）", "en",
+     "Hi{contact_comma} this is Allen from Shenzhen Maxcolor — we manufacture LED panels "
+     "in our own factory. Indoor P2-P3, rental P2.6-P4.8 die-cast, outdoor P4-P10 at "
+     "5,500-8,000 nits. Tell me the pitch and size you work with and I'll send the spec "
+     "sheet the same day."),
+    ("DM 工厂直供（韩语）", "ko",
+     "안녕하세요~ 심천 LED 전광판 업체 맥스컬러의 Allen입니다. 자체 공장에서 패널을 직접 "
+     "만듭니다. 실내 P2-P3, 렌탈 P2.6-P4.8 다이캐스팅, 실외 P4-P10(5,500-8,000 nits)까지 "
+     "가능합니다. 쓰시는 피치와 크기만 알려주시면 당일에 사양서 보내드리겠습니다~"),
+]
+
+
 def seed_templates(conn) -> int:
     """Add starter templates; skips any whose name already exists."""
     from app import repository
@@ -99,7 +204,11 @@ def seed_templates(conn) -> int:
         if name not in existing:
             repository.add_template(conn, name, "email", subject, body, lang)
             added += 1
-    for name, lang, body in DM_TEMPLATES:
+    for name, lang, subject, body in ALLEN_STYLE_TEMPLATES:
+        if name not in existing:
+            repository.add_template(conn, name, "email", subject, body, lang)
+            added += 1
+    for name, lang, body in DM_TEMPLATES + ALLEN_STYLE_DM:
         for channel in ("whatsapp", "instagram"):
             full = f"{name} · {'WA' if channel == 'whatsapp' else 'IG'}"
             if full not in existing:

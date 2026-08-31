@@ -44,21 +44,24 @@ Kakaotalk / WeChat +86 13570871001"""
 # the company name in the subject is the whole reason an automated letter reads as
 # addressed to someone. Drop it and every Korean sequence is blocked before sending.
 #
-# Every pitch and brightness below is a row in `products` with agent_approved=1. The R3
-# name and the 500x500 / 500x1000mm cabinets come from his own June 2025 emails, where
-# he sent them seven times in one week.
+# Style is borrowed, product claims are not. An earlier version lifted a series name and
+# cabinet dimensions straight out of his June 2025 emails; Allen's correction:
+# 不要写一模一样的邮件，只是叫你参考一下写作的风格…你毕竟不熟悉我的产品线，所以不用具体到
+# 哪个产品之类的。He is right — a series can be renamed or discontinued and I would not
+# know. Every pitch, brightness and cabinet type below is a row in `products` with
+# agent_approved=1, which is the only product claim this file is allowed to make.
 EN_OPENER = {
-    "rental": ("{company} — Maxcolor R3 rental, P2.6-P4.8 die-cast 500x500", """Hi {contact},
+    "rental": ("{company} — rental LED panels, P2.6-P4.8 die-cast", """Hi {contact},
 
 {hook}
 
 This is Allen from Shenzhen Maxcolor — we build the panels ourselves, {fit}.
 
-Our R3 rental series runs P2.6-P3.9 indoor at 1,000-1,200 nits and P3.9-P4.8 outdoor at
-4,500-5,500 nits. Die-cast cabinets, 500x500 and 500x1000mm, front and rear service.
+For rental work we run P2.6-P3.9 indoor at 1,000-1,200 nits and P3.9-P4.8 outdoor at
+4,500-5,500 nits, die-cast cabinets, front and rear service.
 
 Tell me the pitch and cabinet size you work with and I'll send the spec sheet the same
-day — weight, power draw and the cabinet drawing.
+day — weight and power per cabinet.
 """),
     "install": ("{company} — P2-P3 indoor, P4-P10 outdoor, from our own factory", """Hi {contact},
 
@@ -100,7 +103,7 @@ day.
 # One line from them, one useful thing back. Never a line about whether we deserve their
 # attention — docs/82 R1 bans that shape too.
 EN_SECOND = {
-    "rental": "The cabinet brand you run is enough — I'll come back the same day\nwith whether ours mix with your stock, and the cabinet drawing if they do.",
+    "rental": "The cabinet brand you run is enough — I'll come back the same day\nwith whether ours mix with your stock, and the sheet for that pitch.",
     "install": "A rough size and pitch is enough — I'll come back with the sheet for\nthat spec, weight and power per cabinet included.",
     "outdoor": "The screen size is enough — I'll come back with the pitch and the\nbrightness that suits that viewing distance.",
     "general": "The pitch you run now is enough — I'll come back with the matching\nspec sheet the same day.",
@@ -108,21 +111,22 @@ EN_SECOND = {
 
 # --- Korean ------------------------------------------------------------------------
 
-# docs/82 R2. 他自己 2025-06 那批韩语信的原样：先报工厂，再摆一个具体系列和它的参数，
-# 最后邀请。「안녕하세요~ 심천 LED 전광판 업체 맥스컬러입니다 … 관심하신 제품 있으시면 연락주세요~」
+# docs/82 R2. 学的是他 2025-06 那批韩语信的写法，不是内容：先报工厂和自己，再摆能力范围
+# 和参数，最后邀请。「안녕하세요~ 심천 LED 전광판 업체 맥스컬러입니다 … 관심하신 제품
+# 있으시면 연락주세요~」——具体到某个系列的产品声明不抄，那是他的产线，不是我的。
 KO_OPENER = {
-    "rental": ("{company} — 맥스컬러 R3 렌탈, P2.6-P4.8 다이캐스팅 500x500", """안녕하세요, {contact}님.
+    "rental": ("{company} — 렌탈용 LED 패널, P2.6-P4.8 다이캐스팅", """안녕하세요, {contact}님.
 
 {hook_ko}
 
 저는 심천 LED 전광판 업체 맥스컬러의 Allen 마이용입니다 — {fit_ko}. 저희는 자체 공장에서
 패널을 직접 만듭니다.
 
-최신 R3 렌탈 시리즈는 실내 P2.6-P3.9(1,000-1,200 nits), 실외 P3.9-P4.8(4,500-5,500 nits)
-입니다. 다이캐스팅 캐비닛 500x500 / 500x1000mm, 전면·후면 유지보수 모두 됩니다.
+렌탈용은 실내 P2.6-P3.9(1,000-1,200 nits), 실외 P3.9-P4.8(4,500-5,500 nits)이고,
+다이캐스팅 캐비닛에 전면·후면 유지보수 모두 됩니다.
 
 쓰시는 피치와 캐비닛 크기만 알려주시면 당일에 사양서 보내드리겠습니다 — 무게, 소비전력,
-캐비닛 도면까지 함께요.
+캐비닛별 무게와 소비전력까지 함께요.
 """),
     "install": ("{company} — 시공용 실내 P2-P3 / 실외 P4-P10, 자체 공장", """안녕하세요, {contact}님.
 
@@ -164,7 +168,7 @@ P4-P10, 5,500-8,000 nits, 전면 유지보수 가능하고 주간 야외 상시 
 
 KO_SECOND = {
     "rental": "쓰시는 캐비닛 브랜드만 알려주셔도 됩니다. 기존 장비와 맞는지 당일에 확인해서 "
-               "맞으면 캐비닛 도면까지 같이 보내드리겠습니다.",
+               "맞는지 알려드리고 해당 사양서를 보내드리겠습니다.",
     "install": "대략적인 크기와 피치만으로도 충분합니다. 해당 사양의 사양서를 무게·소비전력까지 "
                "넣어 보내드리겠습니다.",
     "outdoor": "화면 크기만 알려주셔도 됩니다. 그 시청 거리에 맞는 피치와 밝기를 정리해서 "

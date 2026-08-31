@@ -33,3 +33,20 @@ def test_unknown_token_left_intact():
 def test_none_and_empty_text():
     assert render("", LEAD) == ""
     assert render(None, LEAD) == ""
+
+
+def test_an_empty_fit_line_does_not_leave_a_comma_holding_its_place():
+    """"…ourselves, {fit}." with no customer type used to render "…ourselves,."."""
+    from app.personalize import render
+    lead = {"company_en": "Verum AV", "tags": "", "hook": "Saw the rental work."}
+    out = render("This is Allen from Shenzhen Maxcolor — we build the panels "
+                 "ourselves, {fit}.", lead)
+    assert ",." not in out and ", ." not in out
+    assert out.endswith("ourselves.")
+
+
+def test_a_known_type_still_gets_its_line():
+    from app.personalize import render
+    lead = {"company_en": "Verum AV", "tags": "租赁商", "hook": ""}
+    out = render("we build the panels ourselves, {fit}.", lead)
+    assert len(out) > len("we build the panels ourselves.")

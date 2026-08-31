@@ -25,6 +25,11 @@ _BLANK_RUN_RE = re.compile(r"\n{3,}")
 # announces a mass send on the majority of leads, which have no contact name. Dropping
 # the token instead leaves "Hi ," so the punctuation is pulled back up to the word.
 _ORPHAN_PUNCT_RE = re.compile(r"[^\S\n]+([,.!?;:])")
+# "we build the panels ourselves, {fit}." with an unknown customer type collapses to
+# "ourselves, ." and then, once the space above is eaten, to "ourselves,." — a comma
+# holding the place of a clause that is not there. Keep the closing mark, drop the
+# one that was only ever a joint.
+_DOUBLED_PUNCT_RE = re.compile(r"[,;:，、]+([.!?。！？])")
 # "We build LED panels in Shenzhen — {fit}." with no type renders "... Shenzhen —."
 # A dash introduces something; with nothing after it, it goes too.
 _ORPHAN_DASH_RE = re.compile(r"[^\S\n]*[—–-][^\S\n]*(?=[.,!?;:])")
@@ -170,5 +175,6 @@ def render(text: str | None, lead: dict) -> str:
     out = _ORPHAN_HONORIFIC_RE.sub("", out)
     out = _ORPHAN_DASH_RE.sub("", out)
     out = _ORPHAN_PUNCT_RE.sub(r"\1", out)
+    out = _DOUBLED_PUNCT_RE.sub(r"\1", out)
     out = _BLANK_RUN_RE.sub("\n\n", out)
     return _TRAILING_SPACE_RE.sub("", out)
