@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchLead, fetchLeads, fetchLeadsPage, fetchStats, markReplied, fetchSequences, enrollLeads, startVerify, fetchVerifyJob, startClassify, fetchClassifyJob, fetchDuplicates, mergeDuplicates, fetchInboxPending, quickAddLead, fetchAuthStatus, login, fetchActivityStats } from "./api";
+import { fetchLead, fetchLeads, fetchLeadsPage, fetchStats, markReplied, fetchSequences, enrollLeads, startVerify, fetchVerifyJob, startClassify, fetchClassifyJob, fetchDuplicates, mergeDuplicates, fetchInboxPending, quickAddLead, fetchAuthStatus, login, fetchActivityStats, bulkDeleteLeads } from "./api";
 import type { ActivityStats, Lead, Stats, Sequence } from "./types";
 import { Dashboard } from "./components/Dashboard";
 import { LeadsTable } from "./components/LeadsTable";
@@ -122,6 +122,10 @@ export function App() {
   const [detail, setDetail] = useState<Lead | null>(null);
   const [sequences, setSequences] = useState<Sequence[]>([]);
   const [enrollMsg, setEnrollMsg] = useState("");
+  // 客户库是管理客户的地方，勾一下不该弹出整个发信表单。触达改成点了才展开。
+  const [outreachOpen, setOutreachOpen] = useState(false);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState("");
   const [err, setErr] = useState("");
   const [pendingReplies, setPendingReplies] = useState(0);
   const [activityStats, setActivityStats] = useState<ActivityStats | null>(null);
@@ -430,19 +434,52 @@ export function App() {
                 }} />
               {selected.size > 0 && (
                 <div className="action-bar">
-                  {sequences.length > 0 && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-                      <span className="muted" style={{ fontSize: 13 }}>把已选 {selected.size} 家加入序列：</span>
-                      <select className="input" value="" onChange={(e) => { if (e.target.value) enroll(Number(e.target.value)); }}>
-                        <option value="">选择一个序列…</option>
+                  {/* 一条操作栏，不是一整张发信表单。取消就在这一行的右端——原来要滚回
+                      表格里去找自己勾的那一格才能取消。 */}
+                  <div className="select-bar">
+                    <b>已选 {selected.size} 家</b>
+                    <button className={`btn btn-sm${outreachOpen ? " btn-primary" : ""}`}
+                      onClick={() => setOutreachOpen((v) => !v)}>
+                      ✉ 触达{outreachOpen ? " ▲" : " ▼"}
+                    </button>
+                    {sequences.length > 0 && (
+                      <select className="input btn-sm" style={{ width: 190 }} value=""
+                        onChange={(e) => { if (e.target.value) enroll(Number(e.target.value)); }}>
+                        <option value="">⇄ 加入跟进序列…</option>
                         {sequences.map((s) => <option key={s.id} value={s.id}>{s.name}（{s.channel}）</option>)}
                       </select>
-                      {enrollMsg && <span className="muted">{enrollMsg}</span>}
+                    )}
+                    {confirmBulkDelete ? (
+                      <>
+                        <span className="warn-text" style={{ fontSize: 13 }}>
+                          删除这 {selected.size} 家？触达记录、任务、跟进、商机一起消失，不可恢复
+                        </span>
+                        <button className="btn btn-sm btn-danger" onClick={async () => {
+                          try {
+                            const r = await bulkDeleteLeads([...selected]);
+                            setBulkMsg(`已删除 ${r.deleted} 家`);
+                            setSelected(new Set()); setConfirmBulkDelete(false); reload();
+                          } catch (e) { setBulkMsg("删除失败：" + String(e)); }
+                        }}>确认删除</button>
+                        <button className="btn btn-sm" onClick={() => setConfirmBulkDelete(false)}>取消</button>
+                      </>
+                    ) : (
+                      <button className="btn btn-sm btn-danger-ghost"
+                        onClick={() => setConfirmBulkDelete(true)}>🗑 删除</button>
+                    )}
+                    {(enrollMsg || bulkMsg) && <span className="muted" style={{ fontSize: 13 }}>{enrollMsg || bulkMsg}</span>}
+                    <button className="btn btn-sm" style={{ marginLeft: "auto" }}
+                      onClick={() => { setSelected(new Set()); setOutreachOpen(false); setConfirmBulkDelete(false); setBulkMsg(""); }}>
+                      取消选择
+                    </button>
+                  </div>
+                  {outreachOpen && (
+                    <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+                      <OutreachPanel selected={[...selected]} onDone={reload}
+                        countries={[...new Set(leads.filter((l) => selected.has(l.no) && l.country).map((l) => l.country as string))]}
+                        firstCompany={leads.find((l) => selected.has(l.no))?.company_en ?? ""} />
                     </div>
                   )}
-                  <OutreachPanel selected={[...selected]} onDone={reload}
-                    countries={[...new Set(leads.filter((l) => selected.has(l.no) && l.country).map((l) => l.country as string))]}
-                    firstCompany={leads.find((l) => selected.has(l.no))?.company_en ?? ""} />
                 </div>
               )}
             </div>

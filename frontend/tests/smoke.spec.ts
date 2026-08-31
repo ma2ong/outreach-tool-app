@@ -33,12 +33,30 @@ test("untouched filter option exists", async ({ page }) => {
 });
 
 // SAFETY: only selects a row to reveal the action bar — never clicks 发送 (that would send real messages).
-test("selecting a lead reveals outreach action bar", async ({ page }) => {
+test("selecting a lead offers actions, and composing is opt-in", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /客户库/ }).click();
   await page.locator("table tbody tr").first().locator("input[type=checkbox]").check();
-  await expect(page.getByText(/触达（已选/)).toBeVisible();
+  // 客户库是管理客户的地方：勾选给出一条操作栏，不是一整张发信表单
+  await expect(page.getByText(/已选 1 家/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /删除/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "取消选择" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "发送邮件" })).toHaveCount(0);
+  // 点了触达才展开
+  await page.getByRole("button", { name: /触达/ }).click();
   await expect(page.getByRole("button", { name: "发送邮件" })).toBeVisible();
+});
+
+// SAFETY: ticks a row and opens the confirm step, but never clicks 确认删除.
+test("bulk delete asks before it destroys anything", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /客户库/ }).click();
+  await page.locator("table tbody tr").first().locator("input[type=checkbox]").check();
+  await page.getByRole("button", { name: /🗑 删除/ }).click();
+  await expect(page.getByText(/不可恢复/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "确认删除" })).toBeVisible();
+  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(page.getByRole("button", { name: "确认删除" })).toHaveCount(0);
 });
 
 // SAFETY: opens the detail drawer and reads it — does not save edits or send anything.
@@ -129,6 +147,7 @@ test("action bar prevents same-day all-channel blasting", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /客户库/ }).click();
   await page.locator("table tbody tr").first().locator("input[type=checkbox]").check();
+  await page.getByRole("button", { name: /触达/ }).click();
   await expect(page.getByText(/同一客户每天最多一次批量触达/)).toBeVisible();
   await expect(page.getByRole("button", { name: /一键全渠道/ })).toHaveCount(0);
 });

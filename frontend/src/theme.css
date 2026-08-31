@@ -282,3 +282,17 @@ textarea.input { width: 100%; resize: vertical; }
   font-variant-numeric: tabular-nums;
 }
 .decision-go { margin-left: auto; color: var(--accent); font-size: 12.5px; }
+
+/* 勾选之后出现的操作栏。客户库是管理客户的地方，勾一下不该弹出整张发信表单——
+   触达改成一个按钮，点了才展开。取消放在这一行的右端：原来要滚回表格里找到自己
+   勾的那一格才能取消，那是把「关掉」变成了一次寻找。 */
+.select-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.select-bar > b { font-size: 14px; white-space: nowrap; }
+.select-bar .input.btn-sm { padding: 5px 9px; font-size: 12px; height: auto; }
+.btn-danger-ghost {
+  background: transparent; color: var(--danger); border: 1px solid var(--border);
+}
+.btn-danger-ghost:hover { background: rgba(229, 83, 75, 0.1); border-color: var(--danger); }
+.btn-danger { background: var(--danger); color: #fff; border: 1px solid var(--danger); }
