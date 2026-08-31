@@ -122,6 +122,11 @@ def _deliver(conn, items: list[dict]) -> dict:
         campaign="每日社媒队列（自动）")
 
 
+def last_send_at(conn, channel: str) -> str | None:
+    """When a DM last actually went out on this channel — the moment, not the intent."""
+    return settings.get(conn, _K_LAST_SEND % channel)
+
+
 def last_run(conn) -> dict | None:
     raw = settings.get(conn, _K_LAST_RUN)
     try:

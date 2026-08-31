@@ -118,11 +118,11 @@ def _note_failure(conn, handle: str) -> None:
 
 
 def sending_pending(conn) -> int:
-    """Messages still queued for today.
+    """Messages still queued for today — how many are waiting on Allen, nothing more.
 
-    The engine is single-threaded, so watching would queue behind sending anyway — but
-    the real reason is that one account both messaging strangers and browsing strangers
-    in the same minute is the most machine-like pattern there is (docs/71 R2).
+    This used to gate browsing, until docs/77 established that the count is never zero
+    and so browsing never ran. It stays because the morning readout has a real use for
+    it: how much of today's queue is still unsent.
     """
     try:
         return conn.execute(
@@ -130,6 +130,41 @@ def sending_pending(conn) -> int:
             (_today(),)).fetchone()[0]
     except Exception:  # noqa: BLE001 — schema may not exist yet
         return 0
+
+
+# docs/77 R1. The rule this replaces asked whether any DM was still queued today, and
+# that is never false: the queue is rebuilt every morning and its `manual` rows exist
+# precisely to sit there until Allen presses send. Browsing therefore never ran once.
+# What docs/71 R2 was actually protecting against is the same account messaging and
+# browsing strangers in the same minute, so the gate now asks about a real send. Twenty
+# minutes against a fifteen-minute operating cycle means any cycle that sent skips
+# browsing, and the next one resumes.
+QUIET_AFTER_SEND = dt.timedelta(minutes=20)
+
+
+def sent_within_quiet_window(conn, now: dt.datetime | None = None) -> int | None:
+    """Minutes since the last real social DM, or None if it was long enough ago."""
+    from app import social_autonomy, social_queue
+
+    now = now or dt.datetime.now(dt.UTC)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=dt.UTC)
+    newest = None
+    for channel in social_queue.CHANNELS:
+        raw = social_autonomy.last_send_at(conn, channel)
+        if not raw:
+            continue
+        try:
+            stamp = dt.datetime.fromisoformat(raw)
+        except ValueError:  # a malformed stamp must not block browsing forever
+            continue
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=dt.UTC)
+        if newest is None or stamp > newest:
+            newest = stamp
+    if newest is None or now - newest >= QUIET_AFTER_SEND:
+        return None
+    return max(0, int((now - newest).total_seconds() // 60))
 
 
 def read_signals(text: str) -> list[dict]:
@@ -221,11 +256,11 @@ def due_profiles(conn, limit: int = DAILY_LIMIT) -> list[dict]:
 
 
 def watch(conn, engine, limit: int | None = None,
-          sleeper=time.sleep) -> dict:
+          sleeper=time.sleep, now: dt.datetime | None = None) -> dict:
     """Read today's allowance of profiles and record what they said."""
-    pending = sending_pending(conn)
-    if pending:
-        return {"looked": 0, "skipped": f"今天还有 {pending} 条私信没发，先不浏览",
+    since = sent_within_quiet_window(conn, now)
+    if since is not None:
+        return {"looked": 0, "skipped": f"{since} 分钟前刚发过私信，这一轮不浏览",
                 "facts": 0, "failures": 0}
 
     budget = min(limit or DAILY_LIMIT, remaining(conn))

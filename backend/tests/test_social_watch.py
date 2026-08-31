@@ -98,17 +98,44 @@ def test_the_social_links_on_a_profile_are_not_its_website():
 
 # --- keeping the account -----------------------------------------------------------
 
-def test_nothing_is_read_while_messages_are_still_queued(conn):
+def _queue_a_dm(conn):
     today = dt.date.today().isoformat()
     conn.execute("INSERT INTO social_dm_queue(queue_date, lead_no, channel, target,"
                  " body, rank_order, status, created_at)"
                  " VALUES (?,1,'instagram','verumav','hi',1,'ready',?)", (today, today))
     conn.commit()
+
+
+def _sent_at(conn, when):
+    from app import settings
+    settings.set_value(conn, "social_last_send_at_instagram", when.isoformat())
+
+
+def test_a_queue_waiting_on_allen_does_not_stop_reading(conn):
+    """docs/77. The old rule asked this and the answer was never no, so nothing ran."""
+    _queue_a_dm(conn)
+    engine = FakeEngine(pages={"verumav": "installation done"})
+    out = watch.watch(conn, engine, limit=1, sleeper=lambda _s: None)
+    assert out["looked"] == 1
+    assert engine.seen == ["verumav"]
+
+
+def test_nothing_is_read_in_the_same_cycle_a_message_went_out(conn):
+    now = dt.datetime(2026, 8, 31, 12, 0, tzinfo=dt.UTC)
+    _sent_at(conn, now - dt.timedelta(minutes=3))
     engine = FakeEngine()
-    out = watch.watch(conn, engine, sleeper=lambda _s: None)
+    out = watch.watch(conn, engine, sleeper=lambda _s: None, now=now)
     assert out["looked"] == 0
     assert engine.seen == []
     assert "私信" in out["skipped"]
+
+
+def test_reading_resumes_once_the_quiet_window_has_passed(conn):
+    now = dt.datetime(2026, 8, 31, 12, 0, tzinfo=dt.UTC)
+    _sent_at(conn, now - watch.QUIET_AFTER_SEND - dt.timedelta(minutes=1))
+    engine = FakeEngine(pages={"verumav": "installation done"})
+    out = watch.watch(conn, engine, limit=1, sleeper=lambda _s: None, now=now)
+    assert out["looked"] == 1
 
 
 def test_the_daily_allowance_is_spent_and_then_gone(conn):

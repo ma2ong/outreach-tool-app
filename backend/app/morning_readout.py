@@ -91,12 +91,12 @@ def _development(conn, days: int) -> None:
         print(f"    {str(fact['company_en'] or fact['lead_no'])[:24]:26} {fact['summary'][:44]}")
 
     looked = social_watch.DAILY_LIMIT - social_watch.remaining(conn)
-    pending = social_watch.sending_pending(conn)
     if looked:
         print(f"  看了 {looked} 家社媒主页")
-    elif pending:
-        print(f"  社媒主页一个没看：今天还有 {pending} 条私信没发完（这是刻意的）")
     else:
+        # docs/77 R3. This line used to append「这是刻意的」whenever the DM queue was
+        # non-empty, which reported a deadlock as a design decision every morning for
+        # as long as it lasted. Zero is now just zero, and worth looking at.
         print("  社媒主页一个没看")
 
 
