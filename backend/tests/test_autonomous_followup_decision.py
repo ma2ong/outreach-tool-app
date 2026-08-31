@@ -18,7 +18,7 @@ def conn(tmp_path, monkeypatch):
     )
     c.commit()
     sid = sequences.create_sequence(c, "Cold follow-up", "email", [
-        {"day_offset": 0, "subject": "LED project question", "body": "Hi {name}, quick question."},
+        {"day_offset": 0, "subject": "Hi {name}", "body": "Hi {name}, quick question."},
         {"day_offset": 14, "subject": "Re: LED", "body": "Following up on my note."},
         {"day_offset": 28, "subject": "Re: LED", "body": "One last useful check-in."},
     ])

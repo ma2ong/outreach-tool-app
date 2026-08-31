@@ -22,8 +22,8 @@ def conn(tmp_path):
 
 def _seq(conn, channel="email"):
     return sequences.create_sequence(conn, "Cold 3-touch", channel, [
-        {"day_offset": 0, "subject": "LED panel specs", "body": "First touch to {name}"},
-        {"day_offset": 3, "subject": "Re: LED panel specs", "body": "Second touch"},
+        {"day_offset": 0, "subject": "Hi {name}", "body": "First touch to {name}"},
+        {"day_offset": 3, "subject": "Re: {name}", "body": "Second touch"},
         {"day_offset": 7, "body": "Last touch"},
     ])
 

@@ -32,7 +32,7 @@ def _strong(conn, lead_no=2):
 def _template_and_mailbox(conn):
     conn.execute(
         "INSERT INTO templates(id,name,channel,subject,body) VALUES"
-        " (90,'Evidence intro','email','LED project question',"
+        " (90,'Evidence intro','email','Question for {company}',"
         " 'Hi {contact}, {hook} Is LED part of a current project at {company}?')"
     )
     conn.execute(

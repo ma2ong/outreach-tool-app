@@ -26,9 +26,7 @@ def test_send_email_runs_job(tmp_path):
     send_api.SENDER = lambda to, s, b, a: sent.append(to)
     send_api.DELAY_RANGE = (0, 0)
     client = _client(tmp_path)
-    r = client.post("/api/send/email", json={
-        "lead_nos": [1, 2], "subject": "LED panel specs", "body": "Hello {name}"
-    })
+    r = client.post("/api/send/email", json={"lead_nos": [1, 2], "subject": "Hi {name}", "body": "Hello {name}"})
     assert r.status_code == 200
     jid = r.json()["job_id"]
     job = client.get(f"/api/send/jobs/{jid}").json()

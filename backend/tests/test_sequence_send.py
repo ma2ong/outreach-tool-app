@@ -20,7 +20,7 @@ def conn(tmp_path):
 
 def _email_seq(conn):
     return sequences.create_sequence(conn, "S", "email", [
-        {"day_offset": 0, "subject": "LED panel specs", "body": "First to {name}"},
+        {"day_offset": 0, "subject": "Hi {name}", "body": "First to {name}"},
         {"day_offset": 3, "subject": "Re", "body": "Second"},
     ])
 
@@ -35,7 +35,7 @@ def test_send_due_sends_and_advances(conn):
         sender=lambda to, subj, body, img: sent_log.append((to, subj, body)),
         email_delay=(0, 0))
     assert res["sent"] == 2
-    assert ("a@alpha.com", "LED panel specs", "First to Alpha") in sent_log
+    assert ("a@alpha.com", "Hi Alpha", "First to Alpha") in sent_log
     # both advanced to step 1 (due in 3 days) -> queue now empty today
     assert sequences.due_queue(conn) == []
     row = conn.execute("SELECT current_step FROM sequence_enrollments WHERE lead_no=1").fetchone()

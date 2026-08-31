@@ -22,13 +22,13 @@ def test_send_campaign_sends_and_marks(conn):
     _seed(conn)
     calls = []
     result = outreach.send_campaign(
-        conn, [1, 2, 3, 4], subject="LED panel specs", body="Hello {name}",
+        conn, [1, 2, 3, 4], subject="Hi {name}", body="Hello {name}",
         attachment=None, sender=lambda to, s, b, a: calls.append((to, s, b)),
         delay_range=(0, 0))
     assert result["sent"] == 2
     assert result["skipped"] == 2
     assert {c[0] for c in calls} == {"a@a.com", "b@b.com"}
-    assert ("a@a.com", "LED panel specs", "Hello Alpha") in calls
+    assert ("a@a.com", "Hi Alpha", "Hello Alpha") in calls
     rows = conn.execute("SELECT lead_no FROM outreach WHERE channel='email' AND status='messaged' ORDER BY lead_no").fetchall()
     assert [r["lead_no"] for r in rows] == [1, 2, 4]
 
@@ -40,7 +40,7 @@ def test_send_campaign_records_failure(conn):
         raise RuntimeError("smtp down")
 
     result = outreach.send_campaign(
-        conn, [1], subject="LED panel specs", body="Hello {company}", attachment=None,
+        conn, [1], subject="Hi {company}", body="Hello {company}", attachment=None,
         sender=boom, delay_range=(0, 0))
     assert result["sent"] == 0
     assert result["failed"] == 1
@@ -50,7 +50,7 @@ def test_send_campaign_progress_callback(conn):
     _seed(conn)
     seen = []
     outreach.send_campaign(
-        conn, [1, 2], subject="LED panel specs", body="Hello {company}", attachment=None,
+        conn, [1, 2], subject="Hi {company}", body="Hello {company}", attachment=None,
         sender=lambda *a: None, delay_range=(0, 0),
         on_progress=lambda done, total: seen.append((done, total)))
     assert seen[-1] == (2, 2)

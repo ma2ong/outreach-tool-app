@@ -34,7 +34,7 @@ def test_strong_evidenced_account_is_ready_for_a_factual_template(conn):
     no = _ready(conn)
     d = send_decision.evaluate(
         conn, no,
-        subject="LED project question",
+        subject="Question for {company}",
         body="Hi {contact},\n\n{hook}\nAre LED displays part of any current project at {company}?",
     )
     assert d["ready"] is True
@@ -95,7 +95,7 @@ def test_open_opportunity_blocks_cold_first_touch(conn):
 
 def test_template_case_and_product_claims_need_explicit_approved_evidence(conn):
     no = _ready(conn)
-    subject = "P2.5 project reference"
+    subject = "Recent LED projects for {company}"
     body = "Hi {contact}, we delivered P2.5 indoor LED projects recently. {hook}"
     blocked = send_decision.evaluate(conn, no, subject=subject, body=body)
     assert blocked["ready"] is False
@@ -135,7 +135,7 @@ def test_batch_keeps_only_accounts_that_are_worth_sending_now(conn):
     conn.commit()
     result = send_decision.evaluate_batch(
         conn, [ready, 3],
-        subject="LED project question",
+        subject="Question for {company}",
         body="Hi {contact}, {hook} Are you working on an LED display project at {company}?",
     )
     assert result["accepted"] == [2]

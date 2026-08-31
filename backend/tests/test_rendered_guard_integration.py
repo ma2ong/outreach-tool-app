@@ -35,7 +35,7 @@ def test_campaign_sends_exact_rendered_personalized_text(tmp_path):
     conn = _conn(tmp_path)
     calls = []
     result = outreach.send_campaign(
-        conn, [1], "LED display supply",
+        conn, [1], "{company} — LED display supply",
         "{hook}\n\nWe manufacture LED displays for integrators.", None,
         lambda to, subject, body, attachment: calls.append((to, subject, body)),
         delay_range=(0, 0),
@@ -44,7 +44,7 @@ def test_campaign_sends_exact_rendered_personalized_text(tmp_path):
     assert result["held"] == 0
     assert calls == [(
         "hello@verumav.com",
-        "LED display supply",
+        "Verum AV Solutions — LED display supply",
         "Saw the rental work on your site.\n\nWe manufacture LED displays for integrators.",
     )]
     conn.close()
@@ -79,7 +79,7 @@ def test_sequence_hold_does_not_advance_or_mark_messaged(tmp_path):
 def test_follow_up_step_can_be_generic_but_price_is_still_held(tmp_path):
     conn = _conn(tmp_path)
     sid = sequences.create_sequence(conn, "followup", "email", [
-        {"day_offset": 0, "subject": "LED panel specs", "body": "First note for {company}."},
+        {"day_offset": 0, "subject": "{company}", "body": "First note for {company}."},
         {"day_offset": 1, "subject": "Re: LED", "body": "A cabinet data sheet is available."},
     ])
     sequences.enroll_leads(conn, sid, [1])
@@ -100,7 +100,7 @@ def test_follow_up_step_can_be_generic_but_price_is_still_held(tmp_path):
 
     # A commercial number is held even on later steps.
     sid2 = sequences.create_sequence(conn, "price", "email", [
-        {"day_offset": 0, "subject": "LED panel specs", "body": "First note for {company}."},
+        {"day_offset": 0, "subject": "{company}", "body": "First note for {company}."},
         {"day_offset": 1, "subject": "Re", "body": "Price is USD 900/sqm."},
     ])
     # use another lead so the completed first sequence does not interfere with enrollment

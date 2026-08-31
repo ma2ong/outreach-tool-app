@@ -26,7 +26,7 @@ def conn(tmp_path, monkeypatch):
     )
     c.commit()
     sid = sequences.create_sequence(c, "First touch", "email", [
-        {"day_offset": 0, "subject": "LED project question", "body": "Hi VenueWorks, quick question."},
+        {"day_offset": 0, "subject": "VenueWorks LED", "body": "Hi VenueWorks, quick question."},
         {"day_offset": 14, "subject": "Re", "body": "Following up."},
     ])
     sequences.enroll_leads(c, sid, [21])
