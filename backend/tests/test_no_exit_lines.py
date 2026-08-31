@@ -39,12 +39,14 @@ def test_no_step_of_any_sequence_offers_to_stop(segment, korean):
 @pytest.mark.parametrize("korean", [False, True])
 @pytest.mark.parametrize("segment", SEGMENTS)
 def test_every_opener_names_the_factory_and_a_product(segment, korean):
-    """docs/82 R2: who we are, a spec they can react to, and a same-day invitation."""
+    """docs/82 R2: who we are, a spec they can react to, and something concrete on
+    offer. Not a fixed phrase — Allen took the "same day" promise out because the
+    close read as an instruction rather than an offer."""
     subject, body = next(iter(_rendered(segment, korean)))
     text = " ".join((subject + " " + body).split())
     assert "Maxcolor" in text or "맥스컬러" in text, "the letter never says who is writing"
     assert "P0.7" in text or "P2" in text or "P4" in text, "no pitch to react to"
-    assert "same day" in text or "당일" in text, "nothing offered they can have today"
+    assert any(w in text for w in ("spec", "sheet", "사양")), "nothing concrete offered"
 
 
 @pytest.mark.parametrize("line", [

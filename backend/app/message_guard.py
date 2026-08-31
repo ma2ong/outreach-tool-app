@@ -36,8 +36,13 @@ _PRICE = re.compile(
 _EXIT_LINE = re.compile(
     r"leave it there"
     r"|i'?ll (?:say so and )?(?:stop|leave)(?: here| it there| you (?:alone|be))?"
-    r"|last (?:note|email|message)\b"
-    r"|this is my last"
+    # "following up on my last message" means the previous one, not the final one, and
+    # the first version of this refused two perfectly good follow-up templates for it.
+    # Only the farewell sense is banned, so the announcement has to be present: either
+    # the sentence opens on it, or something says the sender is signing off.
+    r"|(?:^|[.!?]\s+|\n)\s*(?:one\s+)?last (?:note|email|message)\b"
+    r"|(?:this|here) is my (?:very )?last"
+    r"|last (?:note|email|message) (?:from me|i'?ll send|you'?ll (?:get|hear))"
     r"|won'?t (?:contact|bother|email|write to) you again"
     r"|(?:that'?s|that is) a fine answer"
     r"|fill up your inbox"

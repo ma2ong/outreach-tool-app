@@ -110,8 +110,8 @@ ALLEN_STYLE_TEMPLATES = [
      "{company} — LED panels direct from our factory in Shenzhen",
      """Hi {contact},
 
-I hope this email finds you well. This is Allen Ma from Shenzhen Maxcolor Visual — we
-manufacture LED display panels in our own factory here in Shenzhen.
+I hope this email finds you well. This is Allen Ma from Shenzhen Maxcolor
+Visual, an LED display manufacturer here in Shenzhen.
 
 A quick note on what we cover, in case it is useful to {company}:
 
@@ -120,8 +120,9 @@ A quick note on what we cover, in case it is useful to {company}:
   · Rental P2.6-P3.9 indoor and P3.9-P4.8 outdoor, die-cast cabinets
   · Outdoor fixed P4-P10, 5,500-8,000 nits — billboards and building facades
 
-If any of these is close to what you work with, tell me the pitch and the size and I will
-send the full spec sheet the same day — weight and power per cabinet included.
+If any of these is close to what {company} works with, I'd be glad to send the full spec
+sheet — weight and power per cabinet included. Just let me know which one, whenever it's
+convenient.
 
 Allen Ma · Shenzhen Maxcolor Visual
 WhatsApp/WeChat +86 135-7087-1001
@@ -130,8 +131,7 @@ WhatsApp/WeChat +86 135-7087-1001
      "{company} — 심천 자체 공장에서 만드는 LED 디스플레이",
      """안녕하세요~ {contact}님.
 
-심천 LED 전광판 업체 맥스컬러의 Allen 마이용입니다. 저희는 심천 자체 공장에서 LED
-디스플레이 패널을 직접 만들고 있습니다.
+심천 LED 디스플레이 제조업체 맥스컬러의 Allen 마이용입니다.
 
 {company}에서 검토하실 만한 범위를 간단히 정리해 드립니다.
 
@@ -140,8 +140,8 @@ WhatsApp/WeChat +86 135-7087-1001
   · 렌탈용 실내 P2.6-P3.9 / 실외 P3.9-P4.8, 다이캐스팅 캐비닛
   · 실외 고정 P4-P10 (5,500-8,000 nits) — 옥외광고, 건물 외벽
 
-관심 있으신 피치와 크기만 알려주시면 당일에 사양서 보내드리겠습니다. 캐비닛별 무게와
-소비전력까지 함께 넣어 드립니다.
+관심 있으신 사양이 있으시면 사양서 기꺼이 보내드리겠습니다. 캐비닛별 무게와 소비전력까지
+함께 정리해 드립니다. 편하실 때 말씀만 주세요.
 
 Allen Ma · Shenzhen Maxcolor Visual
 Kakaotalk / WeChat +86 13570871001
@@ -150,11 +150,11 @@ Kakaotalk / WeChat +86 13570871001
      "{company} — spec sheet and drawing, same day",
      """Hi {contact},
 
-This is Allen from Shenzhen Maxcolor. We build LED panels in our own factory, so the
-specs come from us rather than from a trader passing on a datasheet.
+This is Allen from Shenzhen Maxcolor Visual, an LED display manufacturer in Shenzhen.
+The specs come from us directly rather than from a trader passing on a datasheet.
 
-Send me two things about the job {company} has coming up — the pitch and the screen
-size — and you will have back the same day:
+Whenever {company} has a job coming up, I'd be glad to put together, usually the same
+day:
 
   · the full spec sheet for that pitch
   · weight and power draw per cabinet, so it drops straight into your drawing
@@ -167,11 +167,11 @@ WhatsApp/WeChat +86 135-7087-1001
      "{company} — 사양서와 도면, 당일 발송",
      """안녕하세요~ {contact}님.
 
-심천 맥스컬러의 Allen입니다. 저희는 자체 공장에서 패널을 직접 만들기 때문에, 사양도
-중간 무역상을 거치지 않고 저희가 바로 드립니다.
+심천 LED 디스플레이 제조업체 맥스컬러의 Allen입니다. 사양은 중간 무역상을 거치지 않고
+저희가 바로 드립니다.
 
-{company}에서 진행하실 건의 피치와 화면 크기 두 가지만 알려주시면 당일에 아래를 함께
-보내드리겠습니다.
+{company}에서 건이 생기시면 아래를 함께 정리해 기꺼이 보내드리겠습니다. 보통 당일에
+드릴 수 있습니다.
 
   · 해당 피치 전체 사양서
   · 캐비닛별 무게와 소비전력 — 도면에 그대로 넣으실 수 있습니다
@@ -184,14 +184,14 @@ Kakaotalk / WeChat +86 13570871001
 
 ALLEN_STYLE_DM = [
     ("DM 工厂直供（英语）", "en",
-     "Hi{contact_comma} this is Allen from Shenzhen Maxcolor — we manufacture LED panels "
-     "in our own factory. Indoor P2-P3, rental P2.6-P4.8 die-cast, outdoor P4-P10 at "
-     "5,500-8,000 nits. Tell me the pitch and size you work with and I'll send the spec "
-     "sheet the same day."),
+     "Hi{contact_comma} this is Allen from Shenzhen Maxcolor Visual, an LED display "
+     "manufacturer in Shenzhen. Indoor P2-P3, rental P2.6-P4.8 die-cast, outdoor P4-P10 "
+     "at 5,500-8,000 nits. Happy to send the spec sheet for whichever pitch you use, "
+     "whenever it is useful."),
     ("DM 工厂直供（韩语）", "ko",
-     "안녕하세요~ 심천 LED 전광판 업체 맥스컬러의 Allen입니다. 자체 공장에서 패널을 직접 "
-     "만듭니다. 실내 P2-P3, 렌탈 P2.6-P4.8 다이캐스팅, 실외 P4-P10(5,500-8,000 nits)까지 "
-     "가능합니다. 쓰시는 피치와 크기만 알려주시면 당일에 사양서 보내드리겠습니다~"),
+     "안녕하세요~ 심천 LED 디스플레이 제조업체 맥스컬러의 Allen입니다. 실내 P2-P3, 렌탈 "
+     "P2.6-P4.8 다이캐스팅, 실외 P4-P10(5,500-8,000 nits)까지 가능합니다. 쓰시는 사양에 "
+     "맞는 사양서 기꺼이 보내드리겠습니다. 편하실 때 편하게 말씀 주세요~"),
 ]
 
 

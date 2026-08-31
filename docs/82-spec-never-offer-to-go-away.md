@@ -94,6 +94,46 @@ If ours won't mix with your stock I'll say so and leave it there.
 **不写价格。** 产品库里有价格区间，但 `message_guard` 的第一条就是自动化的冷邮件
 不能代替 Allen 定价——那条不动。
 
+## R4 说「我们是制造商」，不强调「我们自己造」
+
+Allen：
+
+> `we build the panels ourselves.` 这句话表达方式也不好，可以说我们是 LED 显示屏的制造商
+> 或者工厂，**但不要强调我们自己制造的**。
+
+「ourselves / 直接 / 자체 공장에서」这类强调在信里是**替一个没人提出的质疑辩护**——
+对方还没怀疑我们是不是贸易商，我们先急着否认了。他自己的信从来只是平铺直叙地报身份：
+`I am Allen from Shenzhen Maxcolor` / `심천 LED 전광판 업체 맥스컬러입니다`。
+
+改成：`Shenzhen Maxcolor Visual, an LED display manufacturer in Shenzhen` /
+`심천 LED 디스플레이 제조업체 맥스컬러`。是事实，不是辩解。
+
+## R5 收尾是提供，不是指派
+
+Allen：
+
+> `Tell me the pitch and cabinet size you work with and I'll send the spec sheet…`
+> 这部分内容很不好，说不出来的感觉，总感觉怪怪的，**有点命令对方的感觉**。
+
+他说的是对的，而且能说清楚为什么：`Tell me X and I'll send Y` 是一笔**交易**——
+它在对方还没同意做生意之前，先给对方派了一个活。收件人和我们素不相识，
+凭什么先干活。
+
+他自己的收尾从来是**报告我这边随时可以**，动作留给对方自己决定：
+
+> 관심하신 제품 있으시면 연락주세요~ ／ Please check and let me know
+
+所以句式从祈使句改成条件句 + 我方意愿：
+
+| 改前 | 改后 |
+|---|---|
+| Tell me the pitch and size and I'll send the sheet the same day. | If any of this is close to what you use, I'd be glad to send the spec sheet. Just let me know which pitch, whenever it's convenient. |
+| 크기만 알려주시면 당일에 사양서 보내드리겠습니다. | 검토하시는 사양과 비슷하다면 사양서 기꺼이 보내드리겠습니다. 편하실 때 말씀만 주세요. |
+
+**「当天」的承诺也一并去掉了。** 它本来是想显得利落，实际读起来是在给这件事加时钟——
+对方并没有在赶时间。R2 要的是「给一个具体、能回的东西」，那个东西是**规格书**，
+不是交付它的速度。
+
 ## 事实出处（docs/45）
 
 | 写进文案的 | 出处 |
@@ -108,7 +148,8 @@ R3 那几个数字是从他自己的信里抄的，不是我编的。**如果箱
 
 1. 六个分段 × 两种语言的开场白里，一句退出语都搜不到
 2. 第三封里没有「最后一封」「没需求也没关系」
-3. 每个开场白里有：工厂自称、一个具体产品参数、一个当天兑现的邀请
+3. 每个开场白里有：工厂自称、一个具体产品参数、一个具体可交付的东西（规格书）
+3.1 自称是「制造商」，不是「我们自己造」；收尾是条件句不是祈使句
 4. `message_guard` 拦下任何含退出语的最终文本，且理由说得出是哪一句
 5. 价格仍然一分钱都不许出现
 6. 社媒私信（含 docs/80 的通用话术）同样过这道检查
