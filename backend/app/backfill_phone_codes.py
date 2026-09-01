@@ -14,14 +14,20 @@ Run:  python -m app.backfill_phone_codes
 """
 from __future__ import annotations
 
+import re
 import sys
 
 from app.db import connect
-from app.phone_format import book_form
+from app.phone_format import parts, book_form, international
 
 
 def plan(conn) -> tuple[list[dict], list[dict]]:
-    """(what would change, what cannot be shown internationally)."""
+    """(what would change, what holds a number we cannot show internationally).
+
+    A row already written as +55… needs no change and is not a problem; listing it
+    beside a row holding a date would make the second list unreadable, which is the
+    only reason anyone opens it.
+    """
     changes, stuck = [], []
     for row in conn.execute(
             "SELECT no, company_en, country, phone FROM leads"
@@ -29,10 +35,12 @@ def plan(conn) -> tuple[list[dict], list[dict]]:
         item = {"no": row["no"], "company_en": row["company_en"],
                 "country": row["country"], "phone": row["phone"]}
         fixed = book_form(row["phone"], row["country"])
-        if fixed is None:
-            stuck.append(item)
-        elif fixed != row["phone"]:
+        if fixed is not None and fixed != row["phone"]:
             changes.append({**item, "fixed": fixed})
+        current = fixed if fixed is not None else row["phone"]
+        if any(international(part, row["country"]) is None
+               for part in parts(current) if re.search(r"\d", part)):
+            stuck.append(item)
     return changes, stuck
 
 

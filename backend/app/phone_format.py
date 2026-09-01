@@ -65,7 +65,7 @@ _UNROUTABLE = {
 }
 
 
-def _parts(field: str) -> list[str]:
+def parts(field: str) -> list[str]:
     """Split on the separator a human wrote, which is always a spaced slash.
 
     A bare slash is not a separator: `wa.link/7jz8hw` is one link, and cutting it in
@@ -89,10 +89,9 @@ def split_numbers(field: str | None) -> tuple[str, str]:
     raw = str(field or "").strip()
     if not raw:
         return "", ""
-    parts = _parts(raw)
     labelled = ""
     plain = []
-    for part in parts:
+    for part in parts(raw):
         m = re.match(r"^WA\s*:\s*(.+)$", part, re.I)
         if m:
             # "WA: wa.link/7jz8hw" names a link, not a number. Seven digits is the
@@ -158,7 +157,7 @@ def book_form(field: str | None, country: str | None) -> str | None:
     if not raw:
         return None
     out, seen = [], set()
-    for part in _parts(raw):
+    for part in parts(raw):
         m = re.match(r"^(WA\s*:\s*)(.+)$", part, re.I)
         label, number = (m.group(1), m.group(2).strip()) if m else ("", part)
         digits = international(number, country)
