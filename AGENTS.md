@@ -65,6 +65,46 @@ same move as the agent base64-ing a command.
 4. Run focused tests, then the full backend suite and frontend production build.
 5. For database changes, verify both a fresh temporary DB and a copied real DB.
 
+## Two agents, two worktrees
+
+Claude and Codex both work on this repository. On 2026-08-31 they were editing the same
+working tree and swept each other's uncommitted files into their own commits — twice, in
+opposite directions. Nothing was lost either time, but both commit messages described
+less than the commit contained, which is the kind of quiet mismatch that makes history
+untrustworthy. Git has one index per working tree; `git add -A` takes whatever is there.
+
+So each agent gets its own working tree on its own branch:
+
+| Directory | Branch | Who |
+|---|---|---|
+| `C:\Users\Administrator\outreach-tool` | `main` | **the live install** — runs the server Allen uses, owns `backend/outreach.db` |
+| `C:\Users\Administrator\outreach-claude` | `claude/work` | Claude |
+| `C:\Users\Administrator\outreach-codex` | `codex/work` | Codex |
+
+Work, test and commit on your own branch. Merge to `main` when Allen asks; that is where
+the app is built and served from.
+
+**Only the main install may run a sending server.** This is the rule that matters most,
+and it is not obvious: a second server pointed at the live database with its schedulers
+running sees the same due queue, so every customer gets today's email twice and today's
+DM twice. The runtime lease protects concurrent workers inside one process tree, not a
+second process someone starts by hand.
+
+To look at a change in a browser, run a preview from your worktree:
+
+```
+.\scripts\dev_instance.ps1 -Port 8020
+```
+
+It reads the live database so the screens show real rows, and every sender — autosend,
+the social queue, the Agent, reply polling, website rechecks — is switched off. Pick a
+free port; 8000 and 8010 are taken.
+
+Two things a fresh worktree does not have, because they are correctly untracked:
+`backend/auth_password.txt` (the smoke suite logs in with it) and `backend/outreach.db`
+(point `OUTREACH_DB` at the live one instead of copying it). `npm install` once in
+`frontend/`.
+
 ## Architecture boundaries
 
 - `backend/app/agent/`: perception, mission, planning, memory, proposals and learning.
