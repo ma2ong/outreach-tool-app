@@ -154,7 +154,7 @@ textarea.input { width: 100%; resize: vertical; }
 /* 客户库表格：列宽由 <colgroup> 定，不再让浏览器按内容分配。
    auto 布局下，一行长联系人名就能把「客户名称」撑成邻列的三倍，旁边空出一大块——
    Allen 圈出来的正是那一块。固定布局之后每列宽度都是有意为之的，横向滚动兜住总宽。 */
-.table.table-fixed { table-layout: fixed; min-width: 1490px; }
+.table.table-fixed { table-layout: fixed; min-width: 1526px; }
 .table-fixed td, .table-fixed th { overflow-wrap: anywhere; }
 /* 超长的邮箱/域名截断成一行，完整值在 title 里，行高才不会一行高一行矮 */
 .table-fixed td.cell-clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -299,4 +299,8 @@ textarea.input { width: 100%; resize: vertical; }
 
 /* 渠道状态一个渠道一行。三个胶囊并排时挤成一条，扫一眼分不出哪个是哪个渠道；
    竖排之后 Email / WA / IG 各占一行，同一列上下对齐，一眼就能比。 */
-.channel-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.channel-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+/* 三行会把行高抬起来——一屏从 15 行掉到 7 行。这一列的胶囊压紧一号，三行仍然是三行，
+   但整行高度回到能一屏看十来家的程度。 */
+.channel-cell .badge { padding: 0 7px; font-size: 11px; line-height: 17px; }
+.channel-cell .badge i { width: 5px; height: 5px; }

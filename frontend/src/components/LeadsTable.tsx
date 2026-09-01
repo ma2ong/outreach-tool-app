@@ -89,20 +89,20 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
       <table className="table table-fixed">
         <colgroup>
           <col style={{ width: 34 }} /><col style={{ width: 54 }} />
-          <col style={{ width: 190 }} /><col style={{ width: 92 }} />
-          <col style={{ width: 108 }} /><col style={{ width: 140 }} />
-          <col style={{ width: 112 }} /><col style={{ width: 158 }} />
-          <col style={{ width: 150 }} /><col style={{ width: 168 }} />
+          <col style={{ width: 190 }} /><col style={{ width: 112 }} />
+          <col style={{ width: 92 }} /><col style={{ width: 108 }} />
+          <col style={{ width: 140 }} /><col style={{ width: 150 }} />
+          <col style={{ width: 158 }} /><col style={{ width: 168 }} />
           <col style={{ width: 224 }} /><col style={{ width: 96 }} />
         </colgroup>
         <thead><tr>
           <th><input type="checkbox" checked={allChecked} onChange={(e) => onToggleAll(e.target.checked)} /></th>
           <Sortable col="no">#</Sortable><Sortable col="company_en">公司</Sortable>
+          <Sortable col="country">国家</Sortable>
           <Sortable col="stage">阶段</Sortable>
           <Sortable col="fit">客户类型</Sortable>
-          <th>客户名称</th>
-          <Sortable col="country">国家</Sortable>
-          <th>官网</th><th>电话 / WhatsApp</th><th>社媒</th><th>邮箱</th><th>渠道状态</th>
+          <th>客户名称</th><th>电话 / WhatsApp</th>
+          <th>官网</th><th>社媒</th><th>邮箱</th><th>渠道状态</th>
         </tr></thead>
         <tbody>
           {leads.map((l) => {
@@ -118,10 +118,11 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
                     && HANGUL.test(l.company_local) &&
                     <div>{l.company_local}</div>}
                 </td>
+                <td className="cell-clip">{l.country}</td>
                 <td onClick={stop} style={{ whiteSpace: "nowrap" }}>
                   <InlineStage value={row(l).stage} onChange={(s) => save(l.no, { stage: s })} />
                 </td>
-                <td onClick={stop} style={{ minWidth: 150 }}>
+                <td onClick={stop}>
                   <CustomerTypePicker value={row(l).tags ?? ""} options={typeOptions}
                     onChange={(next) => save(l.no, { tags: next })} />
                   {/* 他没标类型时，才退回系统推断的那一个 */}
@@ -134,11 +135,6 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
                       {l.primary_title && <div className="muted" style={{ fontSize: 12 }}>{l.primary_title}</div>}
                     </>
                   : <span className="muted">—</span>}</td>
-                <td className="cell-clip">{l.country}</td>
-                <td onClick={stop} className="cell-clip">{l.website
-                  ? <a href={siteUrl(l.website)} target="_blank" rel="noreferrer"
-                      title={l.website}>{l.website.replace(/^https?:\/\/(www\.)?/, "")}</a>
-                  : <span className="muted">—</span>}</td>
                 <td className="num cell-clip" onClick={stop}>{l.phone
                   ? (wa
                     ? <a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer"
@@ -146,6 +142,10 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
                         {l.phone}{l.whatsapp_verified ? " ✓" : ""}
                       </a>
                     : l.phone)
+                  : <span className="muted">—</span>}</td>
+                <td onClick={stop} className="cell-clip">{l.website
+                  ? <a href={siteUrl(l.website)} target="_blank" rel="noreferrer"
+                      title={l.website}>{l.website.replace(/^https?:\/\/(www\.)?/, "")}</a>
                   : <span className="muted">—</span>}</td>
                 {/* IG 和 FB 合成一列：两列各自大半是空的，合起来一列才填得满 */}
                 <td onClick={stop} className="cell-clip">
