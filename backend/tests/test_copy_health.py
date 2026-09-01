@@ -41,9 +41,9 @@ def test_an_exit_line_is_reported_on_a_dm_template_too(conn):
 
 
 def test_copy_that_sends_is_not_reported(conn):
-    _template(conn, "good one", "indoor LED specs",
-              "Hi {contact},\n\nThis is Allen with an LED display manufacturer in Shenzhen.\n"
-              "We cover P2-P3 indoor at 600-800 nits. Would a spec sheet help {company}?")
+    _template(conn, "good one", "{company} — LED panels from our own factory",
+              "Hi {contact},\n\nThis is Allen from Shenzhen Maxcolor. We run P2-P3 indoor\n"
+              "at 800-1,200 nits. Tell me the size and I'll send the sheet the same day.")
     out = copy_health.scan(conn)
     assert out["refused"] == [] and out["checked"] == 1
 
@@ -51,6 +51,6 @@ def test_copy_that_sends_is_not_reported(conn):
 def test_the_verdict_uses_a_lead_with_everything_filled_in(conn):
     """A refusal must mean 'never sendable', not 'this lead was thin' — otherwise the
     check cries wolf on every company with no city."""
-    _template(conn, "leans on the city", "LED panel specs",
+    _template(conn, "leans on the city", "{company} — LED panels",
               "Hi {contact}, we supply {city} companies like {company} direct.")
     assert copy_health.scan(conn)["refused"] == []

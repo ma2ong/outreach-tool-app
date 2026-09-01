@@ -9,7 +9,7 @@ import sqlite3
 
 from app import identity
 
-MIGRATION_KEY = "outreach_default_copy_v3"
+MIGRATION_KEY = "outreach_default_copy_v2"
 
 # Who we are to a customer is decided in one place (app/identity.py) — the address, the
 # company name and the quote header used to disagree with each other across four files.
@@ -29,10 +29,8 @@ Hope we can have a good opportunity to work together!
 
 {SIGNOFF}"""
 
-# The v2 text remains here so an untouched installed copy can be upgraded exactly once.
-# Anything with even one user edit no longer matches and is preserved.
-V2_EN_SUBJECT = "Indoor, rental and outdoor LED panels — full spec sheets"
-V2_EN_BODY = f"""Hi {{contact}},
+EN_SUBJECT = "{company} — LED display supply"
+EN_BODY = f"""Hi {{contact}},
 
 {{hook}}
 
@@ -41,23 +39,6 @@ I came across {{company}} while looking at LED / AV companies in your market.
 We manufacture indoor and outdoor LED displays, including P1.86, P2.5, P3.91 and P10, and supply integrators and rental companies directly.
 
 If you have a current project, send me the screen size, viewing distance and indoor/outdoor use. I'll organize only the relevant specs and project references.
-
-{SIGNOFF}"""
-
-# docs/83: the subject earns the open; the body offers one useful artefact and asks one
-# low-friction question. Price and project inputs stay out of first contact.
-EN_SUBJECT = "LED panel specs"
-EN_BODY = f"""Hi {{contact}},
-
-{{hook}}
-
-I'm Allen, handling export sales for an LED display manufacturer in Shenzhen.
-
-We cover indoor P2-P3 at 600-800 nits, rental P2.6-P4.8 die-cast, and outdoor P4-P10
-at 5,500-8,000 nits.
-
-Would a one-page comparison with cabinet weight, power and service access be useful to
-{{company}}?
 
 {SIGNOFF}"""
 
@@ -74,29 +55,14 @@ P1.53, P1.86, P2.5, P3.91, P10 등 실내/실외 다양한 프로젝트를 진�
 
 {KO_SIGNOFF}"""
 
-V2_KO_SUBJECT = "실내·렌탈·실외 LED 패널 사양서 보내드립니다"
-V2_KO_BODY = f"""안녕하세요~
+KO_SUBJECT = "{company} - LED 디스플레이 납품 사례"
+KO_BODY = f"""안녕하세요~
 
 {{company}} 관련 내용을 확인하다가 연락드렸습니다.
 
 최근 한국에 납품한 LED 디스플레이 설치사례가 있어 공유드립니다. P1.53, P1.86, P2.5, P3.91, P10 등 실내/실외 프로젝트를 진행하고 있습니다.
 
 혹시 지금 검토 중이신 현장이 있거나 나중을 위해 공급처를 알아보시는 단계라면 알려주세요. 상황에 맞는 자료만 정리해서 보내드리겠습니다.
-
-{KO_SIGNOFF}"""
-
-KO_SUBJECT = "LED 패널 사양"
-KO_BODY = f"""안녕하세요, {{contact}}님.
-
-{{hook_ko}}
-
-저는 선전의 LED 디스플레이 제조업체에서 해외영업을 담당하는 Allen입니다.
-
-실내 P2-P3(600-800 nits), 렌탈 P2.6-P4.8 다이캐스팅, 실외
-P4-P10(5,500-8,000 nits) 제품을 공급하고 있습니다.
-
-캐비닛 무게, 소비전력, 유지보수 방식을 한눈에 볼 수 있는 비교표를 보내드리면
-{{company}} 검토에 도움이 될까요?
 
 {KO_SIGNOFF}"""
 
@@ -118,31 +84,28 @@ def upgrade_legacy_defaults(conn: sqlite3.Connection) -> dict:
 
     template_count = 0
     step_count = 0
-    versions = (
-        ("首次触达（英语）", "冷邮件 3 步跟进（英语）", EN_SUBJECT, EN_BODY, (
-            (LEGACY_EN_SUBJECT, LEGACY_EN_BODY),
-            (V2_EN_SUBJECT, V2_EN_BODY),
-        )),
-        ("首次触达（韩语）", "冷邮件 3 步跟进（韩语）", KO_SUBJECT, KO_BODY, (
-            (LEGACY_KO_SUBJECT, LEGACY_KO_BODY),
-            (V2_KO_SUBJECT, V2_KO_BODY),
-        )),
-    )
-    for template_name, sequence_name, new_subject, new_body, old_versions in versions:
-        for old_subject, old_body in old_versions:
-            cur = conn.execute(
-                "UPDATE templates SET subject=?, body=?"
-                " WHERE name=? AND channel='email' AND subject=? AND body=?",
-                (new_subject, new_body, template_name, old_subject, old_body),
-            )
-            template_count += cur.rowcount
-            cur = conn.execute(
-                "UPDATE sequence_steps SET subject=?, body=?"
-                " WHERE step_order=0 AND subject=? AND body=?"
-                " AND sequence_id IN (SELECT id FROM sequences WHERE name=? AND channel='email')",
-                (new_subject, new_body, old_subject, old_body, sequence_name),
-            )
-            step_count += cur.rowcount
+    for name, old_subject, old_body, new_subject, new_body in (
+        ("首次触达（英语）", LEGACY_EN_SUBJECT, LEGACY_EN_BODY, EN_SUBJECT, EN_BODY),
+        ("首次触达（韩语）", LEGACY_KO_SUBJECT, LEGACY_KO_BODY, KO_SUBJECT, KO_BODY),
+    ):
+        cur = conn.execute(
+            "UPDATE templates SET subject=?, body=?"
+            " WHERE name=? AND channel='email' AND subject=? AND body=?",
+            (new_subject, new_body, name, old_subject, old_body),
+        )
+        template_count += cur.rowcount
+
+    for seq_name, old_subject, old_body, new_subject, new_body in (
+        ("冷邮件 3 步跟进（英语）", LEGACY_EN_SUBJECT, LEGACY_EN_BODY, EN_SUBJECT, EN_BODY),
+        ("冷邮件 3 步跟进（韩语）", LEGACY_KO_SUBJECT, LEGACY_KO_BODY, KO_SUBJECT, KO_BODY),
+    ):
+        cur = conn.execute(
+            "UPDATE sequence_steps SET subject=?, body=?"
+            " WHERE step_order=0 AND subject=? AND body=?"
+            " AND sequence_id IN (SELECT id FROM sequences WHERE name=? AND channel='email')",
+            (new_subject, new_body, old_subject, old_body, seq_name),
+        )
+        step_count += cur.rowcount
 
     conn.execute(
         "INSERT INTO settings(key,value) VALUES (?, '1')"

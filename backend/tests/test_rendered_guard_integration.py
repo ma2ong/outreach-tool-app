@@ -80,7 +80,7 @@ def test_follow_up_step_can_be_generic_but_price_is_still_held(tmp_path):
     conn = _conn(tmp_path)
     sid = sequences.create_sequence(conn, "followup", "email", [
         {"day_offset": 0, "subject": "{company}", "body": "First note for {company}."},
-        {"day_offset": 1, "subject": "Re: LED", "body": "A cabinet data sheet is available."},
+        {"day_offset": 1, "subject": "Re: LED", "body": "Just following up."},
     ])
     sequences.enroll_leads(conn, sid, [1])
     eid = sequences.due_queue(conn)[0]["enrollment_id"]
@@ -96,7 +96,7 @@ def test_follow_up_step_can_be_generic_but_price_is_still_held(tmp_path):
         conn, [eid], sender=lambda to, subject, body, image: log.append(body), email_delay=(0, 0)
     )
     assert result["sent"] == 1
-    assert log == ["A cabinet data sheet is available."]
+    assert log == ["Just following up."]
 
     # A commercial number is held even on later steps.
     sid2 = sequences.create_sequence(conn, "price", "email", [
