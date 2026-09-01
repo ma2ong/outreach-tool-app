@@ -84,21 +84,24 @@ So each agent gets its own working tree on its own branch:
 Work, test and commit on your own branch. Merge to `main` when Allen asks; that is where
 the app is built and served from.
 
-**Only the main install may run a sending server.** This is the rule that matters most,
-and it is not obvious: a second server pointed at the live database with its schedulers
-running sees the same due queue, so every customer gets today's email twice and today's
-DM twice. The runtime lease protects concurrent workers inside one process tree, not a
-second process someone starts by hand.
+**A second server cannot double-send, and it is worth knowing why.** The first instinct
+is that two servers on one database would both see the same due queue and mail every
+customer twice. They would not: `runtime_leases` is a row in that database, owned by
+`mode:host:pid:uuid`, and `run_leased_cycle` returns `acquired: False` to anyone who
+finds it held and unexpired — the second process stands by without running a cycle.
+That is what the lease is for.
 
-To look at a change in a browser, run a preview from your worktree:
+Run the preview anyway, because a second contender still muddies the picture: it
+competes for the lease, so whichever process wins is decided by timing, and the loser's
+idle standby writes noise into a log Allen reads when sending looks stuck.
 
 ```
 .\scripts\dev_instance.ps1 -Port 8020
 ```
 
-It reads the live database so the screens show real rows, and every sender — autosend,
-the social queue, the Agent, reply polling, website rechecks — is switched off. Pick a
-free port; 8000 and 8010 are taken.
+It reads the live database so the screens show real rows, and every scheduler —
+autosend, the social queue, the Agent, reply polling, website rechecks — is off, so it
+never enters the contest. Pick a free port; 8000 and 8010 are taken.
 
 Two things a fresh worktree does not have, because they are correctly untracked:
 `backend/auth_password.txt` (the smoke suite logs in with it) and `backend/outreach.db`
