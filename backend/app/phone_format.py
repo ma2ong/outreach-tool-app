@@ -74,6 +74,14 @@ def parts(field: str) -> list[str]:
     return [p.strip() for p in re.split(r"\s+/\s+", field.strip()) if p.strip()]
 
 
+_LABEL_RE = re.compile(r"^WA\s*:\s*", re.I)
+
+
+def without_label(part: str) -> str:
+    """The number inside a part, with any `WA:` label taken off the front."""
+    return _LABEL_RE.sub("", part.strip())
+
+
 def is_toll_free(digits: str) -> bool:
     """North American switchboard ranges, with or without the leading 1."""
     national = digits[1:] if len(digits) == 11 and digits.startswith("1") else digits

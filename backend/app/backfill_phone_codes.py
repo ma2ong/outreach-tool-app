@@ -18,7 +18,7 @@ import re
 import sys
 
 from app.db import connect
-from app.phone_format import parts, book_form, international
+from app.phone_format import book_form, international, parts, without_label
 
 
 def plan(conn) -> tuple[list[dict], list[dict]]:
@@ -38,7 +38,7 @@ def plan(conn) -> tuple[list[dict], list[dict]]:
         if fixed is not None and fixed != row["phone"]:
             changes.append({**item, "fixed": fixed})
         current = fixed if fixed is not None else row["phone"]
-        if any(international(part, row["country"]) is None
+        if any(international(without_label(part), row["country"]) is None
                for part in parts(current) if re.search(r"\d", part)):
             stuck.append(item)
     return changes, stuck
