@@ -1,15 +1,9 @@
-import { readFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 
-// The app is password-gated once backend/auth_password.txt exists (online mode).
-// Log in first so the smoke run tests the app, not the login page.
-test.beforeEach(async ({ page }) => {
-  const status = await (await page.request.get("/api/auth/status")).json();
-  if (!status.enabled) return;
-  const password = readFileSync("../backend/auth_password.txt", "utf8").trim();
-  const r = await page.request.post("/api/login", { data: { password } });
-  expect(r.ok(), "smoke login failed — check backend/auth_password.txt").toBeTruthy();
-});
+// The app is password-gated once backend/auth_password.txt exists (online mode). The
+// login happens once in global-setup and every test starts from that cookie — doing it
+// per test cost two extra connections each, and the run was running Windows out of
+// ephemeral ports.
 
 test("shell loads with sidebar and leads table", async ({ page }) => {
   await page.goto("/");
