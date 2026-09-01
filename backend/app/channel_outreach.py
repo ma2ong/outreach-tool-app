@@ -6,6 +6,12 @@ from typing import Callable
 
 from app import campaigns, recontact
 from app.personalize import render
+# One calling-code table, in app/phone_format.py, because the book and the sender
+# must agree about what a number is. A number we cannot make international is a
+# number we do not dial (docs/62 R3).
+from app.phone_format import CALLING_CODES as _CALLING_CODES
+from app.phone_format import is_toll_free as _is_toll_free
+from app.phone_format import split_numbers
 
 # per-channel: which lead column holds the contact target
 _CONTACT_COL = {"whatsapp": "phone", "instagram": "instagram", "facebook": "facebook"}
@@ -45,34 +51,6 @@ def _note_whatsapp_result(conn, lead_no: int, channel: str, error: str | None) -
     conn.commit()
 
 
-# Calling codes for the countries actually in the book. A number we cannot make
-# international is a number we do not dial (docs/62 R3).
-_CALLING_CODES = {
-    "usa": "1", "united states": "1", "us": "1", "canada": "1", "ca": "1",
-    "south korea": "82", "korea": "82", "kr": "82",
-    "brazil": "55", "br": "55", "mexico": "52", "mx": "52",
-    "argentina": "54", "ar": "54", "colombia": "57", "co": "57",
-    "chile": "56", "cl": "56", "peru": "51", "pe": "51", "venezuela": "58", "ve": "58",
-    "spain": "34", "es": "34", "uk": "44", "united kingdom": "44", "gb": "44",
-    "france": "33", "fr": "33", "italy": "39", "it": "39", "germany": "49", "de": "49",
-    "austria": "43", "at": "43", "greece": "30", "gr": "30", "poland": "48", "pl": "48",
-    "sweden": "46", "se": "46", "finland": "358", "fi": "358",
-    "russia": "7", "ru": "7", "turkey": "90", "tr": "90",
-    "australia": "61", "au": "61", "new zealand": "64", "nz": "64",
-    "india": "91", "in": "91", "indonesia": "62", "id": "62", "malaysia": "60", "my": "60",
-}
-
-# US/Canada switchboard ranges. These never have a WhatsApp account, and finding that
-# out costs a browser round trip every single day.
-_TOLL_FREE = ("800", "833", "844", "855", "866", "877", "888")
-
-
-def _is_toll_free(digits: str) -> bool:
-    """North American switchboard ranges, with or without the leading 1."""
-    national = digits[1:] if len(digits) == 11 and digits.startswith("1") else digits
-    return len(national) == 10 and national[:3] in _TOLL_FREE
-
-
 def dialable_whatsapp(phone: str | None, country: str | None) -> str:
     """A full international number, or "" when we cannot build one.
 
@@ -80,7 +58,10 @@ def dialable_whatsapp(phone: str | None, country: str | None) -> str:
     docs/59 would record that failure as "this number has no WhatsApp", burning a good
     number permanently. So the two specs only work together (docs/62 R1).
     """
-    raw = str(phone or "").split("/")[0].strip()
+    # The `WA:` label says which number WhatsApp is on. Taking the first half instead
+    # dialed six companies' landlines, and docs/59 would write each failure down as
+    # "no WhatsApp" and drop them from the queue for good (docs/83 R1).
+    _voice, raw = split_numbers(phone)
     if not raw:
         return ""
     digits = re.sub(r"\D", "", raw)

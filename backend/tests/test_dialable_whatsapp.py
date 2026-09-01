@@ -56,9 +56,22 @@ def test_nothing_usable_yields_nothing(phone):
     assert dial(phone, "USA") == ""
 
 
-def test_a_second_number_after_a_slash_is_ignored():
-    # "+55 11 2291-0031 / WA: +55 11 95663-5316" — the first is what the field means.
-    assert dial("+55 11 2291-0031 / WA: +55 11 95663-5316", "Brazil") == "551122910031"
+def test_the_number_labelled_wa_is_the_one_dialled():
+    """The field says which one WhatsApp is on; taking the first half dialled the
+    landline of six real companies, and docs/59 would have recorded each as having no
+    WhatsApp and dropped them from the queue for good (docs/83 R1)."""
+    assert dial("+55 11 2291-0031 / WA: +55 11 95663-5316", "Brazil") == "5511956635316"
+    assert dial("(19) 3365-1636 / WA: (19) 99901-2883", "Brazil") == "5519999012883"
+    assert dial("601 4321929 / WA: +57 317 521 1104", "Colombia") == "573175211104"
+
+
+def test_an_unlabelled_second_number_is_still_ignored():
+    assert dial("+55 11 2291-0031 / 11 95663-5316", "Brazil") == "551122910031"
+
+
+def test_a_wa_label_pointing_at_a_link_falls_back_to_the_number():
+    """`WA: wa.link/7jz8hw` names no number, so the voice line is all we have."""
+    assert dial("(54) 3025-2921 / WA: wa.link/7jz8hw", "Brazil") == "555430252921"
 
 
 def test_the_stored_number_is_never_rewritten():
