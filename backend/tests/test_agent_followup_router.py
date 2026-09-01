@@ -20,9 +20,12 @@ def _task(conn, lead_no: int, key: str, *, autonomy: str = "auto", dedupe: str):
     )
 
 
-def _email_lead(conn, *, touches: int):
+def _email_lead(conn, *, touches: int, tags: str = "租赁商"):
+    # Tagged, because the sequence a lead lands on is its customer type's (docs/76) and
+    # two English ones send a single letter with nothing to follow up.
     conn.execute(
-        "UPDATE leads SET email='buyer@alpha.com',email_status='valid',recheck_due=NULL WHERE no=1"
+        "UPDATE leads SET email='buyer@alpha.com',email_status='valid',recheck_due=NULL,"
+        "tags=? WHERE no=1", (tags,)
     )
     conn.execute("DELETE FROM outreach WHERE lead_no=1")
     conn.execute(
@@ -45,7 +48,17 @@ def test_one_prior_email_routes_to_second_approved_sequence_step(conn):
     assert result["step_order"] == 1
     assert enrollment["current_step"] == 1
     assert enrollment["status"] == "active"
-    assert "英语" in enrollment["name"]
+    assert "英语·活动租赁" in enrollment["name"]
+
+
+def test_a_one_letter_sequence_has_no_follow_up_to_arrange(conn):
+    """Allen deleted the English neutral second and third letters (docs/82 R7). The lead
+    is retired to a later recheck rather than parked on a step that does not exist."""
+    _email_lead(conn, touches=1, tags="批发商")
+    seeds.seed_sequences(conn)
+    result = followup_router.continue_no_reply(conn, 1)
+    assert result["status"] == "retired"
+    assert result["reason"] == "no_matching_followup_step"
 
 
 def test_two_prior_emails_route_to_final_step(conn):

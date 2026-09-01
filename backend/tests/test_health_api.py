@@ -41,41 +41,44 @@ def test_fix_endpoint_suppresses(tmp_path):
 def test_seed_loads_templates_and_sequences(tmp_path):
     client, _ = _client(tmp_path)
     r = client.post("/api/seeds/load").json()
-    assert r["templates"] > 0 and len(r["sequence_ids"]) == 2  # EN / KO only
+    assert r["templates"] > 0 and len(r["sequence_ids"]) == 8  # 4 types x 2 langs
     email_tpls = client.get("/api/templates?channel=email").json()
-    assert any("首次触达" in t["name"] for t in email_tpls)
+    assert any("冷邮件 · 中性版" in t["name"] for t in email_tpls)
     # Korea gets Korean, every other market gets English — and nothing else ships.
     assert {t["lang"] for t in email_tpls} == {"en", "ko"}
     wa = client.get("/api/templates?channel=whatsapp").json()
     assert wa and "Shenzhen" in wa[0]["body"] and "Maxcolor" not in wa[0]["body"]  # DM 规矩：不提公司名
     seqs = client.get("/api/sequences").json()
-    assert len(seqs) == 2
+    assert len(seqs) == 8  # 4 customer types x 2 languages, and nothing else ships
     for s in seqs:
-        assert [st["day_offset"] for st in s["steps"]] == [0, 3, 8]
-    ko = next(s for s in seqs if "韩语" in s["name"])
-    en = next(s for s in seqs if "英语" in s["name"])
+        offsets = [st["day_offset"] for st in s["steps"]]
+        # One letter, or three a fortnight apart — the frequency rule (docs/75 R1) caps
+        # the sequence's own schedule, and two English ones stop after the opener.
+        assert offsets in ([0], [0, 14, 28]), f"{s['name']} 的节奏是 {offsets}"
+    ko = next(s for s in seqs if "韩语·中性版" in s["name"])
+    en = next(s for s in seqs if "英语·活动租赁" in s["name"])
     assert "안녕하세요" in ko["steps"][0]["body"]
     assert "LED 패널" in ko["steps"][0]["subject"]
-    # The Korean copy is natural business Korean, uses only approved product ranges,
-    # and renders safely even when no contact name is known.
+    # The Korean copy is natural business Korean and renders safely with no contact name.
     from app.personalize import render
     for step in ko["steps"]:
         rendered = render(step["body"], {"company_en": "Ara System", "contact_name": None})
         assert "{contact}" not in rendered and ", 님" not in rendered
         assert "Kakaotalk" in rendered and "WhatsApp" not in rendered
-    # The Korean opener lists the pitches Korean customers were actually quoted, which
-    # is not the English letter's three ranges — it is the letter Allen has been sending.
-    for pitch in ("P1.86", "P2.5", "P3.91", "P10"):
-        assert pitch in ko["steps"][0]["body"]
     # Neither language carries an opt-out paragraph; suppression comes from the reply.
     for s_ in seqs:
         for step in s_["steps"]:
             assert "unsubscribe" not in step["body"].lower()
             assert "수신거부" not in step["body"]
-    # The seeded English opener lists the pitches by model name, the way Allen writes
-    # it — the P2-P3 / P4-P10 range framing belongs to the segment letters, not here.
-    for pitch in ("P1.86", "P2.5", "P3.91", "P10"):
-        assert pitch in en["steps"][0]["body"]
+    # Every opener puts a real pixel pitch in front of the reader, in both languages —
+    # a letter that sells nothing is not cheaper to send, it is just wasted (docs/74).
+    import re
+    for opener in (ko["steps"][0]["body"], en["steps"][0]["body"]):
+        assert re.search(r"P\d", opener)
+    # No subject names the company (docs/82 R6).
+    for s_ in seqs:
+        for step in s_["steps"]:
+            assert "{company}" not in (step["subject"] or "")
 
 
 def test_seeded_greeting_never_says_hi_there(tmp_path):
@@ -96,4 +99,4 @@ def test_seed_is_idempotent(tmp_path):
     second = client.post("/api/seeds/load").json()
     assert second["templates"] == 0 and second["sequence_ids"] == []
     assert len(client.get("/api/templates").json()) == first["templates"]
-    assert len(client.get("/api/sequences").json()) == 2
+    assert len(client.get("/api/sequences").json()) == 8

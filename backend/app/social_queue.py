@@ -62,73 +62,70 @@ CREATE INDEX IF NOT EXISTS idx_social_queue_day ON social_dm_queue(queue_date, r
 # What goes out. Short, because a DM is one sentence — there is no subject line to carry
 # any of the weight, so the whole message has to be about them.
 #
-# Several shapes, not one. The first real run produced 31 messages whose wording differed
-# only in the hook: same opening, same clause order, same closing. A platform reads the
-# pattern, not the nouns, so the sentence structure varies too. Chosen by lead number so
-# a company's message does not change under Allen every time he refreshes.
-_TEMPLATES = (
-    "Hi{contact_comma} {hook} I'm Allen with an LED display manufacturer in Shenzhen; "
-    "would a cabinet spec sheet be useful for similar work?",
-    "Hi{contact_comma} {hook} We cover indoor, rental and outdoor LED panels. Would a "
-    "weight, power and service-access comparison help with a future review?",
-    "Hi{contact_comma} {hook} Our LED range runs from P0.7 fine pitch to P10 outdoor. "
-    "Would a one-page range comparison be useful?",
-    "Hi{contact_comma} {hook} I handle export sales for an LED display manufacturer in "
-    "Shenzhen. Would a pitch and brightness guide be useful for this kind of work?",
-)
-
-
-# What goes out when the site published nothing quotable (docs/80 R2). Separate from
-# `_TEMPLATES` rather than a blank {hook}, because three of those four lean on the hook
-# to make sense — "that kind of work", "exactly this", "the sort of work" all point at
-# the sentence before them, and with it removed they point at nothing.
+# One family per customer type, and nothing else (docs/84 R2). There used to be a second
+# family for leads that had a hook, and it did not vary by type — so the 467 companies we
+# knew the most about got the vaguest sentence, and the 161 we knew nothing about got the
+# targeted one. The hook now sits in front as its own sentence instead of inside the
+# template, which is what let the two families collapse into one: no clause depends on it
+# any more, so its absence costs a sentence rather than breaking the one that follows.
 #
-# Not one generic line either: the segment comes from `copy_segments`, which is Allen's
-# own tag first. Nothing here states a fact about the recipient — every sentence is about
-# us — so docs/45 is untouched even when the segment is wrong. A wrong segment costs a
-# sentence that misses; it cannot cost a false claim.
-_GENERIC: dict[str, tuple[str, ...]] = {
+# Four shapes per type, not one. The first real run produced 31 messages differing only
+# in the hook: same opening, same clause order, same closing. A platform reads the
+# pattern, not the nouns. Chosen by lead number so a company's message does not change
+# under Allen every time he refreshes.
+#
+# Nothing here states a fact about the recipient — every sentence is about us — so
+# docs/45 holds even when the type is wrong. A wrong type costs a sentence that misses;
+# it cannot cost a false claim.
+_FAMILIES: dict[str, tuple[str, ...]] = {
     "rental": (
-        "Hi{contact_comma} I'm Allen with an LED display manufacturer in Shenzhen. For "
-        "rental fleets we cover P2.6-P4.8 die-cast cabinets; would a cabinet sheet be useful?",
-        "Hi{contact_comma} our rental range covers P2.6-P3.9 indoor and P3.9-P4.8 outdoor. "
-        "Would a weight, power and service-access comparison help?",
-        "Hi{contact_comma} I handle export sales for an LED display manufacturer. Would a "
-        "one-page comparison of our rental cabinets be useful?",
-        "Hi{contact_comma} our rental cabinet sheet includes dimensions, power and front/rear "
-        "service. Would that be useful for a fleet review?",
+        "I'm Allen with an LED display manufacturer in Shenzhen. For rental fleets we "
+        "cover P2.6-P4.8 die-cast cabinets; would a cabinet sheet be useful?",
+        "our rental range covers P2.6-P3.9 indoor and P3.9-P4.8 outdoor. Would a weight, "
+        "power and service-access comparison help?",
+        "I handle export sales for an LED display manufacturer. Would a one-page "
+        "comparison of our rental cabinets be useful?",
+        "our rental cabinet sheet includes dimensions, power and front/rear service. "
+        "Would that be useful for a fleet review?",
     ),
     "install": (
-        "Hi{contact_comma} I'm Allen with an LED display manufacturer in Shenzhen. Would a "
-        "drawing-ready fixed-install data sheet be useful?",
-        "Hi{contact_comma} our fixed-install range covers P2-P3 indoor and P4-P10 outdoor. "
-        "Would a cabinet weight and power table help with design checks?",
-        "Hi{contact_comma} I handle export sales for an LED display manufacturer. Would a "
-        "sheet covering dimensions, power and service clearance be useful?",
-        "Hi{contact_comma} our installation data sheet is arranged for AV drawings and tender "
-        "checks. Would a sample format be useful?",
+        "I'm Allen with an LED display manufacturer in Shenzhen. Would a drawing-ready "
+        "fixed-install data sheet be useful?",
+        "our fixed-install range covers P2-P3 indoor and P4-P10 outdoor. Would a cabinet "
+        "weight and power table help with design checks?",
+        "I handle export sales for an LED display manufacturer. Would a sheet covering "
+        "dimensions, power and service clearance be useful?",
+        "our installation data sheet is arranged for AV drawings and tender checks. "
+        "Would a sample format be useful?",
     ),
     "outdoor": (
-        "Hi{contact_comma} I'm Allen with an LED display manufacturer in Shenzhen. Our "
-        "outdoor fixed range is P4-P10 at 5,500-8,000 nits; would a spec sheet be useful?",
-        "Hi{contact_comma} our outdoor comparison lines up pitch, brightness and viewing "
-        "distance. Would that help with an early site review?",
-        "Hi{contact_comma} I handle export sales for an LED display manufacturer. Would a "
-        "front/rear service comparison for outdoor panels be useful?",
-        "Hi{contact_comma} our P4-P10 outdoor sheet includes brightness, power and service "
-        "access. Would a one-page version be useful?",
+        "I'm Allen with an LED display manufacturer in Shenzhen. Our outdoor fixed range "
+        "is P4-P10 at 5,500-8,000 nits; would a spec sheet be useful?",
+        "our outdoor comparison lines up pitch, brightness and viewing distance. Would "
+        "that help with an early site review?",
+        "I handle export sales for an LED display manufacturer. Would a front/rear "
+        "service comparison for outdoor panels be useful?",
+        "our P4-P10 outdoor sheet includes brightness, power and service access. Would a "
+        "one-page version be useful?",
     ),
     "general": (
-        "Hi{contact_comma} I'm Allen with an LED display manufacturer in Shenzhen. Would a "
-        "one-page comparison of our indoor, rental and outdoor ranges be useful?",
-        "Hi{contact_comma} our LED range covers P0.7 fine pitch through P10 outdoor. Would a "
-        "pitch and brightness overview help with product review?",
-        "Hi{contact_comma} I handle export sales for an LED display manufacturer. Would a "
-        "range sheet with cabinet weight, power and service access be useful?",
-        "Hi{contact_comma} our product comparison separates fine-pitch, indoor commercial, "
-        "rental and outdoor options. Would that overview be useful?",
+        "I'm Allen with an LED display manufacturer in Shenzhen. Would a one-page "
+        "comparison of our indoor, rental and outdoor ranges be useful?",
+        "our LED range covers P0.7 fine pitch through P10 outdoor. Would a pitch and "
+        "brightness overview help with product review?",
+        "I handle export sales for an LED display manufacturer. Would a range sheet with "
+        "cabinet weight, power and service access be useful?",
+        "our product comparison separates fine-pitch, indoor commercial, rental and "
+        "outdoor options. Would that overview be useful?",
     ),
 }
+
+
+def sentence_for(segment: str, nth: int) -> str:
+    """The one sentence this customer type gets, picked by lead number."""
+    family = _FAMILIES[segment]
+    return family[nth % len(family)]
+
 
 
 def ensure_schema(conn) -> None:
@@ -249,15 +246,19 @@ def _compose(lead: dict) -> str:
     from app import copy_segments
 
     contact = str(lead.get("contact_name") or "").strip()
+    hook = str(lead.get("hook") or "").strip()
     no = int(lead.get("no") or 0)
-    if str(lead.get("hook") or "").strip():
-        family = _TEMPLATES
+    sentence = sentence_for(copy_segments.segment_of(lead), no)
+    greeting = f"Hi {contact}," if contact else "Hi,"
+    if hook:
+        # Every hook ends in a full stop, so what follows starts a sentence of its own.
+        # Directly after the greeting's comma it does not, which is why the families are
+        # written lowercase and capitalised here rather than the other way round.
+        parts = [greeting, "{hook}", sentence[0].upper() + sentence[1:]]
     else:
-        family = _GENERIC[copy_segments.segment_of(lead)]
-    template = family[no % len(family)]
-    # replace(), not format(): the template still carries {hook} for the renderer.
-    text = template.replace("{contact_comma}", f" {contact}," if contact else ",")
-    return render(text, lead).strip()
+        parts = [greeting, sentence]
+    # render(), not format(): {hook} is the renderer's placeholder, not ours.
+    return render(" ".join(parts), lead).strip()
 
 
 def build_today(conn, now: dt.datetime | None = None) -> dict:

@@ -10,10 +10,6 @@ import datetime as dt
 
 from app import recheck, seeds, sequences
 
-STANDARD_SEQUENCE = {
-    "en": "冷邮件 3 步跟进（英语）",
-    "ko": "冷邮件 3 步跟进（韩语）",
-}
 MAX_COLD_EMAIL_TOUCHES = 3
 
 
@@ -23,19 +19,24 @@ def _language(country: str | None) -> str:
     } else "en"
 
 
-def _standard_sequence(conn, lang: str) -> dict | None:
-    name = STANDARD_SEQUENCE[lang]
-    row = conn.execute(
-        "SELECT id,name,channel,active FROM sequences WHERE name=?", (name,)
-    ).fetchone()
-    if row is None:
-        # The copy is source-controlled and already used by the product's one-click
-        # starter setup. Creating the missing standard sequence does not enable sending;
-        # autosend keeps its separate human-controlled gate.
+def _sequence_for_lead(conn, lead: dict) -> dict | None:
+    """The sequence written for this company — their language and their customer type.
+
+    This used to name one sequence per language and create it if it was missing, which
+    made it a fifth opinion about what "the standard sequence" is (docs/84 R1). It was
+    also naming sequences that no longer exist, so it kept re-creating a set that
+    `merge_sequences` had deliberately deleted. `_sequence_for` is the one router.
+    """
+    from app.agent.executors import _sequence_for
+
+    sid = _sequence_for(conn, lead)
+    if sid is None:
         seeds.seed_sequences(conn)
-        row = conn.execute(
-            "SELECT id,name,channel,active FROM sequences WHERE name=?", (name,)
-        ).fetchone()
+        sid = _sequence_for(conn, lead)
+    if sid is None:
+        return None
+    row = conn.execute(
+        "SELECT id,name,channel,active FROM sequences WHERE id=?", (sid,)).fetchone()
     return dict(row) if row else None
 
 
@@ -63,7 +64,10 @@ def continue_no_reply(conn, lead_no: int) -> dict:
     campaign because that would be a new channel initiation, not a follow-up.
     """
     lead = conn.execute(
-        "SELECT no,country,website,email,email_status,do_not_contact FROM leads WHERE no=?",
+        # tags/target_fit/business/hook/brief are what `segment_of` reads: without them
+        # every company reads as 中性版 and lands on the one-letter English sequence.
+        "SELECT no,country,website,email,email_status,do_not_contact,"
+        "       tags,target_fit,business,hook,brief FROM leads WHERE no=?",
         (lead_no,),
     ).fetchone()
     if not lead:
@@ -85,7 +89,7 @@ def continue_no_reply(conn, lead_no: int) -> dict:
     if not lead["email"] or lead["email_status"] == "invalid":
         return {"status": "blocked", "reason": "no_sendable_email"}
 
-    seq = _standard_sequence(conn, _language(lead["country"]))
+    seq = _sequence_for_lead(conn, dict(lead))
     if not seq:
         return {"status": "blocked", "reason": "standard_sequence_missing"}
     if not seq["active"]:
@@ -94,6 +98,9 @@ def continue_no_reply(conn, lead_no: int) -> dict:
 
     sid = seq["id"]
     target_step = touches  # touch 1 -> step_order 1; touch 2 -> step_order 2
+    # Two English sequences send one letter and stop (docs/82 R7). There is no next step
+    # to arrange, and saying so is the point — a lead left sitting on a step that does
+    # not exist is the failure this book keeps producing.
     step = conn.execute(
         "SELECT step_order,day_offset FROM sequence_steps"
         " WHERE sequence_id=? AND step_order=?",
