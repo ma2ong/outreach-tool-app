@@ -86,3 +86,29 @@ def test_migration_is_idempotent(tmp_path):
     assert first["sequence_steps"] == 1
     assert second["already"] is True
     conn.close()
+
+
+def test_previous_v2_default_is_upgraded_but_an_edited_copy_is_not(conn):
+    conn.execute(
+        "INSERT INTO templates(name,channel,subject,body,lang) VALUES (?,?,?,?,?)",
+        ("首次触达（英语）", "email", outreach_defaults.V2_EN_SUBJECT,
+         outreach_defaults.EN_BODY, "en"),
+    )
+    conn.execute(
+        "INSERT INTO templates(name,channel,subject,body,lang) VALUES (?,?,?,?,?)",
+        ("Allen 修改版", "email", outreach_defaults.V2_EN_SUBJECT,
+         outreach_defaults.EN_BODY + "\nAllen edit", "en"),
+    )
+    conn.commit()
+
+    result = outreach_defaults.upgrade_legacy_defaults(conn)
+
+    assert result["templates"] == 1
+    system = conn.execute(
+        "SELECT subject,body FROM templates WHERE name='首次触达（英语）'"
+    ).fetchone()
+    assert tuple(system) == (outreach_defaults.EN_SUBJECT, outreach_defaults.EN_BODY)
+    custom = conn.execute(
+        "SELECT subject,body FROM templates WHERE name='Allen 修改版'"
+    ).fetchone()
+    assert custom["body"].endswith("Allen edit")

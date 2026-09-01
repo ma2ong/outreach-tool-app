@@ -9,7 +9,7 @@ import sqlite3
 
 from app import identity
 
-MIGRATION_KEY = "outreach_default_copy_v2"
+MIGRATION_KEY = "outreach_default_copy_v3"
 
 # Who we are to a customer is decided in one place (app/identity.py) — the address, the
 # company name and the quote header used to disagree with each other across four files.
@@ -29,7 +29,9 @@ Hope we can have a good opportunity to work together!
 
 {SIGNOFF}"""
 
-EN_SUBJECT = "{company} — LED display supply"
+# docs/82 R6: no cold subject names the company. Only the subject changed — the body
+# that shipped as v2 was already what Allen wanted, so an upgrade rewrites one line.
+EN_SUBJECT = "Indoor, rental and outdoor LED panels — full spec sheets"
 EN_BODY = f"""Hi {{contact}},
 
 {{hook}}
@@ -55,7 +57,7 @@ P1.53, P1.86, P2.5, P3.91, P10 등 실내/실외 다양한 프로젝트를 진�
 
 {KO_SIGNOFF}"""
 
-KO_SUBJECT = "{company} - LED 디스플레이 납품 사례"
+KO_SUBJECT = "실내·렌탈·실외 LED 패널 사양서 보내드립니다"
 KO_BODY = f"""안녕하세요~
 
 {{company}} 관련 내용을 확인하다가 연락드렸습니다.
@@ -65,6 +67,11 @@ KO_BODY = f"""안녕하세요~
 혹시 지금 검토 중이신 현장이 있거나 나중을 위해 공급처를 알아보시는 단계라면 알려주세요. 상황에 맞는 자료만 정리해서 보내드리겠습니다.
 
 {KO_SIGNOFF}"""
+
+# The subjects that shipped before the rule, kept so an untouched install upgrades once.
+# A copy with even one user edit no longer matches and is left alone.
+V2_EN_SUBJECT = "{company} — LED display supply"
+V2_KO_SUBJECT = "{company} - LED 디스플레이 납품 사례"
 
 
 def _has_table(conn: sqlite3.Connection, name: str) -> bool:
@@ -84,28 +91,31 @@ def upgrade_legacy_defaults(conn: sqlite3.Connection) -> dict:
 
     template_count = 0
     step_count = 0
-    for name, old_subject, old_body, new_subject, new_body in (
-        ("首次触达（英语）", LEGACY_EN_SUBJECT, LEGACY_EN_BODY, EN_SUBJECT, EN_BODY),
-        ("首次触达（韩语）", LEGACY_KO_SUBJECT, LEGACY_KO_BODY, KO_SUBJECT, KO_BODY),
-    ):
-        cur = conn.execute(
-            "UPDATE templates SET subject=?, body=?"
-            " WHERE name=? AND channel='email' AND subject=? AND body=?",
-            (new_subject, new_body, name, old_subject, old_body),
-        )
-        template_count += cur.rowcount
-
-    for seq_name, old_subject, old_body, new_subject, new_body in (
-        ("冷邮件 3 步跟进（英语）", LEGACY_EN_SUBJECT, LEGACY_EN_BODY, EN_SUBJECT, EN_BODY),
-        ("冷邮件 3 步跟进（韩语）", LEGACY_KO_SUBJECT, LEGACY_KO_BODY, KO_SUBJECT, KO_BODY),
-    ):
-        cur = conn.execute(
-            "UPDATE sequence_steps SET subject=?, body=?"
-            " WHERE step_order=0 AND subject=? AND body=?"
-            " AND sequence_id IN (SELECT id FROM sequences WHERE name=? AND channel='email')",
-            (new_subject, new_body, old_subject, old_body, seq_name),
-        )
-        step_count += cur.rowcount
+    versions = (
+        ("首次触达（英语）", "冷邮件 3 步跟进（英语）", EN_SUBJECT, EN_BODY, (
+            (LEGACY_EN_SUBJECT, LEGACY_EN_BODY),
+            (V2_EN_SUBJECT, EN_BODY),
+        )),
+        ("首次触达（韩语）", "冷邮件 3 步跟进（韩语）", KO_SUBJECT, KO_BODY, (
+            (LEGACY_KO_SUBJECT, LEGACY_KO_BODY),
+            (V2_KO_SUBJECT, KO_BODY),
+        )),
+    )
+    for template_name, sequence_name, new_subject, new_body, old_versions in versions:
+        for old_subject, old_body in old_versions:
+            cur = conn.execute(
+                "UPDATE templates SET subject=?, body=?"
+                " WHERE name=? AND channel='email' AND subject=? AND body=?",
+                (new_subject, new_body, template_name, old_subject, old_body),
+            )
+            template_count += cur.rowcount
+            cur = conn.execute(
+                "UPDATE sequence_steps SET subject=?, body=?"
+                " WHERE step_order=0 AND subject=? AND body=?"
+                " AND sequence_id IN (SELECT id FROM sequences WHERE name=? AND channel='email')",
+                (new_subject, new_body, old_subject, old_body, sequence_name),
+            )
+            step_count += cur.rowcount
 
     conn.execute(
         "INSERT INTO settings(key,value) VALUES (?, '1')"

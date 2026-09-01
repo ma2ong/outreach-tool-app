@@ -23,7 +23,7 @@ import sys
 
 from app import copy_segments
 from app.db import connect
-from app.seed_sequences import name_for, seed_all
+from app.seed_sequences import close_orphaned_enrollments, name_for, seed_all
 
 # Furthest along wins when a lead sits on both.
 RANK = {"replied": 5, "completed": 4, "stopped": 4, "active": 3, "blocked": 1}
@@ -113,8 +113,13 @@ def main() -> None:
         ).rowcount
         conn.execute("DELETE FROM sequence_steps WHERE sequence_id NOT IN"
                      " (SELECT id FROM sequences)")
+        # After the move, not before: a company two letters into a three-letter
+        # sequence that lands on a one-letter one is now parked past the end, and
+        # the due queue joins on step_order — it would read "active" and never send.
+        closed = close_orphaned_enrollments(conn)
         conn.commit()
         print(f"\n已迁移 {len(keep)}，丢弃重复 {len(drop)}，删除空序列 {empty} 条")
+        print(f"移动后已无后续步骤、标记完成 {closed} 个")
 
 
 if __name__ == "__main__":

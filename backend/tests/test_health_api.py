@@ -55,20 +55,27 @@ def test_seed_loads_templates_and_sequences(tmp_path):
     ko = next(s for s in seqs if "韩语" in s["name"])
     en = next(s for s in seqs if "英语" in s["name"])
     assert "안녕하세요" in ko["steps"][0]["body"]
-    assert "LED 디스플레이" in ko["steps"][0]["subject"]
-    # Allen's own voice, not a cold-email formula translated into it. The Korean mail
-    # greets without a name (so {contact} can never leak into it), quotes the pixel
-    # pitches actually delivered, and points at KakaoTalk rather than WhatsApp.
+    assert "LED 패널" in ko["steps"][0]["subject"]
+    # The Korean copy is natural business Korean, uses only approved product ranges,
+    # and renders safely even when no contact name is known.
+    from app.personalize import render
     for step in ko["steps"]:
-        assert "{contact}" not in step["body"]
-        assert "Kakaotalk" in step["body"] and "WhatsApp" not in step["body"]
-    assert "P1.53" in ko["steps"][0]["body"]
+        rendered = render(step["body"], {"company_en": "Ara System", "contact_name": None})
+        assert "{contact}" not in rendered and ", 님" not in rendered
+        assert "Kakaotalk" in rendered and "WhatsApp" not in rendered
+    # The Korean opener lists the pitches Korean customers were actually quoted, which
+    # is not the English letter's three ranges — it is the letter Allen has been sending.
+    for pitch in ("P1.86", "P2.5", "P3.91", "P10"):
+        assert pitch in ko["steps"][0]["body"]
     # Neither language carries an opt-out paragraph; suppression comes from the reply.
     for s_ in seqs:
         for step in s_["steps"]:
             assert "unsubscribe" not in step["body"].lower()
             assert "수신거부" not in step["body"]
-    assert "P1.86" in en["steps"][0]["body"]
+    # The seeded English opener lists the pitches by model name, the way Allen writes
+    # it — the P2-P3 / P4-P10 range framing belongs to the segment letters, not here.
+    for pitch in ("P1.86", "P2.5", "P3.91", "P10"):
+        assert pitch in en["steps"][0]["body"]
 
 
 def test_seeded_greeting_never_says_hi_there(tmp_path):

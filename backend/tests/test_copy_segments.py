@@ -78,7 +78,11 @@ def test_every_segment_has_a_label_and_a_sequence():
         assert segment in cs.LABEL
         for korean in (False, True):
             assert name_for(segment, korean)
-            assert len(steps_for(segment, korean)) == 3
+            # Three letters, except the two English sequences whose follow-ups Allen
+            # deleted outright — "第2，3封邮件整个都很垃圾 直接删去 永不复用" (docs/82 R7).
+            # A one-letter sequence is the instruction, not a gap to fill back in.
+            expected = 1 if (not korean and segment in ("general", "install")) else 3
+            assert len(steps_for(segment, korean)) == expected
 
 
 def test_counts_covers_the_whole_book_exactly_once(conn):

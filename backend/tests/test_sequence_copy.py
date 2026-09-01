@@ -82,8 +82,9 @@ def test_the_last_letter_is_deliberately_shared():
     """Differences cost maintenance; by the third letter it no longer matters whether
     they rent or install (docs/76 R2)."""
     for korean in (False, True):
-        closings = {seed_sequences.steps_for(s, korean)[2][3]
-                    for s in copy_segments.SEGMENTS}
+        closings = {steps[2][3] for steps in
+                    (seed_sequences.steps_for(s, korean) for s in copy_segments.SEGMENTS)
+                    if len(steps) == 3}
         assert len(closings) == 1
 
 
@@ -98,3 +99,24 @@ def test_the_steps_obey_the_two_week_rule(segment, korean):
 def test_no_sequence_is_named_after_an_angle_any_more():
     for segment, korean in ALL:
         assert "角度" not in seed_sequences.name_for(segment, korean)
+
+
+def test_shortening_a_sequence_does_not_strand_anyone(conn):
+    """The English neutral and fixed-install letters 2 and 3 were deleted outright, and
+    88 companies were parked on them. The due queue joins on step_order, so they would
+    have gone quiet without ever leaving 'active'."""
+    seq_id = seed_sequences.seed(conn, "测试序列", [
+        (0, 0, "one", "body one"), (1, 14, "two", "body two")])
+    conn.executemany(
+        "INSERT INTO sequence_enrollments(lead_no, sequence_id, current_step, status,"
+        " enrolled_at) VALUES (?,?,?,?, '2026-08-01')",
+        [(1, seq_id, 1, "active"), (2, seq_id, 0, "active"), (3, seq_id, 1, "blocked")])
+
+    seed_sequences.seed(conn, "测试序列", [(0, 0, "one", "body one")])
+    assert seed_sequences.close_orphaned_enrollments(conn) == 1
+
+    status = dict(conn.execute(
+        "SELECT lead_no, status FROM sequence_enrollments").fetchall())
+    assert status[1] == "completed"   # was waiting on the deleted letter
+    assert status[2] == "active"      # still has a step to send
+    assert status[3] == "blocked"     # not ours to reopen
