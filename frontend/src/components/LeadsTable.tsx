@@ -84,16 +84,16 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
   );
   return (
     <div className="table-wrap table-scroll">
-      {/* 列宽写死。原来是 auto 布局按内容分配，一行长联系人名就能把「客户名称」撑到
-          三倍宽，旁边留一片空白；每列宽度改成有意为之的数字，横向滚动兜住剩下的。 */}
+      {/* 列宽按百分比分配，表格宽度永远等于容器宽度——不留横拉条。
+          放不下的值换行，不用省略号：这几列存在的意义就是让他一眼读全。 */}
       <table className="table table-fixed">
         <colgroup>
-          <col style={{ width: 34 }} /><col style={{ width: 54 }} />
-          <col style={{ width: 190 }} /><col style={{ width: 112 }} />
-          <col style={{ width: 92 }} /><col style={{ width: 108 }} />
-          <col style={{ width: 140 }} /><col style={{ width: 150 }} />
-          <col style={{ width: 158 }} /><col style={{ width: 168 }} />
-          <col style={{ width: 224 }} /><col style={{ width: 96 }} />
+          <col style={{ width: "2.4%" }} /><col style={{ width: "3.4%" }} />
+          <col style={{ width: "12%" }} /><col style={{ width: "6%" }} />
+          <col style={{ width: "6.5%" }} /><col style={{ width: "8%" }} />
+          <col style={{ width: "8.5%" }} /><col style={{ width: "10.5%" }} />
+          <col style={{ width: "11%" }} /><col style={{ width: "11.5%" }} />
+          <col style={{ width: "12.5%" }} /><col style={{ width: "7.7%" }} />
         </colgroup>
         <thead><tr>
           <th><input type="checkbox" checked={allChecked} onChange={(e) => onToggleAll(e.target.checked)} /></th>
@@ -118,7 +118,7 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
                     && HANGUL.test(l.company_local) &&
                     <div>{l.company_local}</div>}
                 </td>
-                <td className="cell-clip">{l.country}</td>
+                <td>{l.country}</td>
                 <td onClick={stop} style={{ whiteSpace: "nowrap" }}>
                   <InlineStage value={row(l).stage} onChange={(s) => save(l.no, { stage: s })} />
                 </td>
@@ -129,13 +129,13 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
                   {!row(l).tags && l.target_fit && l.target_fit !== "discovered" &&
                     <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>系统推断：{l.target_fit}</div>}
                 </td>
-                <td className="cell-clip">{l.primary_contact
+                <td>{l.primary_contact
                   ? <>
                       <div title={l.primary_contact}>{l.primary_contact}</div>
                       {l.primary_title && <div className="muted" style={{ fontSize: 12 }}>{l.primary_title}</div>}
                     </>
                   : <span className="muted">—</span>}</td>
-                <td className="num cell-clip" onClick={stop}>{l.phone
+                <td className="num" onClick={stop}>{l.phone
                   ? (wa
                     ? <a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer"
                         title="点击打开 WhatsApp 对话" style={{ color: "var(--green)" }}>
@@ -143,12 +143,12 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
                       </a>
                     : l.phone)
                   : <span className="muted">—</span>}</td>
-                <td onClick={stop} className="cell-clip">{l.website
+                <td onClick={stop}>{l.website
                   ? <a href={siteUrl(l.website)} target="_blank" rel="noreferrer"
                       title={l.website}>{l.website.replace(/^https?:\/\/(www\.)?/, "")}</a>
                   : <span className="muted">—</span>}</td>
                 {/* IG 和 FB 合成一列：两列各自大半是空的，合起来一列才填得满 */}
-                <td onClick={stop} className="cell-clip">
+                <td onClick={stop}>
                   {!l.instagram && !l.facebook && <span className="muted">—</span>}
                   {l.instagram && <div className="social-line">
                     <span className="social-tag">IG</span>
@@ -161,7 +161,7 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
                       title={l.facebook}>{l.facebook.replace(/^https?:\/\/(www\.)?facebook\.com\//, "")}</a>
                   </div>}
                 </td>
-                <td onClick={stop} className="cell-clip">{l.email
+                <td onClick={stop}>{l.email
                   ? <>
                       <a href={`mailto:${l.email}`} title={l.email}>{l.email}</a>
                       {l.email_status === "invalid" && <span title="邮箱无效（无 MX 记录），发送时自动跳过" style={{ color: "var(--warn)", marginLeft: 6, fontSize: 11 }}>⚠ 无效</span>}

@@ -219,3 +219,19 @@ test("theme toggle switches to light and persists attribute", async ({ page }) =
   await page.getByRole("button", { name: /深色/ }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 });
+
+// 永远不要有横拉条：列宽是百分比，表格宽度就是容器宽度
+test("the leads table never scrolls sideways", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /客户库/ }).click();
+  await expect(page.locator("table tbody tr").first()).toBeVisible();
+  for (const width of [1100, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(150);
+    const { scrollW, clientW } = await page.locator(".table-scroll").evaluate(
+      (el) => ({ scrollW: el.scrollWidth, clientW: el.clientWidth }));
+    expect(scrollW, `视口 ${width}px 时出现了横向溢出`).toBeLessThanOrEqual(clientW);
+  }
+  // 渠道状态是最后一列，必须自己就在屏幕上，不用横拉
+  await expect(page.getByRole("columnheader", { name: "渠道状态" })).toBeInViewport();
+});

@@ -154,16 +154,20 @@ textarea.input { width: 100%; resize: vertical; }
 /* 客户库表格：列宽由 <colgroup> 定，不再让浏览器按内容分配。
    auto 布局下，一行长联系人名就能把「客户名称」撑成邻列的三倍，旁边空出一大块——
    Allen 圈出来的正是那一块。固定布局之后每列宽度都是有意为之的，横向滚动兜住总宽。 */
-.table.table-fixed { table-layout: fixed; min-width: 1526px; }
-.table-fixed td, .table-fixed th { overflow-wrap: anywhere; }
-/* 超长的邮箱/域名截断成一行，完整值在 title 里，行高才不会一行高一行矮 */
-.table-fixed td.cell-clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.table-fixed td.cell-clip > div { overflow: hidden; text-overflow: ellipsis; }
+/* 永远不出现横拉条：列宽用百分比，表格宽度就是容器宽度，多窄都能塞下。
+   写死像素会让总宽固定，容器一窄就必然溢出——那正是横拉条的来源。 */
+.table.table-fixed { table-layout: fixed; width: 100%; }
+/* 放不下就换行，两行三行都行，但不用省略号。省略号把信息藏起来，
+   而这一列存在的意义就是让他一眼读到完整的邮箱和域名。 */
+.table-fixed td, .table-fixed th { overflow-wrap: break-word; }
+/* 一屏塞十二列，边距每列省 6px 就是 72px，够多放一列 */
+.table-fixed td { padding: 7px 6px; }
+.table-fixed th { padding: 8px 6px; }
 
 /* IG 和 FB 合成一列：各自大半是空的，合起来才填得满一列 */
 .social-line { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .social-line + .social-line { margin-top: 2px; }
-.social-line a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.social-line a { min-width: 0; overflow-wrap: break-word; }
 .social-tag {
   flex: none; font-size: 10px; font-weight: 600; letter-spacing: .04em;
   color: var(--dim); width: 18px;
