@@ -47,7 +47,10 @@ def test_seed_loads_templates_and_sequences(tmp_path):
     # Korea gets Korean, every other market gets English — and nothing else ships.
     assert {t["lang"] for t in email_tpls} == {"en", "ko"}
     wa = client.get("/api/templates?channel=whatsapp").json()
-    assert wa and "Shenzhen" in wa[0]["body"] and "Maxcolor" not in wa[0]["body"]  # DM 规矩：不提公司名
+    # DM 规矩：不提公司名。The restored 08-31 copy says what we are rather than where
+    # we are — "we manufacture LED panels…" — so the check is on the rule itself.
+    assert wa and "Maxcolor" not in wa[0]["body"]
+    assert "manufactur" in wa[0]["body"] or "make" in wa[0]["body"]
     seqs = client.get("/api/sequences").json()
     assert len(seqs) == 8  # 4 customer types x 2 languages, and nothing else ships
     for s in seqs:

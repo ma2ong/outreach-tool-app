@@ -39,183 +39,189 @@ Kakaotalk / WeChat +86 13570871001"""
 # the same shape — 전후면 유지보수 OK! R3 렌탈형 제품 만나보세요 — a product plus its hardest
 # spec, never a question about the reader.
 #
-# The subject keeps {company} in front of the product. Allen's own subjects do not — but
-# his went out one at a time by hand, while this path is judged by `message_guard`, and
-# the company name in the subject is the whole reason an automated letter reads as
-# addressed to someone. Drop it and every Korean sequence is blocked before sending.
+# docs/82 R7-R9. Written back to the version of 08-31 13:41 after Allen read what
+# shipped: 文案怎么全是后面 codex 改了之后的文案。我有让你把文案都回退到昨天 codex
+# 修改之前的文案才行. The rewrite that replaced this had landed in the same commit as
+# another agent's work and took its register with it — flat, interchangeable openers
+# ("rental LED specs") that no longer sounded like the letters he approved.
 #
-# Style is borrowed, product claims are not. An earlier version lifted a series name and
-# cabinet dimensions straight out of his June 2025 emails; Allen's correction:
-# 不要写一模一样的邮件，只是叫你参考一下写作的风格…你毕竟不熟悉我的产品线，所以不用具体到
-# 哪个产品之类的。He is right — a series can be renamed or discontinued and I would not
-# know. Every pitch, brightness and cabinet type below is a row in `products` with
-# agent_approved=1, which is the only product claim this file is allowed to make.
-# docs/82 R7, R8, R9. Three corrections from Allen after reading the first version:
+# What did NOT come back with it, because he removed these himself and not the other
+# agent:
 #
-#   邮件主题永远不要出现公司名…不然别人一看你的名字就不会看了。直接从名字就能够判断出
-#   这个邮件值不值得看。
-#   不要老是强调自己是 Maxcolor，如果能不提的话也可以不提。
-#   {fit} 这句话写的也很不好，都是废话。
+#   * {company} in the subject — 邮件主题永远不要出现公司名，除非很出名的上市公司
+#   * the brand in the body — 不要老是强调自己是 Maxcolor，如果能不提的话也可以不提
+#   * {fit} — 这句话写的也很不好，都是废话
+#   * 800-1,200 nits indoor — 室内的亮度一般是 600~800…一般说 600~800 就可以了
+#   * "we build the panels ourselves" — 说「我们是制造商」不强调「自己造」
+#   * "Not your area? Point me at whoever handles displays" — 这句话也是很无语
+#   * the English neutral and fixed-install letters 2 and 3 — 直接删去 永不复用
 #
-# So: no company name in the subject at all — not ours, which is unknown and gets the
-# letter deleted, and not theirs, which reads as mail merge. The subject has to earn the
-# open on its own content, the way his do (전후면 유지보수 OK! R3 렌탈형 제품 만나보세요).
-# {company} moves into the closing line, where it still satisfies `message_guard` without
-# being the first thing they see. The brand appears once, in the signature.
+# So the subject keeps the substance it had (pitch, brightness, cabinet type) and loses
+# only the name in front of it. {company} moves to the closing line, where it still
+# satisfies `message_guard` without being the first thing they see.
 #
-# {fit} is gone entirely: "built for crews that reload every week, and sized to mix with
-# stock you already own" is adjectives, and the specs above it already say the same thing
-# in numbers.
-#
-# Every pitch and brightness is a row in `products` with agent_approved=1. Indoor is
-# 600-800 nits, per Allen: 室内的亮度一般是 600~800，最高可到 1000，一般说 600~800 就可以了。
+# Style is borrowed, product claims are not: 你毕竟不熟悉我的产品线，所以不用具体到哪个
+# 产品之类的. Every pitch, brightness and cabinet type below is a row in `products` with
+# agent_approved=1.
 EN_OPENER = {
-    "rental": ("rental LED specs", """Hi {contact},
+    "rental": ("rental LED panels, P2.6-P4.8 die-cast", """Hi {contact},
 
 {hook}
 
-I'm Allen, handling export sales for an LED display manufacturer in Shenzhen.
+This is Allen, from an LED display manufacturer in Shenzhen.
 
-For rental fleets, we cover P2.6-P3.9 indoor at 600-800 nits and P3.9-P4.8 outdoor at
-4,500-5,500 nits, with die-cast cabinets and front/rear service.
+For rental work we run P2.6-P3.9 indoor at 600-800 nits and P3.9-P4.8 outdoor at
+4,500-5,500 nits, die-cast cabinets, front and rear service.
 
-Would a cabinet sheet with weight, power and service access be useful to {company}?
+If any of this is close to what you use, I'd be glad to send {company} the spec sheet —
+weight and power per cabinet included. Just let me know which pitch, whenever it's
+convenient.
 """),
-    "install": ("fixed-install LED specs", """Hi {contact},
+    "install": ("P2-P3 indoor, P4-P10 outdoor, front or rear service", """Hi {contact},
 
 {hook}
 
-I'm Allen, handling export sales for an LED display manufacturer in Shenzhen.
+This is Allen, from an LED display manufacturer in Shenzhen.
 
-For fixed installation, we cover P2-P3 indoor at 600-800 nits and P4-P10 outdoor at
-5,500-8,000 nits, with front or rear service.
+For fixed work we run P2-P3 indoor at 600-800 nits and P4-P10 outdoor at
+5,500-8,000 nits, front or rear service.
 
-Would a drawing-ready sheet with cabinet weight, power and service clearance be useful
-to {company}?
+If that's close to what you spec, I'd be glad to send {company} the sheet — weight and
+power per cabinet, ready to drop into a drawing. Happy to do it whenever it's useful.
 """),
-    "outdoor": ("outdoor LED specs", """Hi {contact},
+    "outdoor": ("outdoor P4-P10, 5,500-8,000 nits, front-serviceable", """Hi {contact},
 
 {hook}
 
-I'm Allen, handling export sales for an LED display manufacturer in Shenzhen.
+This is Allen, from an LED display manufacturer in Shenzhen.
 
-Our outdoor fixed range is P4-P10 at 5,500-8,000 nits, with front or rear service.
+P4-P10 at 5,500-8,000 nits, front-serviceable, built to run all day in daylight.
 
-Would a pitch and brightness chart by viewing distance be useful to {company}?
+If something outdoor is in planning at {company}, I'd be glad to put together the specs
+for the pitch that suits the viewing distance. No rush on my side.
 """),
-    "general": ("LED panel range", """Hi {contact},
+    "general": ("indoor, rental and outdoor LED panels, P0.7 to P10", """Hi {contact},
 
 {hook}
 
-I'm Allen, handling export sales for an LED display manufacturer in Shenzhen.
+This is Allen, from an LED display manufacturer in Shenzhen.
 
-Indoor P2-P3 at 600-800 nits, rental P2.6-P4.8 die-cast, outdoor P4-P10 at 5,500-8,000
-nits, and fine pitch down to P0.7 for control rooms and studios.
+Indoor P2-P3 at 600-800 nits, rental P2.6-P4.8 die-cast, outdoor P4-P10 at
+5,500-8,000 nits, and fine pitch down to P0.7 for control rooms and studios.
 
-Would a one-page spec comparison of those four ranges be useful to {company}?
+If any of these are close to what {company} works with, I'd be glad to send the matching
+spec sheet. Just let me know whenever it's convenient.
 """),
 }
 
+# The second letter asks for the one thing that unlocks a useful reply — a brand, a
+# rough size, a pitch. What used to close it, "Not your area? Point me at whoever handles
+# displays and I'll send them the specs directly", is gone: 这句话也是很无语.
 EN_SECOND = {
-    "rental": "For an easier cabinet comparison, our sheet can put dimensions, mounting,\n"
-              "maximum and average power, and front/rear service on one page.\n\n"
-              "Would that format be useful to {company}?",
-    "install": "For fixed-install drawings, we can provide cabinet dimensions and weight,\n"
-               "maximum and average power, and service clearance in one table.\n\n"
-               "Would a drawing-ready version be useful to {company}?",
-    "outdoor": "For outdoor selection, our comparison lines up viewing distance, pitch,\n"
-               "5,500-8,000 nits brightness, and front/rear service options.\n\n"
-               "Would that be useful for an early site review at {company}?",
-    "general": "To make the range easier to compare, we can put fine pitch, indoor\n"
-               "commercial, rental and outdoor options on one page, with brightness,\n"
-               "weight and power fields.\n\nWould that overview be useful to {company}?",
+    "rental": "Happy to check whether our cabinets mix with the ones {company} runs —\n"
+              "the brand is all it takes, whenever you have a moment.",
+    "install": "Happy to put together the sheet for whatever spec you are looking at,\n"
+               "weight and power per cabinet included — a rough size and pitch is all\n"
+               "it takes.",
+    "outdoor": "Happy to work out the pitch and brightness for a given screen size and\n"
+               "viewing distance, if that is useful to {company} at some point.",
+    "general": "Happy to send {company} the spec sheet for whichever pitch you run —\n"
+               "no rush at all on my side.",
 }
+
 
 # --- Korean ------------------------------------------------------------------------
 
-# docs/82 R2. 学的是他 2025-06 那批韩语信的写法，不是内容：先报工厂和自己，再摆能力范围
-# 和参数，最后邀请。「안녕하세요~ 심천 LED 전광판 업체 맥스컬러입니다 … 관심하신 제품
-# 있으시면 연락주세요~」——具体到某个系列的产品声明不抄，那是他的产线，不是我的。
+# docs/82 R2. 学的是他 2025-06 那批韩语信的写法，不是内容：先报身份，再摆能力范围和参数，
+# 最后邀请。「안녕하세요~ 심천 LED 전광판 업체 … 관심하신 제품 있으시면 연락주세요~」
+# 「Allen 마이용」是他自己信里的写法，保留。品牌名和「자체 공장」按他的话去掉。
 KO_OPENER = {
-    "rental": ("렌탈 LED 사양", """안녕하세요, {contact}님.
+    "rental": ("렌탈용 LED 패널, P2.6-P4.8 다이캐스팅", """안녕하세요, {contact}님.
 
 {hook_ko}
 
-저는 선전의 LED 디스플레이 제조업체에서 해외영업을 담당하는 Allen입니다.
+저는 심천 LED 디스플레이 제조업체에서 해외영업을 담당하는 Allen 마이용입니다.
 
-렌탈용은 실내 P2.6-P3.9(600-800 nits), 실외 P3.9-P4.8(4,500-5,500 nits)의
-다이캐스팅 캐비닛을 공급하며 전면·후면 유지보수가 가능합니다.
+렌탈용은 실내 P2.6-P3.9(600-800 nits), 실외 P3.9-P4.8(4,500-5,500 nits)이고,
+다이캐스팅 캐비닛에 전면·후면 유지보수 모두 됩니다.
 
-캐비닛 무게, 소비전력, 유지보수 방식을 정리한 사양서가 {company} 검토에 도움이 될까요?
+쓰시는 사양과 비슷하다면 {company}에 사양서 기꺼이 보내드리겠습니다. 캐비닛별 무게와
+소비전력까지 함께 정리해 드립니다. 편하실 때 말씀만 주세요.
 """),
-    "install": ("고정형 LED 사양", """안녕하세요, {contact}님.
+    "install": ("시공용 실내 P2-P3 / 실외 P4-P10, 전후면 유지보수", """안녕하세요, {contact}님.
 
 {hook_ko}
 
-저는 선전의 LED 디스플레이 제조업체에서 해외영업을 담당하는 Allen입니다.
+저는 심천 LED 전광판 업체에서 해외영업을 담당하는 Allen 마이용입니다.
 
-고정 설치용은 실내 P2-P3(600-800 nits), 실외 P4-P10(5,500-8,000 nits)이며
-전면·후면 유지보수가 가능합니다.
+고정 설치는 실내 P2-P3(600-800 nits), 실외 P4-P10(5,500-8,000 nits), 전면·후면
+유지보수 모두 가능합니다.
 
-캐비닛 무게, 소비전력, 유지보수 공간을 정리한 도면용 사양서가 {company}에 도움이 될까요?
+검토하시는 사양과 비슷하다면 {company}에 사양서 기꺼이 보내드리겠습니다. 캐비닛별 무게와
+소비전력까지 들어가 도면에 그대로 넣으실 수 있습니다. 편하실 때 말씀만 주세요.
 """),
-    "outdoor": ("실외 LED 사양", """안녕하세요, {contact}님.
+    "outdoor": ("실외 P4-P10, 5,500-8,000 nits, 전면 유지보수", """안녕하세요, {contact}님.
 
 {hook_ko}
 
-저는 선전의 LED 디스플레이 제조업체에서 해외영업을 담당하는 Allen입니다.
+저는 심천 LED 디스플레이 제조업체에서 해외영업을 담당하는 Allen 마이용입니다.
 
-실외 고정형은 P4-P10, 5,500-8,000 nits이며 전면·후면 유지보수가 가능합니다.
+P4-P10, 5,500-8,000 nits, 전면 유지보수 가능하고 주간 야외 상시 가동을 전제로 만듭니다.
 
-시청 거리별 피치와 밝기 비교표가 {company}의 실외 프로젝트 검토에 도움이 될까요?
+{company}에서 실외 건 검토 중이시라면 시청 거리에 맞는 피치로 사양 정리해서 기꺼이
+보내드리겠습니다. 급하지 않으니 편하실 때 말씀 주세요.
 """),
-    "general": ("LED 패널 사양", """안녕하세요, {contact}님.
+    "general": ("실내·렌탈·실외 LED 패널, P0.7부터 P10까지", """안녕하세요, {contact}님.
 
 {hook_ko}
 
-저는 선전의 LED 디스플레이 제조업체에서 해외영업을 담당하는 Allen입니다.
+저는 심천 LED 전광판 업체에서 해외영업을 담당하는 Allen 마이용입니다.
 
 실내 P2-P3(600-800 nits), 렌탈 P2.6-P4.8 다이캐스팅, 실외 P4-P10(5,500-8,000 nits),
-그리고 관제실·스튜디오용 P0.7부터의 미세 피치까지 가능합니다.
+그리고 관제실·스튜디오용 P0.7부터의 미세 피치까지 다 됩니다.
 
-네 가지 제품군을 한눈에 볼 수 있는 비교표가 {company} 검토에 도움이 될까요?
+위 범위 중 {company}에서 쓰시는 것과 비슷한 게 있으면 해당 사양서 기꺼이
+보내드리겠습니다. 편하실 때 편하게 말씀 주세요.
 """),
 }
 
+# 「담당이 아니시면 디스플레이 담당자분만 알려주세요」——英文那句「Not your area?」的韩语版，
+# 一并去掉。
 KO_SECOND = {
-    "rental": "렌탈 캐비닛 비교가 쉽도록 크기, 설치 방식, 최대·평균 소비전력, 전후면\n"
-              "유지보수를 한 페이지에 정리할 수 있습니다.\n\n"
-              "이 형식의 비교표가 {company}에 도움이 될까요?",
-    "install": "고정 설치 도면에 필요한 캐비닛 크기와 무게, 최대·평균 소비전력,\n"
-               "유지보수 공간을 표 하나로 정리할 수 있습니다.\n\n"
-               "도면용 사양서가 {company}에 도움이 될까요?",
-    "outdoor": "실외 제품을 검토할 때 필요한 시청 거리, 피치, 5,500-8,000 nits 밝기,\n"
-               "전후면 유지보수 옵션을 한 표에서 비교할 수 있습니다.\n\n"
-               "이 비교표가 {company}의 초기 현장 검토에 도움이 될까요?",
-    "general": "미세 피치, 실내 상업용, 렌탈, 실외 제품의 밝기, 무게, 소비전력을\n"
-               "한 페이지에서 비교할 수 있습니다.\n\n"
-               "이 제품군 비교표가 {company}에 도움이 될까요?",
+    "rental": "쓰시는 캐비닛 브랜드만 알려주셔도 됩니다. 기존 장비와 맞는지 당일에\n"
+              "확인해서 알려드리고 해당 사양서를 {company}에 보내드리겠습니다.",
+    "install": "대략적인 크기와 피치만으로도 충분합니다. 해당 사양의 사양서를\n"
+               "무게·소비전력까지 넣어 {company}에 보내드리겠습니다.",
+    "outdoor": "화면 크기만 알려주셔도 됩니다. 그 시청 거리에 맞는 피치와 밝기를\n"
+               "정리해서 {company}에 보내드리겠습니다.",
+    "general": "지금 쓰시는 피치만 알려주셔도 충분합니다. 맞는 사양서를 당일에\n"
+               "{company}에 보내드리겠습니다.",
 }
 
 # The third letter is the same for everyone (docs/76 R2). It spends its one turn giving
 # away the whole range, with no price in it: pricing stays Allen's (message_guard).
+# 「All of it built in our own factory」和「no obligation either way」都不带回来：前者是
+# 强调「自己造」，后者等于替对方先说了不用回。
 EN_LAST = """Hi {contact},
 
-A compact reference for {company}: fine pitch from P0.7 for control rooms and studios,
-P2-P3 indoor commercial at 600-800 nits, P2.6-P4.8 die-cast rental, and P4-P10 outdoor
-at 5,500-8,000 nits.
+A short summary of the whole range, in case it's useful for {company} to keep on file:
+fine pitch from P0.7 for control rooms and studios, P2-P3 indoor commercial at
+600-800 nits, P2.6-P4.8 die-cast rental, and P4-P10 outdoor at 5,500-8,000 nits.
 
-Would the one-page range comparison be useful to keep with your supplier files?
+Whenever a job comes up, I'd be glad to put the specs and a quote together for it —
+same day.
 """
 
 KO_LAST = """안녕하세요, {contact}님.
 
-{company}에서 참고하실 수 있도록 제품 범위를 간단히 정리드립니다. 관제실·스튜디오용
-P0.7부터의 미세 피치, 실내 상업용 P2-P3(600-800 nits),
+{company}에서 참고하실 수 있도록 저희가 만드는 전 범위를 한 번에 정리해 드립니다.
+관제실·스튜디오용 P0.7부터의 미세 피치, 실내 상업용 P2-P3(600-800 nits),
 렌탈용 P2.6-P4.8 다이캐스팅, 실외 P4-P10(5,500-8,000 nits)까지 가능합니다.
 
-한 페이지로 정리한 제품군 비교표를 공급업체 자료로 보관하시면 도움이 될까요?
+나중에 프로젝트 생기시면 사양서와 견적 기꺼이 정리해 드리겠습니다. 편하실 때 언제든
+말씀 주세요.
 """
+
 
 # docs/75 R1: the schedule may never outrun the two-week frequency rule.
 OFFSETS = (0, 14, 28)

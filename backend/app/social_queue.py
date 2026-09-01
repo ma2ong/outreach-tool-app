@@ -62,6 +62,9 @@ CREATE INDEX IF NOT EXISTS idx_social_queue_day ON social_dm_queue(queue_date, r
 # What goes out. Short, because a DM is one sentence — there is no subject line to carry
 # any of the weight, so the whole message has to be about them.
 #
+# The wording is the 08-31 13:41 version, restored: 文案怎么全是后面 codex 改了之后的文案.
+# It asks for the pitch and the size, which is a thing a person can answer in one line.
+#
 # One family per customer type, and nothing else (docs/84 R2). There used to be a second
 # family for leads that had a hook, and it did not vary by type — so the 467 companies we
 # knew the most about got the vaguest sentence, and the 161 we knew nothing about got the
@@ -79,44 +82,47 @@ CREATE INDEX IF NOT EXISTS idx_social_queue_day ON social_dm_queue(queue_date, r
 # it cannot cost a false claim.
 _FAMILIES: dict[str, tuple[str, ...]] = {
     "rental": (
-        "I'm Allen with an LED display manufacturer in Shenzhen. For rental fleets we "
-        "cover P2.6-P4.8 die-cast cabinets; would a cabinet sheet be useful?",
-        "our rental range covers P2.6-P3.9 indoor and P3.9-P4.8 outdoor. Would a weight, "
-        "power and service-access comparison help?",
-        "I handle export sales for an LED display manufacturer. Would a one-page "
-        "comparison of our rental cabinets be useful?",
-        "our rental cabinet sheet includes dimensions, power and front/rear service. "
-        "Would that be useful for a fleet review?",
+        "we manufacture LED panels for event and rental work — stage, touring, "
+        "festivals. If you have a job coming up, tell me the pitch and size and "
+        "I'll send specs.",
+        "we build the LED panels rental and staging companies put on the road. "
+        "Happy to send specs and pricing if something is in the calendar.",
+        "we're an LED manufacturer working with event and rental companies direct — "
+        "no distributor in between. Worth a conversation?",
+        "stage and touring LED is what we build. Happy to be the spec-and-pricing "
+        "contact next time a show needs panels.",
     ),
     "install": (
-        "I'm Allen with an LED display manufacturer in Shenzhen. Would a drawing-ready "
-        "fixed-install data sheet be useful?",
-        "our fixed-install range covers P2-P3 indoor and P4-P10 outdoor. Would a cabinet "
-        "weight and power table help with design checks?",
-        "I handle export sales for an LED display manufacturer. Would a sheet covering "
-        "dimensions, power and service clearance be useful?",
-        "our installation data sheet is arranged for AV drawings and tender checks. "
-        "Would a sample format be useful?",
+        "we manufacture LED display panels and work with AV integrators and "
+        "installers directly. Happy to be a spec-and-pricing contact whenever a "
+        "project needs one.",
+        "we're an LED display manufacturer supplying integrators direct. If you "
+        "have a fixed install coming up, send me the pitch and size and I'll come "
+        "back with specs.",
+        "fixed-install LED is what we make — indoor and outdoor, direct from the "
+        "factory. Worth a conversation if anything is in the pipeline?",
+        "we build LED panels for integrators and installation companies. Send me a "
+        "pitch and a size and I'll come back with specs and pricing.",
     ),
     "outdoor": (
-        "I'm Allen with an LED display manufacturer in Shenzhen. Our outdoor fixed range "
-        "is P4-P10 at 5,500-8,000 nits; would a spec sheet be useful?",
-        "our outdoor comparison lines up pitch, brightness and viewing distance. Would "
-        "that help with an early site review?",
-        "I handle export sales for an LED display manufacturer. Would a front/rear "
-        "service comparison for outdoor panels be useful?",
-        "our P4-P10 outdoor sheet includes brightness, power and service access. Would a "
-        "one-page version be useful?",
+        "we manufacture outdoor LED displays — billboards, facades, roadside. Happy "
+        "to send specs and pricing if something is coming up.",
+        "we build the outdoor LED panels behind billboards and building facades. "
+        "Worth a conversation if you have a site in planning?",
+        "outdoor LED is what we manufacture, direct from the factory. Tell me the "
+        "pitch and the size and I'll send specs.",
+        "we're an LED manufacturer working with outdoor advertising companies "
+        "direct. Happy to be a spec-and-pricing contact when a site comes up.",
     ),
     "general": (
-        "I'm Allen with an LED display manufacturer in Shenzhen. Would a one-page "
-        "comparison of our indoor, rental and outdoor ranges be useful?",
-        "our LED range covers P0.7 fine pitch through P10 outdoor. Would a pitch and "
-        "brightness overview help with product review?",
-        "I handle export sales for an LED display manufacturer. Would a range sheet with "
-        "cabinet weight, power and service access be useful?",
-        "our product comparison separates fine-pitch, indoor commercial, rental and "
-        "outdoor options. Would that overview be useful?",
+        "we're an LED display manufacturer and work with rental, AV and signage "
+        "companies directly. Worth a conversation if anything is in the pipeline?",
+        "we manufacture LED display panels and sell to the trade direct. If you "
+        "have a project coming up, tell me the pitch and size and I'll send specs.",
+        "lED display panels are what we build — direct from the factory, no "
+        "distributor in between. Happy to send specs whenever something comes up.",
+        "we're an LED panel manufacturer. Happy to be a spec-and-pricing contact "
+        "whenever a project needs one — tell me the pitch and the size.",
     ),
 }
 
