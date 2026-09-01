@@ -99,7 +99,7 @@ _HOOK_WORK_RE = re.compile(
     r"^Saw the (.+?) work(?: you do around (.+?))?(?: on your site)?\.$")
 
 
-def _hook_ko(lead: dict) -> str:
+def hook_ko(lead: dict) -> str:
     """The stored English hook, said in Korean. Empty when the shape is unfamiliar.
 
     Empty is the right answer for anything unrecognised: a half-translated opener is
@@ -158,7 +158,7 @@ def render(text: str | None, lead: dict) -> str:
         "hook": (lead.get("hook") or "").strip(),
         "fit": _fit_line(lead),
         "fit_ko": _fit_line(lead, _FIT_LINES_KO),
-        "hook_ko": _hook_ko(lead),
+        "hook_ko": hook_ko(lead),
     }
     dropped = False
 

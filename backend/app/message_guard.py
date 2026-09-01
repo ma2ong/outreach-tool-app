@@ -161,6 +161,17 @@ def check(body: str, lead: dict, *, subject: str = "", channel: str = "email",
     if written.intersection(terms):
         return Verdict(False)
 
+    # A Korean letter says the hook in Korean, so none of the English terms above can
+    # appear in it and this check could never pass — it only ever did because the
+    # company name was in the subject line, which Allen has now taken out of both the
+    # subject and the body. The translated hook is the same evidence in the other
+    # language: it is written from this lead's own hook and from nothing else.
+    from app.personalize import hook_ko
+
+    ko = hook_ko(lead).strip()
+    if ko and ko in text:
+        return Verdict(False)
+
     company = lead.get("company_en") or f"#{lead.get('no')}"
     if terms:
         return Verdict(

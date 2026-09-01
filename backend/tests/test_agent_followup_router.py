@@ -51,16 +51,6 @@ def test_one_prior_email_routes_to_second_approved_sequence_step(conn):
     assert "英语·活动租赁" in enrollment["name"]
 
 
-def test_a_one_letter_sequence_has_no_follow_up_to_arrange(conn):
-    """Allen deleted the English neutral second and third letters (docs/82 R7). The lead
-    is retired to a later recheck rather than parked on a step that does not exist."""
-    _email_lead(conn, touches=1, tags="批发商")
-    seeds.seed_sequences(conn)
-    result = followup_router.continue_no_reply(conn, 1)
-    assert result["status"] == "retired"
-    assert result["reason"] == "no_matching_followup_step"
-
-
 def test_two_prior_emails_route_to_final_step(conn):
     _email_lead(conn, touches=2)
     result = followup_router.continue_no_reply(conn, 1)

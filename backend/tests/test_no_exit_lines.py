@@ -24,15 +24,18 @@ LEAD = {"no": 1, "company_en": "Verum AV", "website": "verumav.com",
 
 def _rendered(segment, korean):
     from app.personalize import render
-    for _order, _offset, subject, body in seed_sequences.steps_for(segment, korean):
-        yield render(subject, LEAD), render(body, LEAD)
+    for order, _offset, subject, body in seed_sequences.steps_for(segment, korean):
+        yield order, render(subject, LEAD), render(body, LEAD)
 
 
 @pytest.mark.parametrize("korean", [False, True])
 @pytest.mark.parametrize("segment", SEGMENTS)
 def test_no_step_of_any_sequence_offers_to_stop(segment, korean):
-    for subject, body in _rendered(segment, korean):
-        verdict = message_guard.check(body, LEAD, subject=subject)
+    for order, subject, body in _rendered(segment, korean):
+        # step_order matters: the personalisation check is for the first letter only, and
+        # letters two and three used to pass it by accident because {company} was in their
+        # subject line. It is not any more (Allen: 主题和正文都不能出现对方的公司名).
+        verdict = message_guard.check(body, LEAD, subject=subject, step_order=order)
         assert not verdict.blocked, f"{segment}/{'ko' if korean else 'en'}: {verdict.detail}"
 
 
@@ -42,7 +45,7 @@ def test_every_opener_names_the_factory_and_a_product(segment, korean):
     """docs/82 R2: who we are, a spec they can react to, and something concrete on
     offer. Not a fixed phrase — Allen took the "same day" promise out because the
     close read as an instruction rather than an offer."""
-    subject, body = next(iter(_rendered(segment, korean)))
+    _order, subject, body = next(iter(_rendered(segment, korean)))
     text = " ".join((subject + " " + body).split())
     assert "Maxcolor" in text or "맥스컬러" in text, "the letter never says who is writing"
     assert "P0.7" in text or "P2" in text or "P4" in text, "no pitch to react to"
@@ -73,3 +76,23 @@ def test_a_letter_in_allens_own_shape_passes():
             "Our R3 rental series runs P2.6-P3.9 indoor at 1,000-1,200 nits.\n\n"
             "Tell me the pitch you work with and I'll send the spec sheet the same day.")
     assert not message_guard.check(body, LEAD, subject="Maxcolor R3 rental").blocked
+
+
+def test_a_korean_opener_is_personal_in_korean():
+    """The English terms cannot appear in a Korean letter, so the translated hook has to
+    count — otherwise every Korean first letter is impersonal the moment the company name
+    leaves the subject (Allen: 主题和正文都不能出现对方的公司名)."""
+    from app.personalize import render
+    _order, subject, body = next(iter(_rendered("rental", True)))
+    assert "Verum" not in subject and "Verum" not in body
+    assert not message_guard.check(body, LEAD, subject=subject).blocked
+
+
+def test_a_lead_with_nothing_specific_is_still_held():
+    """Removing the company name did not weaken the rule, it removed something that was
+    passing it without being personal. A lead we know nothing about is still refused."""
+    bare = {"no": 2, "company_en": "Verum AV", "website": "verumav.com"}
+    from app.personalize import render
+    _o, _off, subject, body = seed_sequences.steps_for("rental", False)[0]
+    verdict = message_guard.check(render(body, bare), bare, subject=render(subject, bare))
+    assert verdict.blocked and verdict.reason == "impersonal"
