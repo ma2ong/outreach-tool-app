@@ -67,6 +67,40 @@ _SIGNALS: dict[str, tuple[str, ...]] = {
                "novo painel"),
 }
 
+# docs/91 R1. 看过是看过，改过是改过。`leads.updated_at` 的含义是「这条记录被改过」，
+# 而一次什么都没学到的访问不该改记录 —— 把「看过」塞进那一列，`recheck`、`dedupe`
+# 和导入路径都会以为这家公司刚被更新过。所以访问单独记一张表。
+VISIT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS social_visits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_no INTEGER NOT NULL,
+    channel TEXT NOT NULL,
+    handle TEXT NOT NULL,
+    at TEXT NOT NULL,
+    outcome TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_social_visits_lead ON social_visits(lead_no, at);
+"""
+
+# 一个社媒主页两周回看一次。官网的回看归 docs/47 的 recheck 管，不是这里。
+REVISIT_DAYS = 14
+
+# docs/91 R2. 帖子写着哪一天。读不到日期的不算「最近动态」—— `_SIGNALS` 的关键词
+# 在一个六年没更新的主页上一样能命中，而那恰好是最没价值的一类线索。
+_POST_DATE = re.compile(
+    r"(20\d{2})\s*[年./-]\s*(\d{1,2})\s*[月./-]\s*(\d{1,2})|"
+    r"(20\d{2})-(\d{1,2})-(\d{1,2})")
+STALE_AFTER_DAYS = 540           # 一年半没动静，说的是这条线索凉了
+
+# docs/91 R4. 平台自己的框架不是这家公司说的话。一句 excerpt 里混着 Cookie 政策，
+# 它就永远不能被放进给客户的信里 —— 这条决定了 R3 的成败。
+_CHROME = (
+    "服务条款", "广告", "Ad Choices", "Cookie", "更多", "帖子", "筛选条件",
+    "查看翻译", "展开", "查看更多评论", "以 Allen Ma 的身份评论", "没有照片描述",
+    "分享了帖子", "隐私政策", "Privacy Policy", "Terms of Service", "Log In",
+    "Sign Up", "See more", "View translation", "登录", "注册",
+)
+
 # Contact details published on a profile: the reason to read one even when nothing else
 # is new (docs/71 R4).
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
@@ -80,6 +114,44 @@ _SITE = re.compile(
     r"(?<![@\w.])(?!(?:www\.)?(?:instagram|facebook|fb|linkedin|youtube|tiktok)\.)"
     rf"((?:[a-z0-9][a-z0-9-]*\.)+(?:{_TLD})(?:\.(?:{_TLD}))?)(?![a-z0-9])",
     re.I)
+
+
+def ensure_schema(conn) -> None:
+    conn.executescript(VISIT_SCHEMA)
+    conn.commit()
+
+
+def record_visit(conn, lead_no: int, channel: str, handle: str, outcome: str) -> None:
+    ensure_schema(conn)
+    conn.execute(
+        "INSERT INTO social_visits(lead_no, channel, handle, at, outcome)"
+        " VALUES (?,?,?,?,?)",
+        (lead_no, channel, handle, dt.datetime.now(dt.UTC).isoformat(), outcome))
+    conn.commit()
+
+
+def strip_chrome(text: str) -> str:
+    """去掉平台导航，剩下的才是这家公司说的话（docs/91 R4）。"""
+    out = text or ""
+    for word in _CHROME:
+        out = out.replace(word, " ")
+    return " ".join(out.split())
+
+
+def latest_post_date(text: str) -> dt.date | None:
+    """主页上最近的一条帖子是哪天（docs/91 R2）。读不到就是 None。"""
+    best: dt.date | None = None
+    for m in _POST_DATE.finditer(text or ""):
+        parts = [p for p in m.groups() if p]
+        if len(parts) != 3:
+            continue
+        try:
+            found = dt.date(int(parts[0]), int(parts[1]), int(parts[2]))
+        except ValueError:
+            continue
+        if best is None or found > best:
+            best = found
+    return best
 
 
 def _today() -> str:
@@ -168,16 +240,20 @@ def sent_within_quiet_window(conn, now: dt.datetime | None = None) -> int | None
 
 
 def read_signals(text: str) -> list[dict]:
-    """What this profile says it has been doing."""
-    low = (text or "").lower()
+    """What this profile says it has been doing.
+
+    docs/91 R3/R4：引的是一句可以直接放进信里的话，不是一个类别名，
+    而且引之前先把平台导航剔掉 —— 一句 excerpt 里混着 Cookie 政策，
+    它就永远不能被引用。
+    """
+    clean = strip_chrome(text)
+    low = clean.lower()
     found = []
     for label, words in _SIGNALS.items():
         for word in words:
             if word in low:
-                # Quote the surrounding sentence: a claim with no quotable source is
-                # one Allen cannot safely repeat in an email (docs/71 R5).
                 at = low.index(word)
-                excerpt = " ".join(text[max(0, at - 90):at + 120].split())
+                excerpt = " ".join(clean[max(0, at - 90):at + 120].split())
                 found.append({"kind": label, "word": word, "excerpt": excerpt})
                 break
     return found
@@ -234,11 +310,21 @@ def due_profiles(conn, limit: int = DAILY_LIMIT) -> list[dict]:
 
     Oldest first, and never one we already failed on today.
     """
+    ensure_schema(conn)
+    # docs/91 R1. 之前这里排的是 `leads.updated_at` —— 而访问不更新那一列，
+    # 于是看过的公司原地不动，下一轮还排最前面：628 家排着队，每天重读第 1、2 家。
+    # 现在按「上次看这家是什么时候」排，冷却期内的直接排除。
     rows = conn.execute(
-        "SELECT no, company_en, instagram, facebook, tags FROM leads"
-        " WHERE COALESCE(do_not_contact, 0) = 0"
-        "   AND (COALESCE(instagram,'') <> '' OR COALESCE(facebook,'') <> '')"
-        " ORDER BY COALESCE(updated_at, created_at) ASC LIMIT ?", (limit * 4,)).fetchall()
+        "SELECT l.no, l.company_en, l.instagram, l.facebook, l.tags,"
+        "       (SELECT MAX(v.at) FROM social_visits v WHERE v.lead_no = l.no) seen_at"
+        " FROM leads l"
+        " WHERE COALESCE(l.do_not_contact, 0) = 0"
+        "   AND (COALESCE(l.instagram,'') <> '' OR COALESCE(l.facebook,'') <> '')"
+        "   AND (seen_at IS NULL OR seen_at < ?)"
+        " ORDER BY seen_at IS NOT NULL, seen_at ASC,"
+        "          COALESCE(l.updated_at, l.created_at) ASC LIMIT ?",
+        ((dt.datetime.now(dt.UTC) - dt.timedelta(days=REVISIT_DAYS)).isoformat(),
+         limit * 4)).fetchall()
     skip = failed_today(conn)
     out = []
     for row in rows:
@@ -276,6 +362,8 @@ def watch(conn, engine, limit: int | None = None,
         except Exception as exc:  # noqa: BLE001 — one profile, not the run
             _note_failure(conn, target["handle"])
             _spend(conn)
+            record_visit(conn, target["lead_no"], target["channel"], target["handle"],
+                         f"读不了：{str(exc)[:40]}")
             failures += 1
             relationship_events.record(
                 conn, target["lead_no"], "fact",
@@ -285,7 +373,11 @@ def watch(conn, engine, limit: int | None = None,
 
         _spend(conn)
         looked += 1
-        facts += _record(conn, target, profile)
+        gained = _record(conn, target, profile)
+        # docs/91 R1 —— 看过就记下看过了，哪怕什么都没学到。不记，628 家就永远轮不到。
+        record_visit(conn, target["lead_no"], target["channel"], target["handle"],
+                     f"{gained} 条" if gained else "无新内容")
+        facts += gained
         outcome = follow_if_worth_it(conn, engine, target, profile)
         if outcome == "已关注":
             followed += 1
@@ -335,19 +427,92 @@ def follow_if_worth_it(conn, engine, target: dict, profile: dict) -> str:
     return "已关注"
 
 
+# docs/91 R3。社媒信号类别 → docs/85 认识的词汇。表里没有的类别不进 hook：
+# `personalize._HOOK_GLOSS_KO` 缺一个词，整句韩语开场白会消失，
+# 而「招聘」「新设备」本来也不是买家线索。
+_HOOK_TERM = {"活动": "events", "项目": "installation", "展会": "events"}
+
+
+def hook_from_signals(lead: dict, signals: list[dict]) -> str:
+    """从社媒信号造一句开场白 —— 造不出来就返回空（docs/91 R3）。
+
+    只替换那句对谁都一样的通用开场白。用官网材料建出来的 hook 已经比一个类别词具体，
+    拿「events」换掉「digital signage and LED panels ... around Kitchener」是降级。
+    """
+    from app.backfill_hooks import GENERIC_HOOK
+
+    current = str(lead.get("hook") or "").strip()
+    if current and current != GENERIC_HOOK:
+        return ""
+    terms = [t for t in (_HOOK_TERM.get(s["kind"]) for s in signals) if t]
+    if not terms:
+        return ""
+    term = terms[0]
+    city = str(lead.get("city") or "").strip()
+    # 两种句式都必须落在 `personalize._HOOK_WORK_RE` 上，否则韩语那一半会空掉。
+    return (f"Saw the {term} work you do around {city}."
+            if city else f"Saw the {term} work you do.")
+
+
+def _already_written(conn, lead_no: int, summary: str) -> bool:
+    """同一句话不写第二遍（docs/91 R6）—— 15 条一模一样的记录是噪音，不是十五次观察。"""
+    relationship_events.ensure_schema(conn)
+    return conn.execute(
+        "SELECT 1 FROM relationship_events WHERE lead_no=? AND summary=? LIMIT 1",
+        (lead_no, summary)).fetchone() is not None
+
+
 def _record(conn, target: dict, profile: dict) -> int:
     """Write down what this visit learned, and fill blanks on the record."""
     from app import repository as repo
 
     written = 0
-    signals = read_signals(profile.get("text", ""))
-    if signals:
-        relationship_events.record(
-            conn, target["lead_no"], "fact",
-            "社媒动态：" + "、".join(sorted({s["kind"] for s in signals})),
-            source="discovery", channel=target["channel"],
-            detail={"url": profile.get("url"), "signals": signals[:5]})
-        written += 1
+    text = profile.get("text", "")
+    posted = latest_post_date(text)
+    age = (dt.date.today() - posted).days if posted else None
+
+    signals = read_signals(text)
+    # docs/91 R2. 判据是「近期」而不是「存在」。一家 2019 年之后再没发过帖的公司，
+    # 它的社媒告诉你的是「这条线索凉了」，不是「他们在做活动」—— 两个结论都值得记，
+    # 但不能记反。读不到日期时同样不敢当成动态。
+    if signals and age is not None and age <= STALE_AFTER_DAYS:
+        best = max(signals, key=lambda x: len(x["excerpt"]))
+        summary = f"社媒动态（{posted.isoformat()}）：{best['excerpt'][:160]}"
+        if not _already_written(conn, target["lead_no"], summary):
+            relationship_events.record(
+                conn, target["lead_no"], "fact", summary,
+                source="discovery", channel=target["channel"],
+                detail={"url": profile.get("url"), "posted_at": posted.isoformat(),
+                        "signals": signals[:5]})
+            written += 1
+        lead = conn.execute(
+            "SELECT no, hook, city FROM leads WHERE no=?", (target["lead_no"],)).fetchone()
+        fresh_hook = hook_from_signals(dict(lead), signals) if lead else ""
+        if fresh_hook:
+            conn.execute("UPDATE leads SET hook=? WHERE no=?",
+                         (fresh_hook, target["lead_no"]))
+            conn.commit()
+            relationship_events.record(
+                conn, target["lead_no"], "fact", f"开场白改用社媒线索：{fresh_hook}",
+                source="discovery", channel=target["channel"],
+                detail={"url": profile.get("url")})
+            written += 1
+    elif signals or posted:
+        # 三种结果，不是两种。读不到日期 ≠ 久未更新 —— 后者是一个我们没有观察到的
+        # 结论，而这份规格反对的正是这个。所以话照引，只是不声称它是「最近」的。
+        if posted:
+            summary = f"社媒主页久未更新：最近一条是 {posted.isoformat()}"
+        else:
+            best = max(signals, key=lambda x: len(x["excerpt"]))
+            summary = f"社媒主页写着（日期不详）：{best['excerpt'][:160]}"
+        if not _already_written(conn, target["lead_no"], summary):
+            relationship_events.record(
+                conn, target["lead_no"], "fact", summary,
+                source="discovery", channel=target["channel"],
+                detail={"url": profile.get("url"),
+                        "posted_at": posted.isoformat() if posted else None,
+                        "signals": signals[:5]})
+            written += 1
 
     contacts = read_contacts(profile.get("text", ""))
     if contacts:

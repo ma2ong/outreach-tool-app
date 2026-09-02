@@ -175,7 +175,9 @@ def test_a_failed_visit_still_costs_its_allowance(conn):
 # --- what gets written -------------------------------------------------------------
 
 def test_what_the_profile_said_lands_on_the_timeline(conn):
-    engine = FakeEngine(pages={"verumav": "Finished the installation at the arena"})
+    # docs/91 R2：一条动态得说得出自己是哪天的，否则它可能是六年前的帖子。
+    engine = FakeEngine(pages={
+        "verumav": "2026年8月20日 · Finished the installation at the arena"})
     watch.watch(conn, engine, limit=1, sleeper=lambda _s: None)
     line = events.timeline(conn, 1)
     assert any("社媒动态" in e["summary"] for e in line)
