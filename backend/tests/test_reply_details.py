@@ -73,3 +73,19 @@ def test_empty_fields_are_filled_and_reported(conn):
 
 def test_a_reply_that_says_nothing_new_writes_nothing(conn):
     assert reply_details.apply(conn, 1, "Thanks, not interested.") == {}
+
+
+def test_junk_in_the_phone_column_is_not_a_value_worth_keeping(conn):
+    """FULL LIFE PRODUCTIONS held "234234423423" while their own reply gave
+    +1 678-232-4066. Not preferring the signature over a real number — replacing a
+    thing that is not a number."""
+    conn.execute("UPDATE leads SET phone='234234423423', country='USA',"
+                 " website=NULL, contact_name=NULL WHERE no=1")
+    conn.commit()
+    assert reply_details.apply(conn, 1, SIG)["phone"] == "+16782324066"
+
+
+def test_a_real_number_is_still_never_replaced(conn):
+    conn.execute("UPDATE leads SET phone='+15551234567', country='USA' WHERE no=1")
+    conn.commit()
+    assert "phone" not in reply_details.apply(conn, 1, SIG)

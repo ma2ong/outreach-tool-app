@@ -101,11 +101,23 @@ def apply(conn, lead_no: int, body: str | None) -> dict:
     written: dict[str, str] = {}
     for field in ("phone", "website", "contact_name"):
         value = found.get(field)
+        if not value:
+            continue
+        held = str(row[field] or "").strip()
         # Never overwrite: a value we hold came from somewhere, and a signature is not
         # evidence that it was wrong — only that another one exists.
-        if value and not str(row[field] or "").strip():
-            conn.execute(f"UPDATE leads SET {field}=? WHERE no=?", (value, lead_no))
-            written[field] = value
+        #
+        # One exception, and it is not really one: a phone column holding something that
+        # is not a phone number. FULL LIFE PRODUCTIONS held "234234423423" while their
+        # own reply gave +1 678-232-4066, and the rule as written kept the junk. This
+        # does not prefer the signature over a real number — it replaces a non-number.
+        junk = (field == "phone" and held
+                and book_form(held, row["country"]) is None
+                and not held.startswith("+"))
+        if held and not junk:
+            continue
+        conn.execute(f"UPDATE leads SET {field}=? WHERE no=?", (value, lead_no))
+        written[field] = value
     if written:
         conn.commit()
     return written
