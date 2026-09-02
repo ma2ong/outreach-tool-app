@@ -61,7 +61,7 @@ EN_OPENER = {
 
 {hook}
 
-This is Allen from Shenzhen Maxcolor Visual, an LED display manufacturer in Shenzhen. {fit}
+This is Allen, from an LED display manufacturer in Shenzhen.
 
 For rental work we run P2.6-P3.9 indoor at 600-800 nits and P3.9-P4.8 outdoor at
 4,500-5,500 nits, die-cast cabinets, front and rear service.
@@ -73,7 +73,7 @@ power per cabinet included. Just let me know which pitch, whenever it's convenie
 
 {hook}
 
-This is Allen from Shenzhen Maxcolor, an LED display manufacturer in Shenzhen. {fit}
+This is Allen, from an LED display manufacturer in Shenzhen.
 
 For fixed work we run P2-P3 indoor at 600-800 nits and P2.5-P10 outdoor at
 5,500-8,000 nits, front or rear service.
@@ -85,18 +85,18 @@ cabinet, ready to drop into a drawing. Happy to do it whenever it's useful.
 
 {hook}
 
-This is Allen from Shenzhen Maxcolor Visual, an LED display manufacturer in Shenzhen. {fit}
+This is Allen, from an LED display manufacturer in Shenzhen.
 
 P2.5-P10 at 5,500-8,000 nits, front-serviceable, built to run all day in daylight.
 
 If something outdoor is in planning, I'd be glad to put together the specs for the pitch
 that suits the viewing distance. No rush on my side.
 """),
-    "general": ("Maxcolor LED panels — indoor, rental and outdoor", """Hi {contact},
+    "general": ("indoor, rental and outdoor LED panels, P0.7 to P10", """Hi {contact},
 
 {hook}
 
-This is Allen from Shenzhen Maxcolor, an LED display manufacturer in Shenzhen. {fit}
+This is Allen, from an LED display manufacturer in Shenzhen.
 
 Indoor P2-P3 at 600-800 nits, rental P2.6-P4.8 die-cast, outdoor P2.5-P10 at
 5,500-8,000 nits, and fine pitch down to P0.7 for control rooms and studios.
@@ -125,7 +125,7 @@ KO_OPENER = {
 
 {hook_ko}
 
-저는 심천 LED 디스플레이 제조업체 맥스컬러의 Allen 마이용입니다. {fit_ko}
+저는 심천의 LED 디스플레이 제조업체에서 해외영업을 담당하는 Allen 마이용입니다.
 
 렌탈용은 실내 P2.6-P3.9(600-800 nits), 실외 P3.9-P4.8(4,500-5,500 nits)이고,
 다이캐스팅 캐비닛에 전면·후면 유지보수 모두 됩니다.
@@ -137,7 +137,7 @@ KO_OPENER = {
 
 {hook_ko}
 
-저는 심천 LED 전광판 업체 맥스컬러의 Allen 마이용입니다. {fit_ko}
+저는 심천의 LED 디스플레이 제조업체에서 해외영업을 담당하는 Allen 마이용입니다.
 
 고정 설치는 실내 P2-P3(600-800 nits), 실외 P2.5-P10(5,500-8,000 nits), 전면·후면
 유지보수 모두 가능합니다.
@@ -149,18 +149,18 @@ KO_OPENER = {
 
 {hook_ko}
 
-저는 심천 LED 디스플레이 제조업체 맥스컬러의 Allen 마이용입니다. {fit_ko}
+저는 심천의 LED 디스플레이 제조업체에서 해외영업을 담당하는 Allen 마이용입니다.
 
 P2.5-P10, 5,500-8,000 nits, 전면 유지보수 가능하고 주간 야외 상시 가동을 전제로 만듭니다.
 
 실외 건 검토 중이시라면 시청 거리에 맞는 피치로 사양 정리해서 기꺼이 보내드리겠습니다.
 급하지 않으니 편하실 때 말씀 주세요.
 """),
-    "general": ("맥스컬러 LED 패널, 실내·렌탈·실외", """안녕하세요, {contact}님.
+    "general": ("실내·렌탈·실외 LED 패널, P0.7부터 P10까지", """안녕하세요, {contact}님.
 
 {hook_ko}
 
-저는 심천 LED 전광판 업체 맥스컬러의 Allen 마이용입니다. {fit_ko}
+저는 심천의 LED 디스플레이 제조업체에서 해외영업을 담당하는 Allen 마이용입니다.
 
 실내 P2-P3(600-800 nits), 렌탈 P2.6-P4.8 다이캐스팅, 실외 P2.5-P10(5,500-8,000 nits),
 그리고 관제실·스튜디오용 P0.7부터의 미세 피치까지 다 됩니다.
@@ -204,31 +204,42 @@ KO_LAST = """안녕하세요, {contact}님.
 말씀 주세요.
 """
 
-EN_HANDOFF = "\n\nNot your area? Point me at whoever handles displays and I'll send them the specs directly.\n\n"
-KO_HANDOFF = "\n\n담당이 아니시면 디스플레이 담당자분만 알려주세요. 제가 직접 사양서 보내드리겠습니다.\n\n"
 
 # docs/75 R1: the schedule may never outrun the two-week frequency rule.
 OFFSETS = (0, 14, 28)
 
 
+# The name may not lie about the length: two segments send one letter, and a sequence
+# called 「3 步跟进」 that stops after one is a quiet mismatch. The space before
+# 「3 步跟进」 is load-bearing — `seed()` matches an existing sequence by name, and a name
+# that differs by one character creates a second sequence and orphans every enrollment.
+SINGLE_TOUCH = {("general", False), ("install", False)}
+
+
 def name_for(segment: str, korean: bool) -> str:
-    return f"冷邮件 3 步跟进（{'韩语' if korean else '英语'}·{LABEL[segment]}）"
+    steps = "单封" if (segment, korean) in SINGLE_TOUCH else " 3 步跟进"
+    return f"冷邮件{steps}（{'韩语' if korean else '英语'}·{LABEL[segment]}）"
 
 
 def steps_for(segment: str, korean: bool) -> list[tuple]:
     if korean:
         opener, second, last, sign = KO_OPENER, KO_SECOND, KO_LAST, KO_SIGN
-        greeting, handoff = "안녕하세요, {contact}님.\n\n", KO_HANDOFF
+        greeting = "안녕하세요, {contact}님.\n\n"
     else:
         opener, second, last, sign = EN_OPENER, EN_SECOND, EN_LAST, EN_SIGN
-        greeting, handoff = "Hi {contact},\n\n", EN_HANDOFF
+        greeting = "Hi {contact},\n\n"
     subject, body = opener[segment]
+    steps = [(0, OFFSETS[0], subject, body + "\n" + sign)]
+    # Allen on the second and third of the English 中性版 and 固定安装:
+    # 整个都很垃圾 直接删去 永不复用. Those two segments are the ones with the least to
+    # say — 中性版 exists because we do not know what they do — so a follow-up repeats
+    # the offer in other words, which is the definition of pestering.
+    if (segment, korean) in SINGLE_TOUCH:
+        return steps
     follow = f"Re: {subject}"
-    return [
-        (0, OFFSETS[0], subject, body + "\n" + sign),
-        (1, OFFSETS[1], follow, greeting + second[segment] + handoff + sign),
-        (2, OFFSETS[2], follow, last + "\n" + sign),
-    ]
+    steps.append((1, OFFSETS[1], follow, greeting + second[segment] + "\n\n" + sign))
+    steps.append((2, OFFSETS[2], follow, last + "\n" + sign))
+    return steps
 
 
 def seed(conn, name: str, steps) -> int:

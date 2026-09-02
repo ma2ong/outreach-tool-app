@@ -120,3 +120,27 @@ def test_shortening_a_sequence_does_not_strand_anyone(conn):
     assert status[1] == "completed"   # was waiting on the deleted letter
     assert status[2] == "active"      # still has a step to send
     assert status[3] == "blocked"     # not ours to reopen
+
+
+@pytest.mark.parametrize("segment,korean", ALL)
+def test_the_seven_limits_hold(segment, korean):
+    """Allen's seven, as limits rather than as copy: 这7样都要按照我说的删掉或者改掉，
+    不能出现那7样. Six are visible in the text; the seventh is the letter count."""
+    _o, _d, subject, body = seed_sequences.steps_for(segment, korean)[0]
+    text = f"{subject}\n{body}"
+    signature, letter = text.rsplit("Allen Ma ·", 1)[0], text
+    assert "{company}" not in text                       # 1 主题正文都不出现公司名
+    assert "Maxcolor" not in signature                   # 2 品牌只留在签名档
+    assert "맥스컬러" not in signature
+    assert "{fit" not in text                            # 3 {fit} 是废话
+    assert "800-1,200" not in text and "1,000-1,200" not in text   # 4 室内 600-800
+    for phrase in ("build the panels ourselves", "own factory",    # 5 不强调自己造
+                   "자체 공장", "직접 만듭니다"):
+        assert phrase not in letter
+    for steps in [seed_sequences.steps_for(segment, korean)]:
+        for _o2, _d2, _s2, b2 in steps:
+            assert "Not your area" not in b2             # 6 「Not your area?」
+            assert "담당이 아니시면" not in b2
+    # 7 英文中性版和固定安装只发一封
+    expected = 1 if (not korean and segment in ("general", "install")) else 3
+    assert len(seed_sequences.steps_for(segment, korean)) == expected
