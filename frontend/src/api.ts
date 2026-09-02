@@ -295,6 +295,8 @@ export async function fetchSequences(): Promise<import("./types").Sequence[]> {
 export async function createSequence(s: {
   name: string; channel: string;
   steps: { day_offset: number; subject: string | null; body: string }[];
+  // docs/86 R4: who automatic routing sends here. Omit for a manual-only sequence.
+  segment?: string | null; korean?: boolean;
 }): Promise<import("./types").Sequence> {
   const r = await fetch("/api/sequences", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(s),

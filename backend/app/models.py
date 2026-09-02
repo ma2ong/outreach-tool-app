@@ -42,6 +42,9 @@ class Sequence(BaseModel):
     active: bool = True
     steps: list[SequenceStep] = []
     enrolled: int = 0
+    # docs/86 R4: which customers automatic routing sends here. None means manual only.
+    segment: str | None = None
+    korean: bool = False
 
 
 class DueItem(BaseModel):

@@ -126,6 +126,8 @@ export function InboxPanel({ onOpenLead, onPendingChange }: {
   }
 
   async function toggleOpen(m: InboxMessage) {
+    // A drag that ends on the header is a selection, not a click.
+    if ((window.getSelection()?.toString() ?? "").trim()) return;
     setOpen(open === m.id ? null : m.id);
     if (!m.is_read) {
       try {
@@ -177,9 +179,12 @@ export function InboxPanel({ onOpenLead, onPendingChange }: {
       ) : (
         <div style={{ marginTop: 10 }}>
           {messages.map((m) => (
-            <div key={m.id} className="note-item" style={{ cursor: "pointer", opacity: m.is_read && open !== m.id ? 0.75 : 1 }}
-              onClick={() => toggleOpen(m)}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <div key={m.id} className="note-item" style={{ opacity: m.is_read && open !== m.id ? 0.75 : 1 }}>
+              {/* Only this header line opens and closes. The body used to carry the same
+                  handler, so selecting a phone number out of a signature collapsed the
+                  message on mouse-up — the one moment you are certain to be reading it. */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", cursor: "pointer" }}
+                onClick={() => toggleOpen(m)}>
                 <span className={`badge ${KIND_COLOR[m.kind] ?? ""}`}><i />{KIND_LABEL[m.kind] ?? m.kind}</span>
                 <strong style={{ fontWeight: m.is_read ? 500 : 700 }}>{m.company_en}</strong>
                 {m.contact_name && <span className="muted">联系人：{m.contact_name}</span>}
@@ -203,10 +208,13 @@ export function InboxPanel({ onOpenLead, onPendingChange }: {
                   <div className="muted" style={{ fontSize: 12 }}>
                     发件人：{m.from_addr}{m.contact_name ? ` · 已匹配 ${m.contact_name}` : ""}
                   </div>
-                  <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13, margin: "6px 0" }}>{m.body || "(无正文)"}</pre>
+                  <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13,
+                                margin: "6px 0", userSelect: "text", cursor: "text" }}>{m.body || "(无正文)"}</pre>
                   <button className="btn btn-sm" style={{ marginRight: 8 }} onClick={(e) => { e.stopPropagation(); onOpenLead(m.lead_no); }}>
                     打开客户详情 →
                   </button>
+                  <button className="btn btn-sm" style={{ marginRight: 8 }}
+                    onClick={(e) => { e.stopPropagation(); setOpen(null); }}>收起</button>
                   {m.kind === "reply" && !m.handled_at && (
                     <button className="btn btn-green btn-sm" style={{ marginRight: 8 }}
                       onClick={(e) => { e.stopPropagation(); handle(m); }}

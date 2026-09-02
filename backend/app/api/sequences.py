@@ -23,6 +23,10 @@ class SequenceCreate(BaseModel):
     name: str
     channel: str
     steps: list[StepIn]
+    # docs/86 R4: who this sequence is for. Left empty it is a manual-only sequence —
+    # usable from 客户库, never picked by automatic routing, and the form says so.
+    segment: str | None = None
+    korean: bool = False
 
 
 class StepEdit(BaseModel):
@@ -71,8 +75,18 @@ def create_sequence(req: SequenceCreate, conn=Depends(get_conn)):
         raise HTTPException(status_code=400, detail="unsupported channel")
     if not req.steps or any(not s.body.strip() for s in req.steps):
         raise HTTPException(status_code=400, detail="each step needs a body")
+    from app import copy_segments
+    from app.seed_sequences import ensure_routing_columns
+
+    if req.segment and req.segment not in copy_segments.SEGMENTS:
+        raise HTTPException(status_code=400, detail="unknown segment")
     sid = seq.create_sequence(conn, req.name.strip(), req.channel,
                               [s.model_dump() for s in req.steps])
+    ensure_routing_columns(conn)
+    if req.segment:
+        conn.execute("UPDATE sequences SET segment=?, korean=? WHERE id=?",
+                     (req.segment, int(req.korean), sid))
+        conn.commit()
     return Sequence(**seq.get_sequence(conn, sid))
 
 

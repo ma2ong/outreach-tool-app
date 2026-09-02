@@ -257,10 +257,21 @@ def _sequence_for(conn, lead: dict) -> int | None:
     korean = str(lead.get("country") or "").strip().lower() in {
         "south korea", "korea", "republic of korea", "대한민국",
     }
+    from app.seed_sequences import ensure_routing_columns
+
+    ensure_routing_columns(conn)
     for segment in (copy_segments.segment_of(lead), "general"):
+        # The declared assignment first (docs/86 R4), so a sequence someone created and
+        # assigned in the UI is reachable. The name is only a fallback for rows that
+        # predate the columns.
         row = conn.execute(
-            "SELECT id FROM sequences WHERE name=? AND active=1 AND channel='email'",
-            (name_for(segment, korean),)).fetchone()
+            "SELECT id FROM sequences WHERE segment=? AND korean=? AND active=1"
+            " AND channel='email' ORDER BY id LIMIT 1",
+            (segment, int(korean))).fetchone()
+        if row is None:
+            row = conn.execute(
+                "SELECT id FROM sequences WHERE name=? AND active=1 AND channel='email'",
+                (name_for(segment, korean),)).fetchone()
         if row:
             return row["id"]
     return None

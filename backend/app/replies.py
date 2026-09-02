@@ -229,6 +229,14 @@ def _store(conn, lead_no: int, kind: str, m: dict,
         " VALUES (?, ?, 'email', ?, ?, ?, ?, ?, ?)",
         (lead_no, contact_id, kind, _norm(m.get("from_addr")), m.get("subject") or "",
          m.get("body") or "", m.get("received_at") or "", m.get("mailbox_email") or ""))
+    if cur.rowcount > 0 and kind == "reply":
+        # docs/86 R5. The signature is the customer stating their own number, site and
+        # name. Only on a genuinely new reply, and only into fields the book is missing.
+        from app import reply_details
+        try:
+            reply_details.apply(conn, lead_no, m.get("body"))
+        except Exception:  # noqa: BLE001 — reading a signature may not lose a reply
+            pass
     return cur.lastrowid if cur.rowcount > 0 else None
 
 

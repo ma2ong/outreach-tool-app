@@ -318,6 +318,29 @@ def snapshot(conn, *, now: dt.datetime | None = None) -> dict:
     pending_receipts = [_receipt(r, now) for r in true_pending[:BACKLOG_LIMIT]]
     ledger = [_receipt(r, now) for r in rows[:LEDGER_LIMIT]]
 
+    # docs/86 R2 addendum. The badge used to say 「自主销售正常」 whenever the process was
+    # alive — green on an empty book with no mailbox and no copy, and green while three
+    # channels had sent nothing for a week. Green should mean "this can do its job now".
+    if not conn.execute("SELECT 1 FROM leads LIMIT 1").fetchone():
+        blockers.append(_blocker(
+            "no_leads", "high", "客户库还是空的",
+            "没有客户，自动销售没有任何可做的事。",
+            "去「客户开发」搜一批客户进来。", 0))
+    elif not conn.execute(
+            "SELECT 1 FROM sequence_steps LIMIT 1").fetchone():
+        blockers.append(_blocker(
+            "no_copy", "high", "一条话术都没有",
+            "序列里没有步骤，客户加进来也发不出信。",
+            "在「跟进序列」点「载入现成话术」。", 0))
+
+    from app import throughput
+    for ch in throughput.stalled(conn):
+        blockers.append(_blocker(
+            f"stalled_{ch['channel']}", "high",
+            f"{ch['label']} 已 {ch['quiet_days']} 天没有发出任何东西",
+            f"上次产出 {ch['last_date']}。连接正常不代表在发东西。",
+            "去看看队列里有没有人、渠道是不是被关掉了。", ch["quiet_days"]))
+
     critical = any(b["severity"] == "critical" for b in blockers)
     high = any(b["severity"] == "high" for b in blockers)
     state = "critical" if critical else "attention" if high or true_pending else "healthy"

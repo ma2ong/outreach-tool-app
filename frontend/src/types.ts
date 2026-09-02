@@ -70,6 +70,9 @@ export interface Sequence {
   active: boolean;
   steps: SequenceStep[];
   enrolled: number;
+  /** docs/86 R4: which customers automatic routing sends here. null = manual only. */
+  segment?: string | null;
+  korean?: boolean;
 }
 export interface DueItem {
   enrollment_id: number;

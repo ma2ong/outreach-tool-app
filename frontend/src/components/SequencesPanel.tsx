@@ -16,6 +16,10 @@ const BLANK_STEPS: Step[] = [
 export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
   // 战绩表放在序列上方：改话术之前应该先看它管不管用
   const [seqs, setSeqs] = useState<Sequence[]>([]);
+  // docs/86 R4. Left empty this is a manual-only sequence, and the form says so rather
+  // than producing one that looks fine and receives nobody.
+  const [segment, setSegment] = useState("");
+  const [lang, setLang] = useState("en");
   const [due, setDue] = useState<DueItem[]>([]);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [job, setJob] = useState<SendJob | null>(null);
@@ -61,7 +65,7 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
     if (!clean.length) { setMsg("至少要有一步且填正文"); return; }
     try {
       await createSequence({
-        name: name.trim(), channel,
+        name: name.trim(), channel, segment: segment || null, korean: lang === "ko",
         steps: clean.map((s) => ({ day_offset: Number(s.day_offset) || 0, subject: isEmail ? s.subject : null, body: s.body })),
       });
       setName(""); setSteps(BLANK_STEPS); setMsg(`已创建序列「${name.trim()}」`);
@@ -172,6 +176,25 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
             <option value="whatsapp">WhatsApp</option>
             <option value="instagram">Instagram</option>
           </select>
+          <select className="input" value={segment} onChange={(e) => setSegment(e.target.value)}
+            title="自动发送按客户类型和语言挑序列。不选就是「只能手动加人」——自动发送不会用它。">
+            <option value="">自动发送不用它（只能手动加人）</option>
+            <option value="rental">自动发给：活动租赁</option>
+            <option value="install">自动发给：固定安装</option>
+            <option value="outdoor">自动发给：户外为主</option>
+            <option value="general">自动发给：中性版</option>
+          </select>
+          {segment && (
+            <select className="input" value={lang} onChange={(e) => setLang(e.target.value)}>
+              <option value="en">英语客户</option>
+              <option value="ko">韩国客户</option>
+            </select>
+          )}
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+          {segment
+            ? `建好后，${{ rental: "活动租赁", install: "固定安装", outdoor: "户外为主", general: "中性版" }[segment]}${lang === "ko" ? "（韩国）" : "（英语）"}的客户会被自动发送路由到这条序列——同一类已有的序列会被它取代。`
+            : "不指定客户类型的话，这条序列只能在客户库里手动勾选加人；自动发送永远不会用它。"}
         </div>
         {steps.map((s, i) => (
           <div key={i} className="card" style={{ padding: 10, marginBottom: 8, background: "var(--surface-2)" }}>

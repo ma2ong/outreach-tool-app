@@ -54,10 +54,14 @@ def _steps(conn, sid: int) -> list[dict]:
 
 
 def list_sequences(conn) -> list[dict]:
+    from app.seed_sequences import ensure_routing_columns
+
+    ensure_routing_columns(conn)
     seqs = []
-    for r in conn.execute("SELECT id, name, channel, active FROM sequences ORDER BY id"):
+    for r in conn.execute("SELECT id, name, channel, active, segment, korean FROM sequences ORDER BY id"):
         d = dict(r)
         d["active"] = bool(d["active"])
+        d["korean"] = bool(d.get("korean"))
         d["steps"] = _steps(conn, r["id"])
         d["enrolled"] = conn.execute(
             "SELECT COUNT(*) c FROM sequence_enrollments WHERE sequence_id=? AND status='active'",
@@ -67,11 +71,15 @@ def list_sequences(conn) -> list[dict]:
 
 
 def get_sequence(conn, sid: int) -> dict | None:
-    r = conn.execute("SELECT id, name, channel, active FROM sequences WHERE id=?", (sid,)).fetchone()
+    from app.seed_sequences import ensure_routing_columns
+
+    ensure_routing_columns(conn)
+    r = conn.execute("SELECT id, name, channel, active, segment, korean FROM sequences WHERE id=?", (sid,)).fetchone()
     if r is None:
         return None
     d = dict(r)
     d["active"] = bool(d["active"])
+    d["korean"] = bool(d.get("korean"))
     d["steps"] = _steps(conn, sid)
     d["enrolled"] = conn.execute(
         "SELECT COUNT(*) c FROM sequence_enrollments WHERE sequence_id=? AND status='active'",

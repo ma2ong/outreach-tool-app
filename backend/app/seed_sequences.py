@@ -242,7 +242,24 @@ def steps_for(segment: str, korean: bool) -> list[tuple]:
     return steps
 
 
-def seed(conn, name: str, steps) -> int:
+def ensure_routing_columns(conn) -> None:
+    """`segment` and `korean` say who a sequence is for (docs/86 R4).
+
+    Routing used to match on the name, so a sequence someone created in the UI could
+    never receive anyone — the form looked like it worked and quietly produced a
+    sequence no company would ever be routed into. The columns make the assignment a
+    property of the row instead of a spelling.
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(sequences)")}
+    if "segment" not in cols:
+        conn.execute("ALTER TABLE sequences ADD COLUMN segment TEXT")
+    if "korean" not in cols:
+        conn.execute("ALTER TABLE sequences ADD COLUMN korean INTEGER")
+    conn.commit()
+
+
+def seed(conn, name: str, steps, *, segment: str | None = None,
+         korean: bool | None = None) -> int:
     """Write the repo's copy into this sequence, unless a person has edited it.
 
     `seed()` deletes and rewrites every step, which is right for copy the repo owns and
@@ -251,6 +268,7 @@ def seed(conn, name: str, steps) -> int:
     """
     from app.sequence_edit import edited_sequences
 
+    ensure_routing_columns(conn)
     row = conn.execute("SELECT id FROM sequences WHERE name=?", (name,)).fetchone()
     if row:
         seq_id = row["id"]
@@ -260,6 +278,9 @@ def seed(conn, name: str, steps) -> int:
     else:
         seq_id = conn.execute(
             "INSERT INTO sequences(name, channel) VALUES (?, 'email')", (name,)).lastrowid
+    if segment is not None:
+        conn.execute("UPDATE sequences SET segment=?, korean=? WHERE id=?",
+                     (segment, int(bool(korean)), seq_id))
     for order, offset, subject, body in steps:
         conn.execute(
             "INSERT INTO sequence_steps(sequence_id, step_order, day_offset, subject, body)"
@@ -292,7 +313,8 @@ def seed_all(conn) -> dict[tuple[str, bool], int]:
     for korean in (False, True):
         for segment in SEGMENTS:
             out[(segment, korean)] = seed(
-                conn, name_for(segment, korean), steps_for(segment, korean))
+                conn, name_for(segment, korean), steps_for(segment, korean),
+                segment=segment, korean=korean)
     close_orphaned_enrollments(conn)
     conn.commit()
     return out

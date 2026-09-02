@@ -71,3 +71,28 @@ def test_an_untouched_sequence_is_still_kept_current(conn, seq_id):
     row = conn.execute("SELECT subject FROM sequence_steps"
                        " WHERE sequence_id=? AND step_order=0", (seq_id,)).fetchone()
     assert row["subject"] == "new repo subject"
+
+
+def test_a_hand_made_sequence_can_be_routed_to(conn):
+    """docs/86 R4. Routing matched on the name, so a sequence created in the UI could
+    never receive anyone — the form looked like it worked and produced a sequence no
+    company would ever land in."""
+    from app.agent.executors import _sequence_for
+    from app import seed_sequences
+
+    seed_sequences.ensure_routing_columns(conn)
+    sid = seed_sequences.seed(conn, "我自己写的租赁话术",
+                              [(0, 0, "s", "b")], segment="rental", korean=False)
+    conn.commit()
+    lead = {"no": 1, "country": "USA", "tags": "租赁商"}
+    assert _sequence_for(conn, lead) == sid
+
+
+def test_a_sequence_that_declares_nobody_receives_nobody(conn):
+    from app.agent.executors import _sequence_for
+    from app import seed_sequences
+
+    seed_sequences.ensure_routing_columns(conn)
+    seed_sequences.seed(conn, "随手建的", [(0, 0, "s", "b")])
+    conn.commit()
+    assert _sequence_for(conn, {"no": 1, "country": "USA", "tags": "租赁商"}) is None
