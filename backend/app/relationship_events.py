@@ -70,6 +70,15 @@ def record(conn, lead_no: int, kind: str, summary: str, *, source: str = "agent"
             (lead_no, at or now, kind, channel, summary,
              json.dumps(detail, ensure_ascii=False) if detail else None, source, now))
         conn.commit()
+        # docs/87. A durable fact about a company — a payment, a correction, a hard
+        # constraint — is exactly what the next letter should already know. Recording it
+        # here rather than waiting for a synthesis is why the memory was empty for months.
+        if kind == "fact" and lead_no:
+            try:
+                from app.agent import memory_events
+                memory_events.remember(conn, lead_no)
+            except Exception:  # noqa: BLE001 — same rule: never lose the event
+                pass
         return cur.lastrowid
     except Exception:  # noqa: BLE001 — see the docstring; this must not propagate
         return None

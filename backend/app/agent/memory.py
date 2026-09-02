@@ -71,8 +71,11 @@ Rules:
 8. Each content is one standalone fact in plain English, under 500 characters.
    Drop anything already obvious from the company record (name, country, grade)."""
 
-_EVIDENCE_RE = re.compile(r"^(inbox|note):(\d+)$")
-_EVIDENCE_TABLE = {"inbox": "inbox_messages", "note": "notes"}
+# docs/87: events are a third source. A memory that cannot name where it came from
+# is dropped (docs/45), so the ref has to be checkable like the other two.
+_EVIDENCE_RE = re.compile(r"^(inbox|note|event):(\d+)$")
+_EVIDENCE_TABLE = {"inbox": "inbox_messages", "note": "notes",
+                   "event": "relationship_events"}
 
 
 def ensure_schema(conn) -> None:

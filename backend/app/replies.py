@@ -233,9 +233,12 @@ def _store(conn, lead_no: int, kind: str, m: dict,
         # docs/86 R5. The signature is the customer stating their own number, site and
         # name. Only on a genuinely new reply, and only into fields the book is missing.
         from app import reply_details
+        from app.agent import memory_events
         try:
             reply_details.apply(conn, lead_no, m.get("body"))
-        except Exception:  # noqa: BLE001 — reading a signature may not lose a reply
+            # docs/87: remember it now, not only if the agent decides to draft an answer.
+            memory_events.remember(conn, lead_no)
+        except Exception:  # noqa: BLE001 — enrichment may never lose a reply
             pass
     return cur.lastrowid if cur.rowcount > 0 else None
 
