@@ -29,6 +29,7 @@ this can run after every cycle and on a full catch-up without duplicating anythi
 from __future__ import annotations
 
 import json
+import re
 
 from app.agent import memory
 
@@ -36,6 +37,13 @@ from app.agent import memory
 # already on the outreach row, and a memory that repeats the activity log is a memory
 # nobody reads.
 _FACT_KINDS = ("fact",)
+
+# Facts our own tooling recorded about itself, not about the company. The crawler noting
+# 「社媒动态：活动」 fifteen times, or the browser reporting 「facebook 主页看不了」, is
+# pipeline bookkeeping — a person carries none of it into the next conversation, and
+# fifteen identical profile items would bury the one that says they paid us $22,860.
+_SELF_REFERENTIAL = re.compile(
+    r"社媒动态|社媒主页上补到|主页看不了|页面是空的|抓取失败|采集|打不开")
 
 MAX_CATCH_UP_LEADS = 2000
 
@@ -56,6 +64,9 @@ def _cited(conn, lead_no: int) -> set[str]:
 def _pending(conn, lead_no: int) -> list[dict]:
     """Events about this lead that no memory item cites yet, oldest first."""
     cited = _cited(conn, lead_no)
+    seen = {r["content"] for r in conn.execute(
+        "SELECT content FROM lead_memory_items"
+        " WHERE lead_no=? AND superseded_at IS NULL", (lead_no,))}
     out = []
 
     placeholders = ",".join("?" * len(_FACT_KINDS))
@@ -64,8 +75,14 @@ def _pending(conn, lead_no: int) -> list[dict]:
             f" WHERE lead_no=? AND kind IN ({placeholders}) ORDER BY at",
             (lead_no, *_FACT_KINDS)):
         ref = f"event:{row['id']}"
-        if ref in cited or not str(row["summary"] or "").strip():
+        summary = str(row["summary"] or "").strip()
+        if ref in cited or not summary or _SELF_REFERENTIAL.search(summary):
             continue
+        # The same sentence twice is one memory. Events repeat; what a person knows
+        # does not.
+        if summary in seen:
+            continue
+        seen.add(summary)
         # A payment, a role correction, a hard constraint — these do not expire, so they
         # are profile rather than log.
         out.append({"kind": "profile", "content": str(row["summary"]).strip(),

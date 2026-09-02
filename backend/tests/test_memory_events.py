@@ -85,3 +85,21 @@ def test_catch_up_covers_the_book_and_is_safe_to_repeat(conn):
     first = memory_events.catch_up(conn)
     assert first["written"] >= 1
     assert memory_events.catch_up(conn)["written"] == 0
+
+
+def test_the_crawler_talking_about_itself_is_not_a_memory(conn):
+    """15 of the 22 fact rows read 「社媒动态：活动」 and two 「主页看不了」. That is the
+    pipeline describing its own run; nobody carries it into a conversation, and it would
+    bury the one that says they paid us."""
+    for summary in ("社媒动态：活动", "社媒主页上补到：website",
+                    "facebook 主页看不了：页面是空的"):
+        relationship_events.record(conn, 1, "fact", summary=summary, source="discovery")
+    assert memory_events.remember(conn, 1) == 0
+    assert memory.items(conn, 1) == []
+
+
+def test_the_same_sentence_twice_is_one_memory(conn):
+    for _ in range(3):
+        relationship_events.record(conn, 1, "fact", summary="客户只买 COB", source="agent")
+    memory_events.remember(conn, 1)
+    assert len(memory.items(conn, 1)) == 1
