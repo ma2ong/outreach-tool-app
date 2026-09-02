@@ -65,7 +65,7 @@ Our range covers:
   · Fine pitch P0.7-P1.8, 600-800 nits — control rooms, studios, boardrooms
   · Indoor commercial P2-P3, 600-800 nits — retail, conference, stage backdrop
   · Rental P2.6-P3.9 indoor and P3.9-P4.8 outdoor, die-cast cabinets
-  · Outdoor fixed P4-P10, 5,500-8,000 nits — billboards and building facades
+  · Outdoor fixed P2.5-P10, 5,500-8,000 nits — billboards and building facades
 
 Would a one-page comparison with cabinet weight, power and service access be useful to
 {company}?
@@ -86,7 +86,7 @@ WhatsApp/WeChat +86 135-7087-1001
   · 미세 피치 P0.7-P1.8 (600-800 nits) — 관제실, 스튜디오, 회의실
   · 실내 상업용 P2-P3 (600-800 nits) — 리테일, 컨퍼런스, 무대 배경
   · 렌탈용 실내 P2.6-P3.9 / 실외 P3.9-P4.8, 다이캐스팅 캐비닛
-  · 실외 고정 P4-P10 (5,500-8,000 nits) — 옥외광고, 건물 외벽
+  · 실외 고정 P2.5-P10 (5,500-8,000 nits) — 옥외광고, 건물 외벽
 
 캐비닛 무게, 소비전력, 유지보수 방식을 한눈에 볼 수 있는 비교표가 {company} 검토에
 도움이 될까요?
@@ -133,7 +133,7 @@ Kakaotalk / WeChat +86 13570871001
 ALLEN_STYLE_DM = [
     ("私信 · 产品线对比（韩语）", "ko",
      "안녕하세요, {contact}님. 선전의 LED 디스플레이 제조업체에서 해외영업을 담당하는 "
-     "Allen입니다. 실내 P2-P3, 렌탈 P2.6-P4.8, 실외 P4-P10 비교표가 도움이 될까요?"),
+     "Allen입니다. 실내 P2-P3, 렌탈 P2.6-P4.8, 실외 P2.5-P10 비교표가 도움이 될까요?"),
 ]
 
 

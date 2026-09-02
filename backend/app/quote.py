@@ -20,7 +20,7 @@ DEFAULT_PRODUCTS = [
      "use_case": "Events / concerts (die-cast cabinet)", "ref_price_sqm": "USD 1000-1600"},
     {"model": "Outdoor Rental", "pixel_pitch": "P3.9-P4.8", "brightness": "4500-5500 nits",
      "use_case": "Outdoor stages / festivals", "ref_price_sqm": "USD 1100-1700"},
-    {"model": "Outdoor Fixed", "pixel_pitch": "P4-P10", "brightness": "5500-8000 nits",
+    {"model": "Outdoor Fixed", "pixel_pitch": "P2.5-P10", "brightness": "5500-8000 nits",
      "use_case": "Billboards / building facade", "ref_price_sqm": "USD 500-1100"},
 ]
 

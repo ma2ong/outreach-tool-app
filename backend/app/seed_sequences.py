@@ -13,7 +13,7 @@ By the third letter it no longer matters whether they rent or install — differ
 something to maintain, so they are spent where they change whether the letter is read.
 
 Every opener names products, and every pitch in it is a row in the product library
-(docs/76 R4): P0.7-P1.8, P2-P3, P2.6-P3.9, P3.9-P4.8, P4-P10.
+(docs/76 R4): P0.7-P1.8, P2-P3, P2.6-P3.9, P3.9-P4.8, P2.5-P10.
 
 Run:  python -m app.seed_sequences            # preview
       python -m app.seed_sequences --apply
@@ -63,42 +63,42 @@ EN_OPENER = {
 
 This is Allen from Shenzhen Maxcolor Visual, an LED display manufacturer in Shenzhen. {fit}
 
-For rental work we run P2.6-P3.9 indoor at 1,000-1,200 nits and P3.9-P4.8 outdoor at
+For rental work we run P2.6-P3.9 indoor at 600-800 nits and P3.9-P4.8 outdoor at
 4,500-5,500 nits, die-cast cabinets, front and rear service.
 
 If any of this is close to what you use, I'd be glad to send the spec sheet — weight and
 power per cabinet included. Just let me know which pitch, whenever it's convenient.
 """),
-    "install": ("P2-P3 indoor, P4-P10 outdoor, from our own factory", """Hi {contact},
+    "install": ("P2-P3 indoor, P2.5-P10 outdoor, front or rear service", """Hi {contact},
 
 {hook}
 
-This is Allen from Shenzhen Maxcolor — we build the panels ourselves, {fit}.
+This is Allen from Shenzhen Maxcolor, an LED display manufacturer in Shenzhen. {fit}
 
-For fixed work we run P2-P3 indoor at 800-1,200 nits and P4-P10 outdoor at
+For fixed work we run P2-P3 indoor at 600-800 nits and P2.5-P10 outdoor at
 5,500-8,000 nits, front or rear service.
 
 If that's close to what you spec, I'd be glad to send the sheet — weight and power per
 cabinet, ready to drop into a drawing. Happy to do it whenever it's useful.
 """),
-    "outdoor": ("outdoor P4-P10, 5,500-8,000 nits, front-serviceable", """Hi {contact},
+    "outdoor": ("outdoor P2.5-P10, 5,500-8,000 nits, front-serviceable", """Hi {contact},
 
 {hook}
 
 This is Allen from Shenzhen Maxcolor Visual, an LED display manufacturer in Shenzhen. {fit}
 
-P4-P10 at 5,500-8,000 nits, front-serviceable, built to run all day in daylight.
+P2.5-P10 at 5,500-8,000 nits, front-serviceable, built to run all day in daylight.
 
 If something outdoor is in planning, I'd be glad to put together the specs for the pitch
 that suits the viewing distance. No rush on my side.
 """),
-    "general": ("LED panels direct from the Maxcolor factory", """Hi {contact},
+    "general": ("Maxcolor LED panels — indoor, rental and outdoor", """Hi {contact},
 
 {hook}
 
-This is Allen from Shenzhen Maxcolor — we build the panels ourselves, {fit}.
+This is Allen from Shenzhen Maxcolor, an LED display manufacturer in Shenzhen. {fit}
 
-Indoor P2-P3 at 800-1,200 nits, rental P2.6-P4.8 die-cast, outdoor P4-P10 at
+Indoor P2-P3 at 600-800 nits, rental P2.6-P4.8 die-cast, outdoor P2.5-P10 at
 5,500-8,000 nits, and fine pitch down to P0.7 for control rooms and studios.
 
 If any of these are close to what you work with, I'd be glad to send the matching spec
@@ -127,44 +127,42 @@ KO_OPENER = {
 
 저는 심천 LED 디스플레이 제조업체 맥스컬러의 Allen 마이용입니다. {fit_ko}
 
-렌탈용은 실내 P2.6-P3.9(1,000-1,200 nits), 실외 P3.9-P4.8(4,500-5,500 nits)이고,
+렌탈용은 실내 P2.6-P3.9(600-800 nits), 실외 P3.9-P4.8(4,500-5,500 nits)이고,
 다이캐스팅 캐비닛에 전면·후면 유지보수 모두 됩니다.
 
 쓰시는 사양과 비슷하다면 사양서 기꺼이 보내드리겠습니다. 캐비닛별 무게와 소비전력까지
 함께 정리해 드립니다. 편하실 때 말씀만 주세요.
 """),
-    "install": ("시공용 실내 P2-P3 / 실외 P4-P10, 자체 공장", """안녕하세요, {contact}님.
+    "install": ("시공용 실내 P2-P3 / 실외 P2.5-P10, 전후면 유지보수", """안녕하세요, {contact}님.
 
 {hook_ko}
 
-저는 심천 LED 전광판 업체 맥스컬러의 Allen 마이용입니다 — {fit_ko}. 저희는 자체 공장에서
-패널을 직접 만듭니다.
+저는 심천 LED 전광판 업체 맥스컬러의 Allen 마이용입니다. {fit_ko}
 
-고정 설치는 실내 P2-P3(800-1,200 nits), 실외 P4-P10(5,500-8,000 nits), 전면·후면
+고정 설치는 실내 P2-P3(600-800 nits), 실외 P2.5-P10(5,500-8,000 nits), 전면·후면
 유지보수 모두 가능합니다.
 
 검토하시는 사양과 비슷하다면 사양서 기꺼이 보내드리겠습니다. 캐비닛별 무게와 소비전력까지
 들어가 도면에 그대로 넣으실 수 있습니다. 편하실 때 말씀만 주세요.
 """),
-    "outdoor": ("실외 P4-P10, 5,500-8,000 nits, 전면 유지보수", """안녕하세요, {contact}님.
+    "outdoor": ("실외 P2.5-P10, 5,500-8,000 nits, 전면 유지보수", """안녕하세요, {contact}님.
 
 {hook_ko}
 
 저는 심천 LED 디스플레이 제조업체 맥스컬러의 Allen 마이용입니다. {fit_ko}
 
-P4-P10, 5,500-8,000 nits, 전면 유지보수 가능하고 주간 야외 상시 가동을 전제로 만듭니다.
+P2.5-P10, 5,500-8,000 nits, 전면 유지보수 가능하고 주간 야외 상시 가동을 전제로 만듭니다.
 
 실외 건 검토 중이시라면 시청 거리에 맞는 피치로 사양 정리해서 기꺼이 보내드리겠습니다.
 급하지 않으니 편하실 때 말씀 주세요.
 """),
-    "general": ("맥스컬러 자체 공장에서 만드는 LED 패널", """안녕하세요, {contact}님.
+    "general": ("맥스컬러 LED 패널, 실내·렌탈·실외", """안녕하세요, {contact}님.
 
 {hook_ko}
 
-저는 심천 LED 전광판 업체 맥스컬러의 Allen 마이용입니다 — {fit_ko}. 저희는 자체 공장에서
-패널을 직접 만듭니다.
+저는 심천 LED 전광판 업체 맥스컬러의 Allen 마이용입니다. {fit_ko}
 
-실내 P2-P3(800-1,200 nits), 렌탈 P2.6-P4.8 다이캐스팅, 실외 P4-P10(5,500-8,000 nits),
+실내 P2-P3(600-800 nits), 렌탈 P2.6-P4.8 다이캐스팅, 실외 P2.5-P10(5,500-8,000 nits),
 그리고 관제실·스튜디오용 P0.7부터의 미세 피치까지 다 됩니다.
 
 위 범위 중 쓰시는 것과 비슷한 게 있으면 해당 사양서 기꺼이 보내드리겠습니다.
@@ -189,8 +187,8 @@ KO_SECOND = {
 EN_LAST = """Hi {contact},
 
 A short summary of the whole range, in case it's useful to keep on file: fine pitch from
-P0.7 for control rooms and studios, P2-P3 indoor commercial, P2.6-P4.8 die-cast rental, and P4-P10 outdoor at
-5,500-8,000 nits. All of it built in our own factory in Shenzhen.
+P0.7 for control rooms and studios, P2-P3 indoor commercial, P2.6-P4.8 die-cast rental, and P2.5-P10 outdoor at
+5,500-8,000 nits. All of it made in Shenzhen.
 
 Whenever a job comes up, I'd be glad to put the specs and a quote together for it —
 same day, and no obligation either way.
@@ -199,8 +197,8 @@ same day, and no obligation either way.
 KO_LAST = """안녕하세요, {contact}님.
 
 저희가 만드는 전 범위를 한 번에 정리해 드립니다. 관제실·스튜디오용 P0.7부터의 미세 피치,
-실내 상업용 P2-P3, 렌탈용 P2.6-P4.8 다이캐스팅, 실외 P4-P10(5,500-8,000 nits) —
-전부 심천 자체 공장에서 만듭니다.
+실내 상업용 P2-P3, 렌탈용 P2.6-P4.8 다이캐스팅, 실외 P2.5-P10(5,500-8,000 nits) —
+전부 심천에서 만듭니다.
 
 나중에 프로젝트 생기시면 사양서와 견적 기꺼이 정리해 드리겠습니다. 편하실 때 언제든
 말씀 주세요.

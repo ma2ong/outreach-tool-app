@@ -58,7 +58,7 @@ def test_every_pitch_quoted_exists_in_the_product_library(conn, segment, korean)
         INSERT INTO products(model, pixel_pitch, agent_approved) VALUES
             ('Indoor Fine Pitch','P0.7-P1.8',1), ('Indoor Commercial','P2-P3',1),
             ('Indoor Rental','P2.6-P3.9',1), ('Outdoor Rental','P3.9-P4.8',1),
-            ('Outdoor Fixed','P4-P10',1);
+            ('Outdoor Fixed','P2.5-P10',1);
     """)
     conn.commit()
     bounds = set()
