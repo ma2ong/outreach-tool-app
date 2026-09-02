@@ -161,6 +161,9 @@ def _place(city: str | None) -> str:
         return ""
     # "Houston, TX" reads better in a sentence as just "Houston".
     place = raw.split(",")[0].strip()
+    # A district or a street number in brackets is not part of the name: "around Seoul
+    # (Seocho-gu)" and "around CABA (Pichincha 188)" both read as a pasted address.
+    place = re.sub(r"\s*\(.*?\)\s*$", "", place).strip()
     return place if 1 < len(place) <= 28 else ""
 
 

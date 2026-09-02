@@ -73,3 +73,10 @@ def test_a_deliberate_generic_hook_may_be_sent_but_a_missing_one_may_not():
         render(body, blank), blank, subject=render(subject, blank)).blocked
     # And the sentence alone does not buy a pass for a lead nobody looked at.
     assert message_guard.check(bh.GENERIC_HOOK, blank, subject="x").blocked
+
+
+def test_a_district_in_brackets_is_not_part_of_the_place():
+    """"around Seoul (Seocho-gu)" and "around CABA (Pichincha 188)" read as a pasted
+    address; the city column holds both shapes."""
+    lead = {"business": "LED rental screens", "city": "Seoul (Seocho-gu)"}
+    assert bh.hook_for(lead) == "Saw the rental work you do around Seoul."
