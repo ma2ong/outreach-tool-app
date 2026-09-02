@@ -43,8 +43,8 @@ _CATEGORY = (
     (r"\bsignage\b|\bsigns?\b|사이니지", "signage"),
     # An advertising screen is a 전광판. "outdoor advertising" would read the word
     # outdoor into a company that never said it.
-    (r"advertis|광고", "LED signage"),
-    (r"\brental\b|\brent\b|aluguel|alquiler|렌탈|임대", "rental"),
+    (r"advertis|광고|전광판", "LED signage"),
+    (r"\brental\b|\brent\b|\brenta\b|arriendo|aluguel|loca[çc][ãa]o|alquiler|렌탈|임대", "rental"),
     (r"\bevent|stage|concert|festival|touring|행사|무대|공연", "events"),
     (r"integrat|\bAV\b|audio.?visual|시스템\s*통합", "AV integration"),
     (r"install|\bfixed\b|시공|설치", "installation"),
@@ -53,7 +53,7 @@ _CATEGORY = (
     (r"video ?wall|media ?wall|미디어\s*월|비디오\s*월", "media wall"),
     (r"panel sales|screen sales|판매", "panel sales"),
     (r"led (?:display|screen|panel|sign)|display (?:design|manufact|solution)"
-     r"|디스플레이|스크린|패널", "LED panels"),
+     r"|pantalla|pain[eé]|tel[ãa]o|jumbotron|\bdisplay|\bscreen     |디스플레이|스크린|패널", "LED panels"),
 )
 _CATEGORY_RE = tuple((re.compile(p, re.I), term) for p, term in _CATEGORY)
 
