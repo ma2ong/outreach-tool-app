@@ -95,8 +95,10 @@ _HOOK_GLOSS_KO = {
     "media wall": "미디어월", "LED panels": "LED 패널",
 }
 _HOOK_PITCH_RE = re.compile(r"^Saw (.+?) panels listed on your site\.$")
+# "you do." with no place is docs/85 R2: the backfill often has neither a city nor a
+# site, and "on your site" is a claim we cannot make about a page we never fetched.
 _HOOK_WORK_RE = re.compile(
-    r"^Saw the (.+?) work(?: you do around (.+?))?(?: on your site)?\.$")
+    r"^Saw the (.+?) work(?: you do(?: around (.+?))?)?( on your site)?\.$")
 
 
 def hook_ko(lead: dict) -> str:
@@ -108,6 +110,11 @@ def hook_ko(lead: dict) -> str:
     hook = (lead.get("hook") or "").strip()
     if not hook:
         return ""
+    # docs/85 R3. Korea reads the Korean generic; the book stores one line for both.
+    from app.backfill_hooks import GENERIC_HOOK, GENERIC_HOOK_KO
+
+    if hook == GENERIC_HOOK:
+        return GENERIC_HOOK_KO
     pitch = _HOOK_PITCH_RE.match(hook)
     if pitch:
         # "P1, P2 and P2.5" — the English conjunction has no place in a Korean sentence.
@@ -124,7 +131,9 @@ def hook_ko(lead: dict) -> str:
     joined = " · ".join(korean)
     if where:
         return f"{where} 지역에서 하시는 {joined} 작업을 봤습니다."
-    return f"홈페이지에서 {joined} 작업을 봤습니다."
+    if work.group(3):
+        return f"홈페이지에서 {joined} 작업을 봤습니다."
+    return f"{joined} 작업을 하시는 걸 봤습니다."
 
 
 def _fit_line(lead: dict, table: dict | None = None) -> str:

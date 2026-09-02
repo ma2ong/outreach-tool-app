@@ -172,6 +172,16 @@ def check(body: str, lead: dict, *, subject: str = "", channel: str = "email",
     if ko and ko in text:
         return Verdict(False)
 
+    # docs/85 R4. A lead whose stored hook is the generic one is a lead we looked at and
+    # found nothing quotable about, and Allen has decided those still get written to —
+    # 没有开场白不是不写的理由 (docs/80 R2). The test is the stored hook, not the text: a
+    # letter cannot pass by containing the sentence, only by belonging to a company we
+    # deliberately marked. A lead with no hook at all is still refused.
+    from app.backfill_hooks import GENERIC_HOOK
+
+    if str(lead.get("hook") or "").strip() == GENERIC_HOOK:
+        return Verdict(False)
+
     company = lead.get("company_en") or f"#{lead.get('no')}"
     if terms:
         return Verdict(
