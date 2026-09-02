@@ -187,6 +187,13 @@ def due_queue(conn, channel: str | None = None) -> list[dict]:
 _CHANNEL_ADDRESS = {"email": "email", "whatsapp": "phone",
                     "instagram": "instagram", "facebook": "facebook"}
 
+# docs/89 R2, as one pair. `block_unsendable` and `reopen_sendable` must read the same
+# condition from opposite sides — a company parked for having no provenance has to come
+# back the moment it gains one, or a successful recovery would be a one-way door.
+_NEVER_EMAILED = ("no NOT IN (SELECT lead_no FROM send_log WHERE channel='email')")
+UNSOURCED_SQL = f" OR (COALESCE(email_source,'') = '' AND {_NEVER_EMAILED})"
+SOURCED_SQL = f" AND (COALESCE(email_source,'') != '' OR NOT ({_NEVER_EMAILED}))"
+
 
 def block_unsendable(conn) -> int:
     """Park active enrollments that can never send, so the due queue tells the truth.
@@ -199,6 +206,13 @@ def block_unsendable(conn) -> int:
     blocked = 0
     for channel, col in _CHANNEL_ADDRESS.items():
         bounced = " OR email_status='invalid'" if channel == "email" else ""
+        # docs/89 R2. An address nobody ever saw on the company's own site bounces at
+        # 19.7% against 4.9% for one read off their contact page, and MX cannot tell the
+        # two apart. Only a first letter: a company already written to holds an address
+        # that demonstrably delivered, and parking it would punish the one thing that
+        # worked. Parked rather than filtered, so the reason is visible and
+        # `email_provenance.recover` can hand it back through reopen_sendable.
+        bounced += UNSOURCED_SQL if channel == "email" else ""
         cur = conn.execute(
             f"""UPDATE sequence_enrollments SET status='blocked'
                 WHERE status='active'
@@ -224,7 +238,8 @@ def reopen_sendable(conn) -> int:
     """
     reopened = 0
     for channel, col in _CHANNEL_ADDRESS.items():
-        live = " AND COALESCE(email_status,'') != 'invalid'" if channel == "email" else ""
+        live = (" AND COALESCE(email_status,'') != 'invalid'" + SOURCED_SQL
+                if channel == "email" else "")
         cur = conn.execute(
             f"""UPDATE sequence_enrollments SET status='active'
                 WHERE status='blocked'

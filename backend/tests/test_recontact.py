@@ -21,7 +21,10 @@ def _clean(conn):
 
 
 def _lead(conn, no, **kw):
-    cols = {"company_en": f"C{no}", "email": f"c{no}@x.com", "country": "USA"}
+    # docs/89: 默认这些公司的邮箱是从官网读到的 —— 没有出处的地址按规则本来就
+    # 进不了补位池，那是另一条规则的测试（test_email_provenance）。
+    cols = {"company_en": f"C{no}", "email": f"c{no}@x.com", "country": "USA",
+            "email_source": "site.contact-page"}
     cols.update(kw)
     conn.execute(f"INSERT INTO leads(no,{','.join(cols)}) VALUES (?,{','.join('?' * len(cols))})",
                  [no, *cols.values()])

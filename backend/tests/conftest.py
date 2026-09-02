@@ -42,10 +42,13 @@ def conn(tmp_path):
     c = connect(str(tmp_path / "t.db"))
     init_schema(c)
     c.executescript("""
-        INSERT INTO leads(no, company_en, country, website, instagram) VALUES
-            (1, 'Alpha AV', 'USA', 'alpha.com', 'alphaig'),
-            (2, 'Beta Screens', 'USA', 'beta.com', NULL),
-            (3, 'Gamma LED', 'Brazil', 'gamma.com', 'gammaig');
+        -- docs/89: a company whose address was read off its own site is the normal
+        -- case; the seed says so, so tests about other things are not silently
+        -- testing the provenance gate.
+        INSERT INTO leads(no, company_en, country, website, instagram, email_source) VALUES
+            (1, 'Alpha AV', 'USA', 'alpha.com', 'alphaig', 'site.contact-page'),
+            (2, 'Beta Screens', 'USA', 'beta.com', NULL, 'site.contact-page'),
+            (3, 'Gamma LED', 'Brazil', 'gamma.com', 'gammaig', 'site.contact-page');
         INSERT INTO outreach(lead_no, channel, status, touch_count, message_sent_date) VALUES
             (1, 'email', 'messaged', 1, '2026-07-01'),
             (2, 'email', 'prospect', 0, NULL),

@@ -15,6 +15,10 @@ def conn(tmp_path):
             (1, 'Alpha AV', 'USA', 'a@alpha.com'),
             (2, 'Beta Screens', 'USA', 'b@beta.com'),
             (3, 'Gamma LED', 'Brazil', 'g@gamma.com');
+        -- docs/89: 这些是正常可发的公司，出处说清楚，
+        -- 免得关于别的事情的测试其实在测出处闸。
+        UPDATE leads SET email_source='site.contact-page'
+         WHERE COALESCE(email,'') <> '';
     """)
     c.commit()
     return c

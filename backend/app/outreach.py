@@ -66,6 +66,9 @@ def never_touched(conn, channel: str = "email") -> list[int]:
                                 WHERE o.lead_no = l.no AND o.channel = ?
                                   AND o.status IN ('messaged', 'replied'))
                AND NOT EXISTS (SELECT 1 FROM sequence_enrollments e WHERE e.lead_no = l.no)
+               -- docs/89 R2. Enrolling a company whose address has no provenance only
+               -- parks a row that due_queue will refuse every morning.
+               {"AND COALESCE(l.email_source,'') <> ''" if channel == "email" else ""}
              -- docs/81 R2, same rule as docs/80 R3: something specific to say goes first.
              ORDER BY CASE WHEN COALESCE(l.hook, '') = '' THEN 1 ELSE 0 END, l.no""",
         (channel,)).fetchall()

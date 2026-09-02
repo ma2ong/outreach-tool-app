@@ -23,6 +23,9 @@ def conn(tmp_path, monkeypatch):
     rows = ", ".join(f"({i}, 'Co{i}', 'USA', 'c{i}@x.com')" for i in range(1, 41))
     c.executescript(f"INSERT INTO leads(no, company_en, country, email) VALUES {rows};")
     c.execute("UPDATE leads SET email_status='valid'")
+    # docs/89: 正常可发的公司，邮箱是从官网读到的 —— 说清楚，
+    # 免得关于自动发送的测试其实在测出处闸。
+    c.execute("UPDATE leads SET email_source='site.contact-page'")
     # one lead with phone in a WA sequence — must NOT be auto-sent
     c.execute("UPDATE leads SET phone='+15550001' WHERE no=40")
     c.commit()
@@ -205,10 +208,13 @@ def test_top_up_writes_to_the_never_contacted_before_the_ignored(conn, monkeypat
     # `_sequence_for` routes by docs/76 segment name; the fixture's "邮件序列" is not one.
     seq.create_sequence(conn, name_for("general", False), "email",
                         [{"day_offset": 0, "body": "hi {name}"}])
-    conn.execute("INSERT INTO leads(no, company_en, country, email, email_status)"
-                 " VALUES (500, 'Fresh Co', 'USA', 'fresh@x.com', 'valid')")
-    conn.execute("INSERT INTO leads(no, company_en, country, email, email_status)"
-                 " VALUES (501, 'Cold Co', 'USA', 'cold@x.com', 'valid')")
+    # docs/89: 两家都是官网上读到的地址，否则补位池按规则就不该给出它们。
+    conn.execute("INSERT INTO leads(no, company_en, country, email, email_status,"
+                 " email_source) VALUES (500, 'Fresh Co', 'USA', 'fresh@x.com',"
+                 " 'valid', 'site.contact-page')")
+    conn.execute("INSERT INTO leads(no, company_en, country, email, email_status,"
+                 " email_source) VALUES (501, 'Cold Co', 'USA', 'cold@x.com',"
+                 " 'valid', 'site.contact-page')")
     conn.execute("INSERT INTO outreach(lead_no, channel, status, touch_count,"
                  " message_sent_date) VALUES (501, 'email', 'messaged', 1,"
                  " date('now', '-400 days'))")
