@@ -196,8 +196,17 @@ _TABLE_COLUMNS = {
     "send_log": {
         # Which experiment this letter belonged to (docs/69). All four are taken from
         # data already in hand at send time — no new judgement, just no longer thrown
-        # away. Historical rows stay NULL: the customer type may have changed since and
-        # the sequence names were edited, so backfilling would invent an answer.
+        # away. Historical rows stay NULL where the answer would have to be invented:
+        # `audience` because the customer type may have changed since, and `variant`
+        # wherever it would have to be read off the *current* sequences table, whose
+        # names have been edited.
+        #
+        # docs/90 R1 narrows that to what it was actually protecting. `campaign` was
+        # written at send time and holds '序列:<name as it then was>', so recovering
+        # `variant` from it reads the same frozen fact from a second column rather than
+        # asking today's book about yesterday's letter. Only rows whose campaign carries
+        # that prefix — a label like 'email 2026-07-23' names a day, not a copy version,
+        # and stays NULL.
         "variant": "TEXT",
         "step": "INTEGER",
         "audience": "TEXT",

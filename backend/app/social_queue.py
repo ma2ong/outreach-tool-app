@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS social_dm_queue (
     reason TEXT,
     edited INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'ready',
+    variant TEXT,
     created_at TEXT NOT NULL,
     FOREIGN KEY(lead_no) REFERENCES leads(no) ON DELETE CASCADE
 );
@@ -133,9 +134,27 @@ def sentence_for(segment: str, nth: int) -> str:
     return family[nth % len(family)]
 
 
+def variant_of(lead: dict) -> str:
+    """这条 DM 用的是哪一版文案（docs/90 R2）。
+
+    社媒文案不是随手写的：家族由客户类型决定，家族内哪一句由客户编号轮换。
+    这两个数合起来就是变体身份，只是一直没被记下来 —— 46 条社媒发送至今
+    在 `send_log.variant` 上全是空的，等于每天都在发不可测的信。
+    """
+    from app import copy_segments
+
+    segment = copy_segments.segment_of(lead)
+    nth = int(lead.get("no") or 0) % len(_FAMILIES[segment])
+    return f"social:{segment}#{nth}"
+
+
 
 def ensure_schema(conn) -> None:
     conn.executescript(SCHEMA)
+    # docs/90 R2 —— 队列建好之后才加的列，老库要补上。
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(social_dm_queue)")}
+    if "variant" not in have:
+        conn.execute("ALTER TABLE social_dm_queue ADD COLUMN variant TEXT")
     conn.commit()
 
 
@@ -329,10 +348,13 @@ def build_today(conn, now: dt.datetime | None = None) -> dict:
             continue
         seen_bodies.add(body.strip().lower())
         rank += 1
+        # 记的是排队这一刻用的那一版（docs/90 R2）。发送时不重算：标签改过之后
+        # 重算会给一封已经发出去的信贴上它没用过的版本。
         conn.execute(
             "INSERT INTO social_dm_queue(queue_date, lead_no, channel, target, body,"
-            " rank_order, created_at) VALUES (?,?,?,?,?,?,?)",
-            (today, lead["no"], channel, target, body, rank, now.isoformat()))
+            " rank_order, created_at, variant) VALUES (?,?,?,?,?,?,?,?)",
+            (today, lead["no"], channel, target, body, rank, now.isoformat(),
+             variant_of(lead)))
         allowance[channel] -= 1
         per_channel[channel] += 1
     conn.commit()

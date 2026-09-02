@@ -141,8 +141,9 @@ def send_prepared(conn, items: list[dict], engine, image: str | None = None,
     daily cap, the same pacing, the same bookkeeping and the same case image, so this
     reuses all of it rather than opening a second way to reach a customer.
 
-    Items: {lead_no, channel, target, body}. Order is preserved, and the pacing delay is
-    taken per item's own channel, because a mixed batch alternates between them.
+    Items: {lead_no, channel, target, body, variant?}. Order is preserved, and the
+    pacing delay is taken per item's own channel, because a mixed batch alternates
+    between them. `variant` rides along so a DM can name its copy version (docs/90 R2).
     """
     today = datetime.date.today().isoformat()
     sent = failed = deferred = 0
@@ -159,7 +160,7 @@ def send_prepared(conn, items: list[dict], engine, image: str | None = None,
             _mark_messaged(conn, item["lead_no"], channel, today)
             campaigns.log_send(conn, item["lead_no"], channel,
                                campaign or campaigns.default_label(channel),
-                               body=item["body"])
+                               body=item["body"], variant=item.get("variant"))
             used[channel] = used.get(channel, 0) + 1
             _note_whatsapp_result(conn, item["lead_no"], channel, None)
             sent += 1
