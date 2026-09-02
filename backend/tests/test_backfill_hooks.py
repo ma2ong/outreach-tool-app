@@ -52,11 +52,17 @@ def test_korea_reads_the_korean_generic():
     assert personalize.hook_ko({"hook": bh.GENERIC_HOOK}) == bh.GENERIC_HOOK_KO
 
 
-def test_neither_generic_line_says_anything_about_them():
-    """docs/45. Both sentences are about us looking, not about what they do."""
+def test_the_generic_line_claims_only_what_the_book_supports():
+    """docs/45 asks for a source, not for silence. Every row in this book is here
+    because it was identified as an LED company or already bought panels, so "you work
+    with LED displays" is sourced — and nothing narrower than that is."""
+    assert "LED display" in bh.GENERIC_HOOK
+    assert "LED 디스플레이" in bh.GENERIC_HOOK_KO
     for line in (bh.GENERIC_HOOK, bh.GENERIC_HOOK_KO):
-        assert "your work" not in line.lower()
         assert "{" not in line
+    # No claim about a segment, a city or a project — those are the things it cannot know.
+    for word in ("rental", "outdoor", "install", "signage"):
+        assert word not in bh.GENERIC_HOOK.lower()
 
 
 def test_a_deliberate_generic_hook_may_be_sent_but_a_missing_one_may_not():

@@ -26,11 +26,20 @@ import sys
 from app.brief import _place
 from app.db import connect
 
-# docs/85 R3. Allen's own v2 line with 贵司 in place of the name, per his instruction:
-# 如果正文要说到对方的公司名时可以说，贵司或者你们公司来代替即可.
-GENERIC_HOOK = ("I came across your company while looking at LED and AV companies in "
-                "your market.")
-GENERIC_HOOK_KO = "귀사 관련 내용을 확인하다가 연락드렸습니다."
+# docs/85 R3. Allen: 通用版可以说我看到贵司有做 LED DISPLAY 相关的业务等等.
+#
+# This does say something about them, which every other line in this file is careful not
+# to. It is sourced, and the source is the book itself: a company is in here because
+# discovery identified it as an LED company or because Allen has already corresponded
+# with it about panels — 15 of the leads that land on this line are 小满 imports whose
+# history is a P1.86 COB quote or a catalogue. docs/45 asks for a source, not for
+# silence, and "you work with LED displays" is the one thing every row here supports.
+#
+# 贵司 rather than the name, per his rule: 如果正文要说到对方的公司名时可以说，贵司或者
+# 你们公司来代替即可.
+GENERIC_HOOK = "Saw that your company works with LED displays."
+GENERIC_HOOK_KO = "귀사에서 LED 디스플레이 관련 업무를 하고 계신 것을 봤습니다."
+
 
 # Business text -> the term the opener will use. Every value is a key in
 # `personalize._HOOK_GLOSS_KO`; a term missing from that table silently empties the
