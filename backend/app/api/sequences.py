@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
-from app import jobs, sequence_send
+from app import jobs, sequence_edit, sequence_send
 from app import sequences as seq
 from app.api import channels as channels_api
 from app.api import send as send_api
@@ -23,6 +23,12 @@ class SequenceCreate(BaseModel):
     name: str
     channel: str
     steps: list[StepIn]
+
+
+class StepEdit(BaseModel):
+    subject: str | None = None
+    body: str
+    day_offset: int | None = None
 
 
 class EnrollRequest(BaseModel):
@@ -68,6 +74,40 @@ def create_sequence(req: SequenceCreate, conn=Depends(get_conn)):
     sid = seq.create_sequence(conn, req.name.strip(), req.channel,
                               [s.model_dump() for s in req.steps])
     return Sequence(**seq.get_sequence(conn, sid))
+
+
+@router.post("/{sid}/steps/{order}/preview")
+def preview_step(sid: int, order: int, req: StepEdit, conn=Depends(get_conn)):
+    """Render this step against a real lead and run the guard, before it is saved."""
+    if seq.get_sequence(conn, sid) is None:
+        raise HTTPException(status_code=404, detail="sequence not found")
+    return sequence_edit.preview(conn, sid, order, req.subject, req.body)
+
+
+@router.put("/{sid}/steps/{order}")
+def update_step(sid: int, order: int, req: StepEdit, conn=Depends(get_conn)):
+    if seq.get_sequence(conn, sid) is None:
+        raise HTTPException(status_code=404, detail="sequence not found")
+    try:
+        return sequence_edit.update_step(
+            conn, sid, order, subject=req.subject, body=req.body,
+            day_offset=req.day_offset)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{sid}/revert")
+def revert_sequence(sid: int, conn=Depends(get_conn)):
+    """Give a sequence back to the repo's copy on the next seed."""
+    if seq.get_sequence(conn, sid) is None:
+        raise HTTPException(status_code=404, detail="sequence not found")
+    from app import seed_sequences
+
+    sequence_edit.revert(conn, sid)
+    seed_sequences.seed_all(conn)
+    return {"reverted": True}
 
 
 @router.get("/due", response_model=list[DueItem])

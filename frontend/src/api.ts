@@ -705,3 +705,33 @@ export async function setAutoSend(enabled: boolean, acknowledgeSafetyRisk = fals
   }
   return r.json();
 }
+
+// docs/86: the copy can be changed from the product. Preview renders against a real
+// lead and runs the same guard the sender runs, so a refusal arrives while the editor
+// is still open rather than on the morning a batch quietly stalls.
+export type StepPreview = {
+  lead_no: number | null; company: string | null;
+  subject: string; body: string;
+  blocked: boolean; reason: string; detail: string;
+};
+
+async function send(url: string, method: string, payload: unknown) {
+  const r = await fetch(url, {
+    method, headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`);
+  return r.json();
+}
+
+export async function previewStep(sid: number, order: number, subject: string | null, body: string): Promise<StepPreview> {
+  return send(`/api/sequences/${sid}/steps/${order}/preview`, "POST", { subject, body });
+}
+
+export async function updateStep(sid: number, order: number, subject: string | null, body: string): Promise<StepPreview> {
+  return send(`/api/sequences/${sid}/steps/${order}`, "PUT", { subject, body });
+}
+
+export async function revertSequence(sid: number): Promise<void> {
+  await send(`/api/sequences/${sid}/revert`, "POST", {});
+}

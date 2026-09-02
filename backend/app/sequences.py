@@ -45,8 +45,11 @@ def create_sequence(conn, name: str, channel: str, steps: list[dict]) -> int:
 
 
 def _steps(conn, sid: int) -> list[dict]:
-    return [dict(r) for r in conn.execute(
-        "SELECT step_order, day_offset, subject, body, image FROM sequence_steps"
+    from app.sequence_edit import ensure_schema
+
+    ensure_schema(conn)
+    return [dict(r) | {"edited": bool(r["edited"])} for r in conn.execute(
+        "SELECT step_order, day_offset, subject, body, image, edited FROM sequence_steps"
         " WHERE sequence_id=? ORDER BY step_order", (sid,))]
 
 

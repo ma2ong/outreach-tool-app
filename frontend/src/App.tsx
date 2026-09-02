@@ -370,6 +370,13 @@ export function App() {
                   title="只看已触达但超过7天没回复、或到跟进日期的客户">
                   待跟进{stats?.funnel?.follow_up_due ? ` ${stats.funnel.follow_up_due}` : ""}
                 </button>
+                {/* docs/86 R3: six bulk actions over zero customers is six things to
+                    read past. An empty book has exactly one useful next step. */}
+                {stats?.total === 0 ? (
+                  <button className="btn btn-primary btn-sm" onClick={() => setPage("discovery")}>
+                    去找客户 →
+                  </button>
+                ) : (<>
                 <a className="btn btn-sm"
                   href={`/api/leads/export?fmt=xlsx${exportQuery({ country, channel, status, has, follow_up: followUp, search })}`}
                   title="按当前筛选导出 Excel">⬇ 导出 Excel</a>
@@ -393,6 +400,7 @@ export function App() {
                   title="在 IG/FB/LinkedIn/官网看到客户，粘贴链接一键入库；官网会自动深挖邮箱/电话/社媒/分级">
                   ＋ 快速添加
                 </button>
+                </>)}
                 <span className="muted">共 {total} 条 · 已选 {selected.size}</span>
                 {total > shown.length && selected.size < total && (
                   <button className="btn btn-sm" onClick={selectAllFiltered}

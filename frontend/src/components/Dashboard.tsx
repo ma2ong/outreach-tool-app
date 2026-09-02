@@ -145,6 +145,33 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
     key: "followup", count: due, unit: "家", what: "客户到了你设的跟进日期",
     go: "去跟进", page: "__followup" });
 
+  // docs/86 R3. A book with nobody in it has nothing to report, and the twenty zeros
+  // that used to fill this screen — quotas, a seven-band funnel, channel coverage, a
+  // pipeline forecast — are noise a new user has to read past. Worse, the loudest thing
+  // on the page was a red 收信中断 warning about a channel that had never been
+  // connected. One next step is the whole screen until there is something to count.
+  if (stats.total === 0) {
+    return (
+      <div className="card" style={{ maxWidth: 620, padding: "36px 34px" }}>
+        <div className="stat-label" style={{ margin: "0 0 10px" }}>从这里开始</div>
+        <h2 style={{ margin: "0 0 12px", fontSize: 26, lineHeight: 1.25 }}>
+          客户库还是空的
+        </h2>
+        <p className="muted" style={{ margin: "0 0 8px", fontSize: 14.5, lineHeight: 1.65 }}>
+          先找一批客户进来，这个系统的其他部分才有东西可做。
+          在「客户开发」里填几个关键词、选好目标国家，它会自动搜索、打开官网、
+          把邮箱和社媒读出来。
+        </p>
+        <p className="muted" style={{ margin: "0 0 20px", fontSize: 13 }}>
+          话术已经装好了，找到客户后勾选加入跟进序列就能发。
+        </p>
+        <button className="btn btn-primary" onClick={() => onGoto("discovery")}>
+          去找客户 →
+        </button>
+      </div>
+    );
+  }
+
   return (
     <>
 

@@ -60,6 +60,8 @@ export interface SequenceStep {
   subject: string | null;
   body: string;
   image: string | null;
+  /** docs/86: a step a person changed. The seeder leaves it alone. */
+  edited?: boolean;
 }
 export interface Sequence {
   id: number;

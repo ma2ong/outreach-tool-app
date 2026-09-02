@@ -243,9 +243,19 @@ def steps_for(segment: str, korean: bool) -> list[tuple]:
 
 
 def seed(conn, name: str, steps) -> int:
+    """Write the repo's copy into this sequence, unless a person has edited it.
+
+    `seed()` deletes and rewrites every step, which is right for copy the repo owns and
+    wrong the moment someone changes a word in the UI. An edited sequence is theirs now
+    (docs/86 R1); 「还原为系统文案」 in the editor hands it back.
+    """
+    from app.sequence_edit import edited_sequences
+
     row = conn.execute("SELECT id FROM sequences WHERE name=?", (name,)).fetchone()
     if row:
         seq_id = row["id"]
+        if seq_id in edited_sequences(conn):
+            return seq_id
         conn.execute("DELETE FROM sequence_steps WHERE sequence_id=?", (seq_id,))
     else:
         seq_id = conn.execute(

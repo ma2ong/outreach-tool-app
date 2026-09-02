@@ -305,6 +305,15 @@ async def lifespan(app: FastAPI):
         # Background executions die with the process; their proposals would otherwise
         # read 执行中 forever, neither finished nor failed.
         fail_interrupted(conn)
+        # docs/86 R3. The copy ships with the code, so a fresh install having zero
+        # sequences and asking the user to press 「载入现成话术」 is the product making
+        # its own setup someone else's job — and skipping it silently makes every later
+        # step do nothing. Only on a book that has none: an install where the user has
+        # deleted or edited them is left exactly as it is.
+        if not conn.execute("SELECT 1 FROM sequences LIMIT 1").fetchone():
+            from app import seeds
+            seeds.seed_templates(conn)
+            seeds.seed_sequences(conn)
     finally:
         conn.close()
     # Desktop/local remains zero-config. Hosted web services disable this and run

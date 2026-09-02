@@ -31,6 +31,8 @@ class SequenceStep(BaseModel):
     subject: str | None = None
     body: str
     image: str | None = None
+    # docs/86: a step a person changed in the UI. The seeder leaves it alone.
+    edited: bool = False
 
 
 class Sequence(BaseModel):

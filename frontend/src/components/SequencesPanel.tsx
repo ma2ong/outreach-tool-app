@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchSequences, createSequence, fetchDue, sendDue, pollReplies, fetchJob, loadSeeds, fetchQuota } from "../api";
-import type { Sequence, DueItem, SendJob } from "../types";
+import { previewStep, updateStep, revertSequence } from "../api";
+import type { StepPreview } from "../api";
+import type { Sequence, SequenceStep, DueItem, SendJob } from "../types";
 import { CopyExperiments } from "./CopyExperiments";
 
 const CH_LABEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook" };
@@ -197,17 +199,110 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
         <h3>已有序列</h3>
         {seqs.length === 0 && <div className="muted">还没有序列。</div>}
         {seqs.map((s) => (
-          <div key={s.id} style={{ borderTop: "1px solid var(--border)", padding: "10px 0" }}>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <b>{s.name} <span className="muted">· {CH_LABEL[s.channel] ?? s.channel}</span></b>
-              <span className="muted">进行中 {s.enrolled} 家 · {s.steps.length} 步</span>
-            </div>
-            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-              {s.steps.map((st) => `第${st.step_order + 1}步(第${st.day_offset}天)`).join(" → ")}
-            </div>
-          </div>
+          <SequenceRow key={s.id} seq={s} onSaved={() => fetchSequences().then(setSeqs).catch(() => {})} />
         ))}
       </div>
     </>
+  );
+}
+
+
+/** docs/86. One step, editable in place, with the letter it becomes shown beside it.
+ *
+ *  The preview is not decoration: it renders against a company actually enrolled in this
+ *  sequence and runs the same `message_guard` the sender runs. A refusal shows up here,
+ *  while the editor is open, instead of on the morning a batch quietly holds. */
+function StepEditor({ seq, step, onSaved }: { seq: Sequence; step: SequenceStep; onSaved: () => void }) {
+  const [subject, setSubject] = useState(step.subject ?? "");
+  const [body, setBody] = useState(step.body);
+  const [shown, setShown] = useState<StepPreview | null>(null);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const dirty = subject !== (step.subject ?? "") || body !== step.body;
+
+  async function look() {
+    setBusy(true); setMsg("");
+    try { setShown(await previewStep(seq.id, step.step_order, subject || null, body)); }
+    catch (e) { setMsg(String(e)); }
+    finally { setBusy(false); }
+  }
+  async function save() {
+    setBusy(true); setMsg("");
+    try {
+      setShown(await updateStep(seq.id, step.step_order, subject || null, body));
+      setMsg("已保存。这一步现在是你的，系统播种不会再覆盖它。");
+      onSaved();
+    } catch (e) { setMsg(String(e).replace(/^Error:\s*/, "发不出去：")); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div style={{ borderTop: "1px solid var(--border)", padding: "12px 0" }}>
+      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+        第 {step.step_order + 1} 步 · 入组后第 {step.day_offset} 天
+        {step.edited ? " · 已被你改过" : ""}
+      </div>
+      {seq.channel === "email" && (
+        <input className="input" value={subject} placeholder="邮件主题"
+               style={{ width: "100%", marginBottom: 6 }}
+               onChange={(e) => setSubject(e.target.value)} />
+      )}
+      <textarea className="input" value={body} rows={10} style={{ width: "100%", fontFamily: "inherit" }}
+                onChange={(e) => setBody(e.target.value)} />
+      <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <button className="btn btn-sm" onClick={look} disabled={busy}>看看发出去是什么样</button>
+        <button className="btn btn-primary btn-sm" onClick={save} disabled={busy || !dirty}>保存这一步</button>
+        {msg && <span className="muted" style={{ fontSize: 12 }}>{msg}</span>}
+      </div>
+      {shown && (
+        <div style={{ marginTop: 10, border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+            按 {shown.company ?? "示例客户"} 渲染
+          </div>
+          {shown.subject && <div style={{ fontWeight: 600, marginBottom: 6 }}>{shown.subject}</div>}
+          <div style={{ whiteSpace: "pre-wrap", fontSize: 14, lineHeight: 1.6 }}>{shown.body}</div>
+          <div style={{ marginTop: 10, fontSize: 13 }}>
+            {shown.blocked
+              ? <span style={{ color: "var(--danger, #d33)" }}>⚠ 这样发不出去：{shown.detail}</span>
+              : <span style={{ color: "var(--ok, #2a7)" }}>✓ 检查通过，可以发</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SequenceRow({ seq, onSaved }: { seq: Sequence; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const edited = seq.steps.some((st) => st.edited);
+  return (
+    <div style={{ borderTop: "1px solid var(--border)", padding: "10px 0" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+        <b>{seq.name} <span className="muted">· {CH_LABEL[seq.channel] ?? seq.channel}</span>
+          {edited && <span className="muted" style={{ fontWeight: 400 }}> · 你改过</span>}</b>
+        <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span className="muted">进行中 {seq.enrolled} 家 · {seq.steps.length} 步</span>
+          <button className="btn btn-sm" onClick={() => setOpen((v) => !v)}>
+            {open ? "收起" : "改文案"}
+          </button>
+        </span>
+      </div>
+      <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+        {seq.steps.map((st) => `第${st.step_order + 1}步(第${st.day_offset}天)`).join(" → ")}
+      </div>
+      {open && (
+        <div style={{ marginTop: 6 }}>
+          {seq.steps.map((st) => (
+            <StepEditor key={st.step_order} seq={seq} step={st} onSaved={onSaved} />
+          ))}
+          {edited && (
+            <button className="btn btn-sm" style={{ marginTop: 10 }}
+                    onClick={async () => { await revertSequence(seq.id); onSaved(); }}>
+              还原为系统文案
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

@@ -208,6 +208,22 @@ def build(conn) -> dict:
             "copy", "文案可发性", "ok",
             f"{copy_scan['checked']} 条模板和序列步骤都能通过发送前检查", "outreach"))
 
+    # docs/86 R2. Every other check asks whether something is connected; this one asks
+    # whether the work came out. Instagram had been silent for seven days on 09-02 while
+    # the dashboard said 自主销售正常, and the same sentence would have caught the
+    # follow queue that never ran and the 99 enrollments parked past the end.
+    from app import throughput
+    stalled = throughput.stalled(conn)
+    if stalled:
+        checks.append(_check(
+            "throughput", "渠道产出", "attention", throughput.summary(conn)
+            + "——连接正常不等于在发东西，去看看队列里有没有人", "socialqueue"))
+    else:
+        live = [c for c in throughput.channel_output(conn) if c["enabled"] and c["total"]]
+        detail = ("、".join(f"{c['label']} 上次 {c['last_date']}" for c in live)
+                  if live else "还没有任何渠道发出过东西")
+        checks.append(_check("throughput", "渠道产出", "ok", detail, "dashboard"))
+
     pending_proposals = agent_status["pending"]
     checks.append(_check(
         "agent_proposals", "Agent 待审批",
