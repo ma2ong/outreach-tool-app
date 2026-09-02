@@ -39,18 +39,21 @@ GENERIC_HOOK_KO = "귀사 관련 내용을 확인하다가 연락드렸습니다
 # says both rental and events should read as both rather than twice as one.
 _CATEGORY = (
     (r"digital signage|디지털 사이니지", "digital signage"),
-    (r"\bsignage\b|사이니지|전광판", "signage"),
-    (r"billboard|out-?of-?home|\bDOOH\b|옥외\s*광고|광고판", "billboard"),
-    (r"outdoor advertis|advertising panel|광고\s*대행", "outdoor advertising"),
+    (r"\bOOH\b|out-?of-?home|billboard|옥외\s*광고|광고판", "billboard"),
+    (r"\bsignage\b|\bsigns?\b|사이니지", "signage"),
+    # An advertising screen is a 전광판. "outdoor advertising" would read the word
+    # outdoor into a company that never said it.
+    (r"advertis|광고", "LED signage"),
     (r"\brental\b|\brent\b|aluguel|alquiler|렌탈|임대", "rental"),
     (r"\bevent|stage|concert|festival|touring|행사|무대|공연", "events"),
     (r"integrat|\bAV\b|audio.?visual|시스템\s*통합", "AV integration"),
-    (r"install|fixed|시공|설치", "installation"),
+    (r"install|\bfixed\b|시공|설치", "installation"),
     (r"distribut|import|trading|유통|수입", "distribution"),
     (r"wholesale|도매", "wholesale"),
-    (r"video wall|media wall|미디어\s*월|비디오\s*월", "media wall"),
+    (r"video ?wall|media ?wall|미디어\s*월|비디오\s*월", "media wall"),
     (r"panel sales|screen sales|판매", "panel sales"),
-    (r"led (?:display|screen|panel)|led\s*디스플레이|led\s*스크린", "LED panels"),
+    (r"led (?:display|screen|panel|sign)|display (?:design|manufact|solution)"
+     r"|디스플레이|스크린|패널", "LED panels"),
 )
 _CATEGORY_RE = tuple((re.compile(p, re.I), term) for p, term in _CATEGORY)
 
@@ -93,7 +96,11 @@ def hook_for(lead: dict) -> str:
     if not terms:
         return GENERIC_HOOK
     what = _join(terms)
+    # Some rows carry the country in the city column. "around Brazil" is not a thing a
+    # person writes, and it is the one part of the sentence that claims local knowledge.
     place = _place(lead.get("city"))
+    if place and place.strip().lower() == str(lead.get("country") or "").strip().lower():
+        place = ""
     if place:
         return f"Saw the {what} work you do around {place}."
     if str(lead.get("website") or "").strip():
