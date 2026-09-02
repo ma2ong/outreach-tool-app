@@ -24,6 +24,7 @@ from app import settings
 KINDS = (
     "reply_draft", "send_outreach", "create_task", "enroll_sequence",
     "stop_sequence", "discover_run", "build_opportunity", "mark_do_not_contact",
+    "reschedule_work",
 )
 AUTONOMY = ("off", "propose", "auto")
 RISKS = ("low", "medium", "high")
@@ -140,17 +141,24 @@ def create(conn, kind: str, *, title: str, payload: dict, lead_no: int | None = 
            reasoning: str = "", evidence: list | None = None, risk: str = "medium",
            contact_id: int | None = None, opportunity_id: int | None = None,
            inbox_message_id: int | None = None, backend: str = "",
-           dedupe_key: str = "") -> dict | None:
+           dedupe_key: str = "", force_pending: bool = False) -> dict | None:
     """Record one proposal. Returns None when this kind is switched off or when the
     same thing was already proposed — a duplicate draft for a reply Allen already saw
-    is noise, not a second opinion."""
+    is noise, not a second opinion.
+
+    `force_pending` is for the command bar (docs/88 R2). The autonomy dial is set for
+    the agent's own code paths: same code, same conditions, predictable. A sentence
+    typed in a box is understood by a model, and `send_outreach` on `auto` would mean a
+    misreading is already in someone's inbox — so a command always stops to be asked,
+    whatever the dial says.
+    """
     ensure_schema(conn)
     if kind not in KINDS:
         raise ProposalError(f"未知动作类型 {kind}")
     if risk not in RISKS:
         raise ProposalError(f"未知风险级 {risk}")
     level = autonomy(conn, kind)
-    if level == "off":
+    if level == "off" and not force_pending:
         return None
     fp = _fingerprint(kind, lead_no, inbox_message_id, dedupe_key or title)
     if conn.execute("SELECT 1 FROM agent_proposals WHERE fingerprint=?", (fp,)).fetchone():
@@ -166,7 +174,7 @@ def create(conn, kind: str, *, title: str, payload: dict, lead_no: int | None = 
          json.dumps(payload or {}, ensure_ascii=False), risk, backend, fp, now, now))
     conn.commit()
     proposal = get(conn, cur.lastrowid)
-    if level == "auto":
+    if level == "auto" and not force_pending:
         # Still recorded, still auditable — 'auto' skips the asking, not the writing down.
         return _execute(conn, proposal, note="自主执行")
     return proposal

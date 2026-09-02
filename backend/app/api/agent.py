@@ -2,8 +2,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from app import jobs
-from app.agent import (classify, control_center, conversation, learn, llm, memory as memory_mod,
-                       mission, proposals, report, run)
+from app.agent import (classify, command, control_center, conversation, learn, llm,
+                       memory as memory_mod, mission, proposals, report, run)
 from app.main_deps import DB_PATH, get_conn
 
 router = APIRouter(prefix="/api/agent")
@@ -43,6 +43,10 @@ class MissionRequest(BaseModel):
     daily_qualified_leads: int
     minimum_fit_score: int
     auto_enroll: bool
+
+
+class CommandRequest(BaseModel):
+    said: str
 
 
 class TakeoverRequest(BaseModel):
@@ -293,3 +297,18 @@ def forget_lead_memory(lead_no: int, item_id: int, conn=Depends(get_conn)):
     if not memory_mod.forget(conn, lead_no, item_id):
         raise HTTPException(status_code=404, detail="记忆不存在")
     return {"ok": True}
+
+
+@router.post("/command")
+def agent_command(req: CommandRequest, conn=Depends(get_conn)):
+    """One sentence in (docs/88). Writes stop at `pending`; approval goes through the
+    existing /proposals/{id}/approve — the command bar adds no way to execute."""
+    try:
+        return command.run(conn, req.said)
+    except Exception as exc:  # noqa: BLE001
+        _bad(exc)
+
+
+@router.get("/commands")
+def agent_command_history(limit: int = 20, conn=Depends(get_conn)):
+    return {"items": command.history(conn, limit=limit)}

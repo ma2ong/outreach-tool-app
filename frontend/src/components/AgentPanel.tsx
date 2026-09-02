@@ -4,9 +4,11 @@ import {
   approveProposal, fetchAgentMeta, fetchAgentRunJob, fetchAgentStatus, fetchDailyReport,
   fetchAgentMission, fetchProposals, rejectProposal, sendDailyReport, setAgentBackend, setAutonomy,
   setPlanEnabled, startAgentRun, startPlanRun, fetchLearning, importCandidates, proposedName,
-  updateAgentMission, takeoverConversation, resumeConversation,
+  updateAgentMission, takeoverConversation, resumeConversation, sendCommand,
 } from "../agentApi";
-import type { AgentMeta, AgentMission, AgentStatus, FoundCandidate, Learning, Proposal } from "../agentApi";
+import type {
+  AgentMeta, AgentMission, AgentStatus, CommandResult, FoundCandidate, Learning, Proposal,
+} from "../agentApi";
 import { setAutoSend } from "../api";
 
 const KIND_LABEL: Record<string, string> = {
@@ -18,6 +20,7 @@ const KIND_LABEL: Record<string, string> = {
   discover_run: "跑一轮客户开发",
   build_opportunity: "建商机",
   mark_do_not_contact: "标记不再联系",
+  reschedule_work: "改任务排期",
 };
 
 const LEVEL_LABEL: Record<string, string> = {
@@ -379,6 +382,136 @@ function LearningView({ data }: { data: Learning | null }) {
   );
 }
 
+// docs/88 —— 十四个入口是按对象排的，一个念头不是。这里是唯一的新增界面。
+const SUGGESTIONS = [
+  "今天什么情况",
+  "现在哪里卡住了",
+  "把韩国那批加进跟进序列",
+  "分级任务全部提到今天",
+];
+
+function CommandBar({ onDecided }: { onDecided: () => void }) {
+  const [said, setSaid] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [out, setOut] = useState<CommandResult | null>(null);
+  const [err, setErr] = useState("");
+  const [deciding, setDeciding] = useState(false);
+  const [settled, setSettled] = useState("");
+
+  async function ask(text: string) {
+    const value = text.trim();
+    if (!value || busy) return;
+    setBusy(true); setErr(""); setOut(null); setSettled("");
+    try {
+      setOut(await sendCommand(value));
+    } catch (e) {
+      setErr(String(e instanceof Error ? e.message : e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function decide(approve: boolean) {
+    if (!out?.proposal || deciding) return;
+    setDeciding(true); setErr("");
+    try {
+      if (approve) {
+        await approveProposal(out.proposal.id);
+        setSettled("已执行");
+      } else {
+        await rejectProposal(out.proposal.id, "指挥台撤回");
+        setSettled("已撤回");
+      }
+      setOut(null);
+      onDecided();
+    } catch (e) {
+      setErr(String(e instanceof Error ? e.message : e));
+    } finally {
+      setDeciding(false);
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input
+          className="input"
+          style={{ flex: 1 }}
+          value={said}
+          placeholder="跟它说一句话，比如：把韩国那批加进跟进序列"
+          onChange={(e) => setSaid(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") ask(said); }}
+        />
+        <button className="btn btn-primary" disabled={busy || !said.trim()} onClick={() => ask(said)}>
+          {busy ? "在想…" : "发给它"}
+        </button>
+      </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9 }}>
+        {SUGGESTIONS.map((text) => (
+          <button key={text} className="btn btn-sm" disabled={busy}
+                  onClick={() => { setSaid(text); ask(text); }}>
+            {text}
+          </button>
+        ))}
+      </div>
+
+      {err && <div className="error-text" style={{ marginTop: 10, fontSize: 12 }}>{err}</div>}
+      {settled && <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>{settled}</div>}
+
+      {out && (
+        <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+          {out.outcome === "answered" && out.answer && (
+            <>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>{out.answer.title}</div>
+              {out.answer.lines.map((line, i) => (
+                <div key={i} style={{ display: "flex", gap: 10, fontSize: 13, padding: "3px 0" }}>
+                  <span className="muted" style={{ flex: "none", width: 92 }}>{line.k}</span>
+                  <span>{line.v}</span>
+                </div>
+              ))}
+            </>
+          )}
+
+          {(out.outcome === "ask" || out.outcome === "refused") && (
+            <div style={{ fontSize: 13 }}>{out.question || out.message}</div>
+          )}
+
+          {out.outcome === "proposed" && out.proposal && (
+            <>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>我理解成：{out.proposal.title}</div>
+              {/* docs/88 R4 —— 影响多少家，要在按钮之前看见 */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 20px", fontSize: 13,
+                            background: "var(--surface-2)", borderRadius: 8, padding: "9px 11px" }}>
+                {(out.impact ?? []).map(([k, v]) => (
+                  <span key={k} style={{ display: "flex", gap: 7 }}>
+                    <span className="muted">{k}</span><b>{v}</b>
+                  </span>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
+                <button className="btn btn-primary btn-sm" disabled={deciding}
+                        onClick={() => decide(true)}>执行</button>
+                <button className="btn btn-sm" disabled={deciding}
+                        onClick={() => decide(false)}>算了</button>
+                <span className="muted" style={{ fontSize: 12 }}>
+                  待确认 —— 在你点之前什么都没发生
+                </span>
+              </div>
+            </>
+          )}
+
+          {out.times >= 3 && (
+            <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
+              这句话你说到第 {out.times} 次了 —— 值得把它写成一条规则。
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }) {
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [meta, setMeta] = useState<AgentMeta | null>(null);
@@ -492,6 +625,7 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
   const recentRuns = status.recent_runs ?? [];
   return (
     <div>
+      <CommandBar onDecided={reload} />
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div>

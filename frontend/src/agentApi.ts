@@ -300,3 +300,26 @@ export async function forgetLeadMemory(leadNo: number, itemId: number): Promise<
   await jsonOrThrow(await fetch(`/api/agent/memory/${leadNo}/${itemId}`, { method: "DELETE" }),
                     "forget memory");
 }
+
+// docs/88 —— 一句话进来，一个待确认的动作出去。
+export type CommandImpact = [string, string];
+
+export type CommandResult = {
+  outcome: "answered" | "proposed" | "ask" | "refused";
+  said: string;
+  action: string;
+  confidence: number;
+  times: number;
+  question?: string;
+  message?: string;
+  answer?: { title: string; lines: { k: string; v: string }[] };
+  proposal?: Proposal;
+  impact?: CommandImpact[];
+};
+
+export async function sendCommand(said: string): Promise<CommandResult> {
+  return jsonOrThrow(await fetch("/api/agent/command", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ said }),
+  }), "agent command");
+}

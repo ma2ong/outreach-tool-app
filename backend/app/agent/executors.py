@@ -400,8 +400,35 @@ def discover_run(conn, p: dict) -> str:
     return note
 
 
+def reschedule_work(conn, p: dict) -> str:
+    """Move work Allen did not schedule (docs/88 R1).
+
+    The agent sets its own due dates — 579 of the open tasks carry one nobody chose —
+    and until now no screen could change them. Nothing here leaves the tool: it edits a
+    due date, a priority or cancels, so the risk is a day of work reordered, not a letter.
+    """
+    payload = dict(p.get("payload") or {})
+    ids = [int(i) for i in payload.get("activity_ids") or []]
+    if not ids:
+        return "没有要改的任务"
+    patch: dict = {}
+    for field in ("due_at", "priority", "status"):
+        if payload.get(field):
+            patch[field] = payload[field]
+    if not patch:
+        return "没有要改的字段"
+    changed = 0
+    for activity_id in ids:
+        if activities.update(conn, activity_id, dict(patch)):
+            changed += 1
+    conn.commit()
+    what = "、".join(f"{k}={v}" for k, v in patch.items())
+    return f"{changed} 条任务已改：{what}"
+
+
 HANDLERS = {
     "reply_draft": send_reply,
+    "reschedule_work": reschedule_work,
     "create_task": create_task,
     "build_opportunity": build_opportunity,
     "mark_do_not_contact": mark_do_not_contact,
