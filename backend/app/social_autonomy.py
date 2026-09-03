@@ -185,6 +185,16 @@ def run_due(conn, now: dt.datetime | None = None) -> dict:
         if now < local_time.moment_for(row["lead_no"], day, row["country"]):
             held["还没到这条的时刻"] = held.get("还没到这条的时刻", 0) + 1
             continue
+        # A moment that passed while we were down is a turn that has come, but catching
+        # up must not pick a worse hour than the one it missed: the deploy on 09-03 at
+        # 17:00 Shenzhen had eight messages whose morning moment had already gone, and
+        # would have fired all eight into the recipient's 03:00. So a late message still
+        # has to be civil — unless today has no civil moment left at all, which is the
+        # same "实在达不到就照发" that governs the moment itself (docs/92 R4).
+        if not local_time.suits_recipient(row["country"], now) and any(
+                slot > now for slot in local_time.civil_slots(row["country"], day)):
+            held["等对方那边的白天"] = held.get("等对方那边的白天", 0) + 1
+            continue
         due.append(dict(row))
     result["held"] = held
     if not due:

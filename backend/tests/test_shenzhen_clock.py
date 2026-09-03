@@ -309,3 +309,21 @@ def _walk(conn, start: dt.datetime, until: dt.datetime, step: int = 5) -> list[d
             sa._deliver = original
         now += dt.timedelta(minutes=step)
     return sent
+
+
+def test_catching_up_does_not_pick_a_worse_hour_than_it_missed():
+    """docs/92 R4 的补充，来自 09-03 17:00 那次上线。
+
+    队列排在上午，服务下午才带着新代码起来，八条消息的时刻都已经过去 —— 顺延是对的，
+    但顺延到对方当地凌晨三点就把「不作废」变成了「作废也比这强」。补发也要挑体面时间，
+    除非今天已经挑不出了。
+    """
+    conn = _book(country="USA")
+    sa.set_mode(conn, "whatsapp", "auto", confirm="whatsapp")
+    social_queue.build_today(conn, now=cn(2026, 9, 3, 9))
+    # 深圳 17:00 = 美国当地 03:00，而当天 21:00 起还够得着他们的上午。
+    assert not _walk(conn, start=cn(2026, 9, 3, 17), until=cn(2026, 9, 3, 18))
+    sent = _walk(conn, start=cn(2026, 9, 3, 21), until=cn(2026, 9, 4, 9))
+    assert sent
+    for item in sent:
+        assert lt.suits_recipient("USA", item["_at"])
