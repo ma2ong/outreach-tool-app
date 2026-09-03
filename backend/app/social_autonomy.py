@@ -36,11 +36,6 @@ _K_MODE = "social_autonomy_%s"
 _K_LAST_RUN_DATE = "social_autonomy_last_run_date"
 _K_LAST_RUN = "social_autonomy_last_run"
 
-# What the panel shows as "today's send time". The window itself lives in
-# `local_time.CORE`; this is one representative minute inside it, moved daily so the
-# screen never suggests a scheduler that fires at the same moment every day.
-SEND_WINDOW = (9, 18)
-
 # One per channel per cycle, and never closer than a minute or two apart.
 #
 # This is now the only thing throttling a catch-up, and it is enough. A message used to
@@ -104,13 +99,6 @@ def effective_mode(channel_mode: str, country: str | None) -> str:
     if ceiling is None:
         return channel_mode
     return channel_mode if _LEVEL[channel_mode] <= _LEVEL[ceiling] else ceiling
-
-
-def send_at(day: dt.date) -> dt.datetime:
-    """The moment today's automatic send is due — a different one each day."""
-    rng = random.Random(f"social-send:{day.isoformat()}")
-    hour = rng.randint(SEND_WINDOW[0], SEND_WINDOW[1] - 1)
-    return dt.datetime.combine(day, dt.time(hour, rng.randint(0, 59)))
 
 
 def _deliver(conn, items: list[dict]) -> dict:

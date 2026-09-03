@@ -74,13 +74,9 @@ def test_an_off_channel_is_not_even_prepared(conn):
 
 # ---------------------------------------------------------------- the pacing
 
-def test_the_send_time_moves_every_day(conn):
-    """A job that fires at the same minute daily is one of the plainest bot signatures,
-    and a person pressing send never produces that pattern in the first place."""
-    times = {social_autonomy.send_at(dt.date(2026, 9, day)) for day in range(1, 15)}
-    assert len(times) > 1
-    for moment in times:
-        assert 9 <= moment.hour < 18
+# 「每天的发送时刻都不一样」这条规则没有消失，只是不再由一个全天统一的时刻来实现：
+# docs/92 之后每条私信各有各的时刻，规则由 test_shenzhen_clock.py 里的
+# test_each_message_still_gets_its_own_moment 和 ..._spread_across_the_whole_reachable_stretch 守着。
 
 
 def test_nothing_is_sent_twice_across_the_day(conn, monkeypatch):

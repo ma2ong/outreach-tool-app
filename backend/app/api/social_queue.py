@@ -45,8 +45,7 @@ def read_queue(conn=Depends(get_conn)):
 def read_autonomy(conn=Depends(get_conn)):
     """Per-channel mode, plus what today's automatic run did (if it ran)."""
     return {"modes": social_autonomy.all_modes(conn),
-            "last_run": social_autonomy.last_run(conn),
-            "send_at": social_autonomy.send_at(social_queue.dt.date.today()).strftime("%H:%M")}
+            "last_run": social_autonomy.last_run(conn)}
 
 
 @router.put("/autonomy")

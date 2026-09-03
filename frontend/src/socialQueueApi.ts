@@ -74,7 +74,6 @@ export type SocialAutonomy = {
   // 写成同一种沉默，于是发送失败了六天，屏幕上看不出任何区别。
   last_run: { at: string; channels: Record<string, number>; failed: number;
               attempted?: number; error?: string } | null;
-  send_at: string;
 };
 
 export async function fetchSocialAutonomy(): Promise<SocialAutonomy> {
