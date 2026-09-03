@@ -32,7 +32,11 @@ class ModeRequest(BaseModel):
 @router.get("")
 def read_queue(conn=Depends(get_conn)):
     rows = social_queue.today(conn)
-    return {"date": social_queue._today(), "items": rows,
+    return {"date": social_queue.sales_day(), "items": rows,
+            # What the dashboard counts. A row on an `auto` channel is not waiting for
+            # him, and saying it was is half of why six silent days went unnoticed
+            # (docs/92 R6).
+            "awaiting_you": social_queue.awaiting_you(conn),
             "per_channel": {c: sum(1 for r in rows if r["channel"] == c)
                             for c in social_queue.CHANNELS}}
 
@@ -110,7 +114,7 @@ def send_queue(req: SendRequest, background: BackgroundTasks, conn=Depends(get_c
     rows = conn.execute(
         f"SELECT id, lead_no, channel, target, body FROM social_dm_queue"
         f" WHERE id IN ({placeholders}) AND queue_date=? AND status='ready'"
-        f" ORDER BY rank_order", [*req.ids, social_queue._today()]).fetchall()
+        f" ORDER BY rank_order", [*req.ids, social_queue.sales_day()]).fetchall()
     items = [dict(r) for r in rows]
     if not items:
         raise HTTPException(status_code=400, detail="选中的条目已发送或已不在今天的队列里")

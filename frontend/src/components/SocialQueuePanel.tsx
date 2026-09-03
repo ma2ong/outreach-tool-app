@@ -185,11 +185,21 @@ export function SocialQueuePanel() {
             </div>
           )}
           {autonomy.last_run && (
-            <div className="muted" style={{ marginTop: 6 }}>
-              今天自动发过：{Object.entries(autonomy.last_run.channels)
-                .map(([c, n]) => `${CH_NAME[c]} ${n} 条`).join(" · ")}
-              {autonomy.last_run.failed ? `，失败 ${autonomy.last_run.failed}` : ""}
-            </div>
+            Object.keys(autonomy.last_run.channels).length > 0 ? (
+              <div className="muted" style={{ marginTop: 6 }}>
+                今天自动发过：{Object.entries(autonomy.last_run.channels)
+                  .map(([c, n]) => `${CH_NAME[c]} ${n} 条`).join(" · ")}
+                {autonomy.last_run.failed ? `，失败 ${autonomy.last_run.failed}` : ""}
+              </div>
+            ) : (
+              // 试过、一条也没成 —— 这正是 08-28 到 09-03 每天的真实状态，而屏幕上
+              // 当时什么都没有（docs/92 R5）。
+              <div style={{ marginTop: 6, color: "var(--danger, #c0392b)" }}>
+                自动发送失败：试了 {autonomy.last_run.attempted ?? autonomy.last_run.failed} 条，
+                一条都没发出去。
+                {autonomy.last_run.error ? ` 浏览器报的错：${autonomy.last_run.error}` : ""}
+              </div>
+            )
           )}
         </div>
       )}

@@ -197,9 +197,13 @@ def sending_pending(conn) -> int:
     it: how much of today's queue is still unsent.
     """
     try:
+        # The queue's day starts at 09:00, not midnight (docs/92 R2), so asking for the
+        # calendar date would report an empty queue every night between the two.
+        from app import social_queue
+
         return conn.execute(
             "SELECT COUNT(*) FROM social_dm_queue WHERE queue_date=? AND status='ready'",
-            (_today(),)).fetchone()[0]
+            (social_queue.sales_day(),)).fetchone()[0]
     except Exception:  # noqa: BLE001 — schema may not exist yet
         return 0
 

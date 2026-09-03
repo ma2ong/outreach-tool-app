@@ -17,6 +17,9 @@ export type SocialQueueItem = {
 export type SocialQueue = {
   date: string;
   items: SocialQueueItem[];
+  // 真正在等 Allen 的条数 —— auto 渠道的行不算（docs/92 R6）。仪表盘数的是这个，
+  // 不是 items.length：三个渠道挂在 auto 上六天，屏幕却一直写「等你按发送」。
+  awaiting_you: number;
   per_channel: Record<string, number>;
 };
 
@@ -67,7 +70,10 @@ export type SocialMode = "off" | "manual" | "auto";
 
 export type SocialAutonomy = {
   modes: Record<string, SocialMode>;
-  last_run: { at: string; channels: Record<string, number>; failed: number } | null;
+  // attempted / error 从 docs/92 R5 开始有：一条都没发成的那种运行，以前和「今天没到点」
+  // 写成同一种沉默，于是发送失败了六天，屏幕上看不出任何区别。
+  last_run: { at: string; channels: Record<string, number>; failed: number;
+              attempted?: number; error?: string } | null;
   send_at: string;
 };
 

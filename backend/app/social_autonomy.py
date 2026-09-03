@@ -36,16 +36,18 @@ _K_MODE = "social_autonomy_%s"
 _K_LAST_RUN_DATE = "social_autonomy_last_run_date"
 _K_LAST_RUN = "social_autonomy_last_run"
 
-# A person pressing send never lands on the same minute two days running; a scheduler
-# does unless it is told not to.
+# What the panel shows as "today's send time". The window itself lives in
+# `local_time.CORE`; this is one representative minute inside it, moved daily so the
+# screen never suggests a scheduler that fires at the same moment every day.
 SEND_WINDOW = (9, 18)
 
-# How late a message may still go out after its own moment. Falling behind is fine;
-# catching up in one burst is how an account gets rate-limited (docs/53).
-MISSED_AFTER = dt.timedelta(hours=2)
-
-# Spreading by timezone still leaves two messages able to land in the same minute by
-# chance. One per channel per cycle, and never closer than a minute or two apart.
+# One per channel per cycle, and never closer than a minute or two apart.
+#
+# This is now the only thing throttling a catch-up, and it is enough. A message used to
+# be discarded if its moment was more than two hours old, on the reasoning that a
+# restart must not fire a whole day at once — but with 85 cycles a day, one per channel
+# each, the burst it feared cannot form, and discarding was doing real harm: a message
+# that missed its slot was gone for the day (docs/92 R4).
 #
 # The natural spacing is already an hour or so — 8-15 messages across a 12-hour window —
 # so this only bites when two scheduled moments happen to collide. Guarding that edge
@@ -136,63 +138,64 @@ def last_run(conn) -> dict | None:
 
 
 def run_due(conn, now: dt.datetime | None = None) -> dict:
-    """Send whichever queued messages are due right now in the recipient's own timezone.
+    """Send whatever the Shenzhen clock allows right now, best recipient first.
 
-    Not one batch at one moment: a single moment cannot serve a list spanning twelve
-    time zones, and the Shenzhen afternoon it used to pick was 05:07 in New York. Each
-    message now has its own due time inside the customer's working day, and each cycle
-    sends only the ones whose moment has arrived (docs/65 R3).
+    The window is ours (docs/92 R1): 09:00–18:20 normally, and after 18:30 for as long
+    as this process is alive, which is what "the computer is still on" means. The
+    customer's clock only sorts — whoever is inside their own 07:00–22:00 goes ahead of
+    whoever is not, and whoever is not still goes.
+
+    `docs/65` had this the other way round and it cost six silent days: their clock was
+    a veto, the queue's lifetime was Shenzhen's, and 24 of 31 messages were deleted
+    every night before their moment arrived.
     """
     now = now or dt.datetime.now(dt.UTC)
     if now.tzinfo is None:
-        now = now.astimezone(dt.UTC)
-    today = now.date().isoformat()
+        now = now.replace(tzinfo=dt.UTC)
     result = {"sent_batches": 0, "channels": {}, "held": {}}
     auto = [c for c in social_queue.CHANNELS if get(conn, c) == "auto"]
     if not auto:
         return result
 
+    stage = local_time.phase(now)
+    if stage == "paused":
+        result["held"] = {"晚上 18:20–18:30 之间不发": 1}
+        return result
+
     social_queue.ensure_schema(conn)
+    day = local_time.sales_day(now)
     placeholders = ",".join("?" * len(auto))
-    # Yesterday's queue is still in play: a customer's Thursday afternoon in Chicago is
-    # Friday morning in UTC, so a row dated Thursday has its moment after UTC midnight.
-    # Matching only today's date made those messages unreachable and silently unsent.
-    yesterday = (now.date() - dt.timedelta(days=1)).isoformat()
     rows = conn.execute(
-        f"SELECT q.id, q.lead_no, q.channel, q.target, q.body, q.queue_date, l.country"
+        f"SELECT q.id, q.lead_no, q.channel, q.target, q.body, q.variant, l.country"
         f" FROM social_dm_queue q JOIN leads l ON l.no = q.lead_no"
-        f" WHERE q.queue_date IN (?, ?) AND q.status='ready'"
-        f" AND q.channel IN ({placeholders})"
-        f" ORDER BY q.rank_order", [today, yesterday, *auto]).fetchall()
-    items, held = [], {}
-    taken: set[str] = set()
+        f" WHERE q.queue_date=? AND q.status='ready' AND q.channel IN ({placeholders})"
+        f" ORDER BY q.rank_order", [day.isoformat(), *auto]).fetchall()
+
+    due, held = [], {}
     for row in rows:
-        country = row["country"]
         # A country set to manual stays in the queue and waits for Allen; it is held
         # back here rather than filtered out of the list he sees (docs/63).
-        if effective_mode("auto", country) != "auto":
+        if effective_mode("auto", row["country"]) != "auto":
             held["韩国等你确认"] = held.get("韩国等你确认", 0) + 1
             continue
-        allowed, why = local_time.may_send(country, now)
-        if not allowed:
-            held[why] = held.get(why, 0) + 1
-            continue
-        # The moment belongs to the day the message was queued for, in their timezone.
-        queued_on = dt.date.fromisoformat(row["queue_date"])
-        due = local_time.send_minute(row["lead_no"], queued_on, country)
-        if due is None:
-            held["国家未知，不自动发"] = held.get("国家未知，不自动发", 0) + 1
-            continue
-        due = due.replace(tzinfo=dt.UTC)
-        if now < due:
+        # Its own moment, chosen inside their working hours where today offers any and
+        # inside our window where it does not (docs/92 R3). A moment already past is a
+        # turn that has come, never a forfeit (docs/92 R4).
+        if now < local_time.moment_for(row["lead_no"], day, row["country"]):
             held["还没到这条的时刻"] = held.get("还没到这条的时刻", 0) + 1
             continue
-        # A moment long past is a moment missed, not a moment owed. Without this, a
-        # service restart would fire every message whose time passed while it was down,
-        # all at once — the burst docs/53 refuses to allow.
-        if now - due > MISSED_AFTER:
-            held["错过了今天的时刻"] = held.get("错过了今天的时刻", 0) + 1
-            continue
+        due.append(dict(row))
+    result["held"] = held
+    if not due:
+        return result
+
+    # Whoever is already awake goes first; the rest still go (docs/92 R3). Stable inside
+    # each group, so rank order — signal, ICP fit, then hook — still runs the day.
+    due.sort(key=lambda r: 0 if local_time.suits_recipient(r["country"], now) else 1)
+
+    items: list[dict] = []
+    taken: set[str] = set()
+    for row in due:
         channel = row["channel"]
         if channel in taken:
             held["同一渠道本轮已发过一条"] = held.get("同一渠道本轮已发过一条", 0) + 1
@@ -207,14 +210,14 @@ def run_due(conn, now: dt.datetime | None = None) -> dict:
             except ValueError:  # a malformed stamp must not block sending forever
                 pass
         taken.add(channel)
-        items.append({k: v for k, v in dict(row).items()
-                      if k not in ("country", "queue_date")})
-    result["held"] = held
+        items.append({k: v for k, v in row.items() if k != "country"})
     if not items:
         return result
 
     outcome = _deliver(conn, items) or {}
     sent = int(outcome.get("sent") or 0)
+    failed = int(outcome.get("failed") or 0)
+    errors = outcome.get("errors") or []
     for item in items[:sent]:
         settings.set_value(conn, _K_LAST_SEND % item["channel"], now.isoformat())
     if sent:
@@ -227,11 +230,14 @@ def run_due(conn, now: dt.datetime | None = None) -> dict:
     for item in items[:sent]:
         per_channel[item["channel"]] = per_channel.get(item["channel"], 0) + 1
     result = {"sent_batches": 1 if sent else 0, "channels": per_channel,
-              "failed": int(outcome.get("failed") or 0)}
-    # Quiet when there is nothing to say (docs/48 R3) — but a send spent account risk,
-    # and that is never nothing.
-    if sent:
-        settings.set_value(conn, _K_LAST_RUN, json.dumps(
-            {"at": now.isoformat(), "channels": per_channel,
-             "failed": result["failed"]}, ensure_ascii=False))
+              "failed": failed, "attempted": len(items)}
+    # Quiet when there is nothing to say (docs/48 R3) — but reaching the send path is
+    # never nothing, and "tried three, none went" is the loudest thing this feature can
+    # report. It spent six days indistinguishable from a quiet day because only a
+    # success was written down (docs/92 R5).
+    record = {"at": now.isoformat(), "channels": per_channel,
+              "failed": failed, "attempted": len(items)}
+    if errors:
+        record["error"] = str(errors[0].get("error"))[:200]
+    settings.set_value(conn, _K_LAST_RUN, json.dumps(record, ensure_ascii=False))
     return result

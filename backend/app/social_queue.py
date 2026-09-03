@@ -22,7 +22,7 @@ import datetime as dt
 import random
 import re
 
-from app import message_guard
+from app import local_time, message_guard
 from app.personalize import render
 
 CHANNELS = ("whatsapp", "instagram", "facebook")
@@ -158,8 +158,13 @@ def ensure_schema(conn) -> None:
     conn.commit()
 
 
-def _today(now: dt.datetime | None = None) -> str:
-    return (now or dt.datetime.now()).date().isoformat()
+def sales_day(now: dt.datetime | None = None) -> str:
+    """今天是哪一天 —— 深圳上午 9 点换日，不是零点（docs/92 R2）。
+
+    队列的日期、删除的边界、发送窗口用的必须是同一条日界线。原来这里用日历日期，而发送
+    时刻按收件人时区算，两个日历互不知情：美国客户的时刻还没到，队列已经在深圳零点被删了。
+    """
+    return local_time.sales_day(now).isoformat()
 
 
 def _allowance(channel: str, now: dt.datetime) -> int:
@@ -169,11 +174,18 @@ def _allowance(channel: str, now: dt.datetime) -> int:
     differing from one day to the next.
     """
     low, high = DAILY_RANGE[channel]
-    rng = random.Random(f"{_today(now)}:{channel}")
+    day = local_time.sales_day(now)
+    rng = random.Random(f"{day.isoformat()}:{channel}")
     count = rng.randint(low, high)
-    if now.weekday() >= 5:
+    if day.weekday() >= 5:
         count = max(2, int(count * WEEKEND_FACTOR))
     return count
+
+
+def _day_started(now: dt.datetime | None = None) -> str:
+    """销售日开始的那一刻，深圳墙上时钟 —— send_log 的 'localtime' 就是这个钟。"""
+    return dt.datetime.combine(
+        local_time.sales_day(now), local_time.DAY_STARTS).strftime("%Y-%m-%d %H:%M:%S")
 
 
 _FIT_RE = re.compile(r"\((\d+)\)")
@@ -214,14 +226,14 @@ def _candidates(conn, now: dt.datetime) -> list[dict]:
         LEFT JOIN buying_signals b ON b.lead_no = l.no
         WHERE COALESCE(l.do_not_contact, 0) = 0
           AND l.no NOT IN (SELECT lead_no FROM send_log
-                           WHERE date(sent_at, 'localtime') = date(?))
+                           WHERE datetime(sent_at, 'localtime') >= ?)
           AND l.no NOT IN (SELECT e.lead_no FROM sequence_enrollments e
                            JOIN sequences s ON s.id = e.sequence_id
                            WHERE e.status='active' AND s.channel='email'
                              AND e.next_due_date <= date(?))
         GROUP BY l.no
         """,
-        (_today(now), _today(now)),
+        (_day_started(now), sales_day(now)),
     ).fetchall()
     # The ICP score lives inside `target_fit` as "租赁公司 (98)", so ranking happens here
     # rather than in SQL.
@@ -290,9 +302,15 @@ def build_today(conn, now: dt.datetime | None = None) -> dict:
     """Prepare today's queue. Sends nothing, and cannot: it only writes rows."""
     ensure_schema(conn)
     now = now or dt.datetime.now()
-    today = _today(now)
+    today = sales_day(now)
     # Yesterday's queue is not carried over. A three-day-old DM list is stale, and stale
     # lists are how the 89-item task pile happened.
+    #
+    # `today` is the sales day now, and that is the whole of the 09-03 fix: this delete
+    # used to fire at Shenzhen midnight against rows whose send moment was still hours
+    # away in Chicago, so 24 of 31 messages were rebuilt and re-deleted every night
+    # without ever being reachable. The boundary moved to 09:00, where the extended
+    # window has already ended and nothing is waiting on the other side of it.
     conn.execute("DELETE FROM social_dm_queue WHERE queue_date != ? AND edited = 0", (today,))
     conn.execute("DELETE FROM social_dm_queue WHERE queue_date != ?", (today,))
 
@@ -367,7 +385,24 @@ def today(conn, now: dt.datetime | None = None) -> list[dict]:
     return [dict(r) for r in conn.execute(
         "SELECT q.*, l.company_en, l.country, l.website FROM social_dm_queue q"
         " JOIN leads l ON l.no = q.lead_no"
-        " WHERE q.queue_date=? ORDER BY q.rank_order", (_today(now),))]
+        " WHERE q.queue_date=? ORDER BY q.rank_order", (sales_day(now),))]
+
+
+def awaiting_you(conn, now: dt.datetime | None = None) -> int:
+    """How many of today's rows are actually waiting for Allen (docs/92 R6).
+
+    Not the same as "how many are queued". Three channels sat on `auto` for six days
+    while the dashboard said "31 条备好了，等你按发送" — the system thought the job was
+    its, Allen thought it was his, and both waited. A row belongs on his list only if
+    nothing will send it on its own: the channel is not `auto`, or the country holds it
+    back to manual anyway (docs/63).
+    """
+    from app import social_autonomy
+
+    return sum(1 for row in today(conn, now)
+               if row["status"] == "ready"
+               and social_autonomy.effective_mode(
+                   social_autonomy.get(conn, row["channel"]), row["country"]) != "auto")
 
 
 def edit(conn, queue_id: int, body: str) -> bool:

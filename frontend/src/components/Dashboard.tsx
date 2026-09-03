@@ -121,13 +121,15 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
   const maxC = countries[0]?.[1] ?? 1;
   useEffect(() => {
     fetchDailyReport().then((r) => setReport(r.text || "")).catch(() => setReport(""));
-    fetchSocialQueue().then((q) => setSocialPending(q.items.length)).catch(() => setSocialPending(0));
+    fetchSocialQueue().then((q) => setSocialPending(q.awaiting_you)).catch(() => setSocialPending(0));
   }, []);
 
   // 今天唯一需要他动手的那些事，合成一栏。它们以前散在三个页面和四张卡上——
   // 「142 项逾期」要点进销售任务才看得到，而那正是最该先看见的一行。
   const decisions: { key: string; count: number; unit: string; what: string;
                      note?: string; go: string; page: string; urgent?: boolean }[] = [];
+  // 只数确实在等他的：渠道是手动挡，或者渠道自动但国家压回了手动（韩国，docs/63）。
+  // 挂在 auto 上的那些系统自己会发 —— 说它们在等他，等于两边互相等（docs/92 R6）。
   if (socialPending > 0) decisions.push({
     key: "social", count: socialPending, unit: "条", what: "社媒私信备好了，等你按发送",
     go: "去确认", page: "social" });

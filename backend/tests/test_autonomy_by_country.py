@@ -68,8 +68,8 @@ def conn(tmp_path):
 def _walk_a_day(conn, day: dt.date):
     """Run the loop across the day and the one after it, the way the real cycle does.
 
-    Two days because a customer's afternoon can fall after UTC midnight — that is the
-    whole reason run_due also looks at yesterday's queue (docs/65).
+    Two days because a sales day runs 09:00 → 09:00 Shenzhen and its extended window
+    crosses midnight, so one calendar day does not contain one sending day (docs/92 R2).
     """
     start = dt.datetime.combine(day, dt.time(0, 0), tzinfo=dt.UTC)
     for minute in range(0, 48 * 60, 10):
@@ -83,8 +83,9 @@ def test_the_automatic_run_skips_korea_but_sends_the_rest(conn, monkeypatch):
                         lambda c, items: sent.extend(items) or {"sent": len(items)})
 
     _walk_a_day(conn, dt.date(2026, 8, 27))   # a Thursday everywhere that matters
-    # #2 is Korean (held for Allen) and #3 has no country, so neither goes on its own.
-    assert {i["lead_no"] for i in sent} == {1}
+    # #2 is Korean, so it waits for Allen. #3 has no country and goes anyway since
+    # docs/92 R3: an unplaceable timezone costs a place in the order, not the send.
+    assert {i["lead_no"] for i in sent} == {1, 3}
 
 
 def test_the_korean_row_stays_in_the_queue_for_him(conn, monkeypatch):

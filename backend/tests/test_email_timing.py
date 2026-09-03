@@ -17,16 +17,17 @@ def utc(y, m, d, h, mi=0):
 
 def test_email_is_allowed_later_in_their_evening_than_a_dm():
     # 22:00 US Central. A letter then sits at the top of the pile next morning; a DM
-    # then is an interruption.
+    # then is an interruption — which since docs/92 costs the DM its place in the queue
+    # order, not the send itself.
     evening = utc(2026, 8, 27, 4)
     assert lt.may_email("USA", evening)[0] is True
-    assert lt.may_send("USA", evening)[0] is False
+    assert lt.suits_recipient("USA", evening) is False
 
 
 def test_email_is_allowed_earlier_in_their_morning_than_a_dm():
-    morning = utc(2026, 8, 27, 13)   # 07:00 US Central
+    morning = utc(2026, 8, 27, 12)   # 06:00 US Central
     assert lt.may_email("USA", morning)[0] is True
-    assert lt.may_send("USA", morning)[0] is False
+    assert lt.suits_recipient("USA", morning) is False
 
 
 @pytest.mark.parametrize("hour_utc", [6, 8, 10, 11])   # 00:00–05:00 US Central
@@ -41,7 +42,7 @@ def test_an_unknown_country_still_gets_email():
     # after they left", which is email's normal condition.
     for country in [None, "", "Freedonia"]:
         assert lt.may_email(country, utc(2026, 8, 27, 14))[0] is True
-        assert lt.may_send(country, utc(2026, 8, 27, 14))[0] is False
+        assert lt.suits_recipient(country, utc(2026, 8, 27, 14)) is False
 
 
 def test_the_windows_intersect_where_the_spec_says_they_do():
