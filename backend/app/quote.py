@@ -12,9 +12,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 # Allen's standard range — loaded via the seed endpoint, then editable in the UI.
 DEFAULT_PRODUCTS = [
-    {"model": "Indoor Fine Pitch", "pixel_pitch": "P0.7-P1.8", "brightness": "600-800 nits",
+    {"model": "Indoor Fine Pitch", "pixel_pitch": "P0.6-P1.8", "brightness": "600-800 nits",
      "use_case": "Control room / TV studio / boardroom", "ref_price_sqm": "USD 2400-5800"},
-    {"model": "Indoor Commercial", "pixel_pitch": "P2-P3", "brightness": "600-800 nits",
+    {"model": "Indoor Commercial", "pixel_pitch": "P2-P4", "brightness": "600-800 nits",
      "use_case": "Retail / conference / stage backdrop", "ref_price_sqm": "USD 900-1800"},
     {"model": "Indoor Rental", "pixel_pitch": "P2.6-P3.9", "brightness": "600-800 nits",
      "use_case": "Events / concerts (die-cast cabinet)", "ref_price_sqm": "USD 1000-1600"},

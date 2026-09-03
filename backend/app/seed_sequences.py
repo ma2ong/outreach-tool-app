@@ -69,13 +69,13 @@ For rental work we run P2.6-P3.9 indoor at 600-800 nits and P3.9-P4.8 outdoor at
 If any of this is close to what you use, I'd be glad to send the spec sheet — weight and
 power per cabinet included. Just let me know which pitch, whenever it's convenient.
 """),
-    "install": ("P2-P3 indoor, P2.5-P10 outdoor, front or rear service", """Hi {contact},
+    "install": ("P0.6-P4 indoor, P2.5-P10 outdoor, front or rear service", """Hi {contact},
 
 {hook}
 
 This is Allen, from an LED display manufacturer in Shenzhen.
 
-For fixed work we run P2-P3 indoor at 600-800 nits and P2.5-P10 outdoor at
+For fixed work we run P0.6-P4 indoor at 600-800 nits and P2.5-P10 outdoor at
 5,500-8,000 nits, front or rear service.
 
 If that's close to what you spec, I'd be glad to send the sheet — weight and power per
@@ -92,14 +92,14 @@ P2.5-P10 at 5,500-8,000 nits, front-serviceable, built to run all day in dayligh
 If something outdoor is in planning, I'd be glad to put together the specs for the pitch
 that suits the viewing distance. No rush on my side.
 """),
-    "general": ("indoor, rental and outdoor LED panels, P0.7 to P10", """Hi {contact},
+    "general": ("indoor, rental and outdoor LED panels, P0.6 to P10", """Hi {contact},
 
 {hook}
 
 This is Allen, from an LED display manufacturer in Shenzhen.
 
-Indoor P2-P3 at 600-800 nits, rental P2.6-P4.8 die-cast, outdoor P2.5-P10 at
-5,500-8,000 nits, and fine pitch down to P0.7 for control rooms and studios.
+Indoor P2-P4 at 600-800 nits, rental P2.6-P4.8 die-cast, outdoor P2.5-P10 at
+5,500-8,000 nits, and fine pitch down to P0.6 for control rooms and studios.
 
 If any of these are close to what you work with, I'd be glad to send the matching spec
 sheet. Just let me know whenever it's convenient.
@@ -133,13 +133,13 @@ KO_OPENER = {
 쓰시는 사양과 비슷하다면 사양서 기꺼이 보내드리겠습니다. 캐비닛별 무게와 소비전력까지
 함께 정리해 드립니다. 편하실 때 말씀만 주세요.
 """),
-    "install": ("시공용 실내 P2-P3 / 실외 P2.5-P10, 전후면 유지보수", """안녕하세요, {contact}님.
+    "install": ("시공용 실내 P0.6~P4 / 실외 P2.5-P10, 전후면 유지보수", """안녕하세요, {contact}님.
 
 {hook_ko}
 
 저는 심천의 LED 디스플레이 제조업체에서 해외영업을 담당하는 Allen 마이용입니다.
 
-고정 설치는 실내 P2-P3(600-800 nits), 실외 P2.5-P10(5,500-8,000 nits), 전면·후면
+고정 설치는 실내 P0.6~P4(600-800 nits), 실외 P2.5-P10(5,500-8,000 nits), 전면·후면
 유지보수 모두 가능합니다.
 
 검토하시는 사양과 비슷하다면 사양서 기꺼이 보내드리겠습니다. 캐비닛별 무게와 소비전력까지
@@ -156,14 +156,14 @@ P2.5-P10, 5,500-8,000 nits, 전면 유지보수 가능하고 주간 야외 상�
 실외 건 검토 중이시라면 시청 거리에 맞는 피치로 사양 정리해서 기꺼이 보내드리겠습니다.
 급하지 않으니 편하실 때 말씀 주세요.
 """),
-    "general": ("실내·렌탈·실외 LED 패널, P0.7부터 P10까지", """안녕하세요, {contact}님.
+    "general": ("실내·렌탈·실외 LED 패널, P0.6부터 P10까지", """안녕하세요, {contact}님.
 
 {hook_ko}
 
 저는 심천의 LED 디스플레이 제조업체에서 해외영업을 담당하는 Allen 마이용입니다.
 
-실내 P2-P3(600-800 nits), 렌탈 P2.6-P4.8 다이캐스팅, 실외 P2.5-P10(5,500-8,000 nits),
-그리고 관제실·스튜디오용 P0.7부터의 미세 피치까지 다 됩니다.
+실내 P2-P4(600-800 nits), 렌탈 P2.6-P4.8 다이캐스팅, 실외 P2.5-P10(5,500-8,000 nits),
+그리고 관제실·스튜디오용 P0.6부터의 미세 피치까지 다 됩니다.
 
 위 범위 중 쓰시는 것과 비슷한 게 있으면 해당 사양서 기꺼이 보내드리겠습니다.
 편하실 때 편하게 말씀 주세요.
@@ -187,7 +187,7 @@ KO_SECOND = {
 EN_LAST = """Hi {contact},
 
 A short summary of the whole range, in case it's useful to keep on file: fine pitch from
-P0.7 for control rooms and studios, P2-P3 indoor commercial, P2.6-P4.8 die-cast rental, and P2.5-P10 outdoor at
+P0.6 for control rooms and studios, P2-P4 indoor commercial, P2.6-P4.8 die-cast rental, and P2.5-P10 outdoor at
 5,500-8,000 nits. All of it made in Shenzhen.
 
 Whenever a job comes up, I'd be glad to put the specs and a quote together for it —
@@ -196,8 +196,8 @@ same day, and no obligation either way.
 
 KO_LAST = """안녕하세요, {contact}님.
 
-저희가 만드는 전 범위를 한 번에 정리해 드립니다. 관제실·스튜디오용 P0.7부터의 미세 피치,
-실내 상업용 P2-P3, 렌탈용 P2.6-P4.8 다이캐스팅, 실외 P2.5-P10(5,500-8,000 nits) —
+저희가 만드는 전 범위를 한 번에 정리해 드립니다. 관제실·스튜디오용 P0.6부터의 미세 피치,
+실내 상업용 P2-P4, 렌탈용 P2.6-P4.8 다이캐스팅, 실외 P2.5-P10(5,500-8,000 nits) —
 전부 심천에서 만듭니다.
 
 나중에 프로젝트 생기시면 사양서와 견적 기꺼이 정리해 드리겠습니다. 편하실 때 언제든

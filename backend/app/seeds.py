@@ -62,8 +62,8 @@ I'm Allen, handling export sales for an LED display manufacturer in Shenzhen.
 
 Our range covers:
 
-  · Fine pitch P0.7-P1.8, 600-800 nits — control rooms, studios, boardrooms
-  · Indoor commercial P2-P3, 600-800 nits — retail, conference, stage backdrop
+  · Fine pitch P0.6-P1.8, 600-800 nits — control rooms, studios, boardrooms
+  · Indoor commercial P2-P4, 600-800 nits — retail, conference, stage backdrop
   · Rental P2.6-P3.9 indoor and P3.9-P4.8 outdoor, die-cast cabinets
   · Outdoor fixed P2.5-P10, 5,500-8,000 nits — billboards and building facades
 
@@ -79,12 +79,12 @@ WhatsApp/WeChat +86 135-7087-1001
 
 {hook_ko}
 
-저는 선전의 LED 디스플레이 제조업체에서 해외영업을 담당하는 Allen입니다.
+저는 심천의 LED 디스플레이 제조업체에서 해외영업을 담당하는 Allen입니다.
 
 {company}에서 검토하실 만한 범위를 간단히 정리해 드립니다.
 
-  · 미세 피치 P0.7-P1.8 (600-800 nits) — 관제실, 스튜디오, 회의실
-  · 실내 상업용 P2-P3 (600-800 nits) — 리테일, 컨퍼런스, 무대 배경
+  · 미세 피치 P0.6-P1.8 (600-800 nits) — 관제실, 스튜디오, 회의실
+  · 실내 상업용 P2-P4 (600-800 nits) — 리테일, 컨퍼런스, 무대 배경
   · 렌탈용 실내 P2.6-P3.9 / 실외 P3.9-P4.8, 다이캐스팅 캐비닛
   · 실외 고정 P2.5-P10 (5,500-8,000 nits) — 옥외광고, 건물 외벽
 
@@ -115,7 +115,7 @@ WhatsApp/WeChat +86 135-7087-1001
      "캐비닛 도면 자료",
      """안녕하세요, {contact}님.
 
-저는 선전의 LED 디스플레이 제조업체에서 해외영업을 담당하는 Allen입니다.
+저는 심천의 LED 디스플레이 제조업체에서 해외영업을 담당하는 Allen입니다.
 
 도면과 입찰 검토용 자료에는 아래 내용을 함께 정리할 수 있습니다.
 
@@ -132,8 +132,8 @@ Kakaotalk / WeChat +86 13570871001
 
 ALLEN_STYLE_DM = [
     ("私信 · 产品线对比（韩语）", "ko",
-     "안녕하세요, {contact}님. 선전의 LED 디스플레이 제조업체에서 해외영업을 담당하는 "
-     "Allen입니다. 실내 P2-P3, 렌탈 P2.6-P4.8, 실외 P2.5-P10 비교표가 도움이 될까요?"),
+     "안녕하세요, {contact}님. 심천의 LED 디스플레이 제조업체에서 해외영업을 담당하는 "
+     "Allen입니다. 실내 P0.6~P4, 렌탈 P2.6-P4.8, 실외 P2.5-P10 비교표가 도움이 될까요?"),
 ]
 
 
