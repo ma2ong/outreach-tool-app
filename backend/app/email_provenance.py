@@ -6,22 +6,29 @@
 回答不了「这个具体地址存不存在」；后者只有公司自己的页面能回答。
 
 所以这里做的事很小：把一个说不出来历的地址，拿回它公司的官网上对一遍。
+
+**它不挡任何一封信。** 这是 Allen 09-03 定的（docs/89 R2）：研究归研究，
+读到有用的就入库，读不到就什么都不写，发信量一封都不因为研究而少。
+在官网上找到一个不一样的地址就换掉 —— 那是在不减量的前提下把退信降下来，
+和「因为说不出出处就不发」是两件事。
 """
 from __future__ import annotations
 
 import sqlite3
 
-from app import activities, enrich
+from app import enrich
 from app.jina import fetch as jina_fetch
-
-TASK_TITLE = "补联系方式：%s 的邮箱在官网上找不到"
 
 # 一轮扫描最多抓几家。抓取要联网，慢，且每家都是一次外部请求。
 SWEEP_LIMIT = 40
 
 
 def unsourced(conn: sqlite3.Connection, limit: int = SWEEP_LIMIT) -> list[dict]:
-    """有邮箱、说不出出处、还没写过信的公司 —— 已经发过的不在其列（docs/89 R2）。"""
+    """有邮箱、说不出出处、还没写过信的公司。
+
+    有官网的排前面：那些是这一轮真能学到东西的。没官网的一样留在列表里，
+    但它们只会得到一个 `no_website`，不写库、也不挡信。
+    """
     return [dict(r) for r in conn.execute(
         "SELECT no, company_en, email, website FROM leads"
         " WHERE COALESCE(email,'') <> '' AND COALESCE(email_source,'') = ''"
@@ -30,16 +37,6 @@ def unsourced(conn: sqlite3.Connection, limit: int = SWEEP_LIMIT) -> list[dict]:
         "   AND no NOT IN (SELECT lead_no FROM send_log WHERE channel='email')"
         " ORDER BY CASE WHEN COALESCE(website,'') = '' THEN 1 ELSE 0 END, no"
         " LIMIT ?", (limit,))]
-
-
-def _task(conn, lead: dict, reason: str) -> None:
-    """出处补不上是一件要人去做的活，不是一条要吞掉的错误。"""
-    activities.create(conn, lead["no"], {
-        "title": TASK_TITLE % (lead.get("company_en") or f"#{lead['no']}"),
-        "type": "task", "priority": "normal",
-        "note": f"{reason}。地址 {lead.get('email')} 没有任何出处，"
-                f"这一类历史退信率 19.7%，所以不进发送队列（docs/89）。",
-    })
 
 
 def recover(conn: sqlite3.Connection, lead_no: int, fetch=None) -> dict:
@@ -55,14 +52,14 @@ def recover(conn: sqlite3.Connection, lead_no: int, fetch=None) -> dict:
     current = str(lead.get("email") or "").strip().lower()
     website = str(lead.get("website") or "").strip()
     if not website:
-        _task(conn, lead, "这家公司没有官网可读")
+        # 读不到就什么都不写。一条「去补联系方式」的任务对 483 家来说是 483 条噪音，
+        # 而这个地址照样会发出去 —— 那条任务不改变任何事。
         return {"outcome": "no_website", "lead_no": lead_no}
 
     info = enrich.enrich_domain(website, fetch=fetch or jina_fetch)
     found = info.get("email")
     source = info.get("email_source")
     if not found or not source:
-        _task(conn, lead, "官网读到了，但页面上没有邮箱")
         return {"outcome": "unknown", "lead_no": lead_no}
 
     # 直接写列，不走 repository.update_lead —— 那条路是「Allen 亲手改的」，
