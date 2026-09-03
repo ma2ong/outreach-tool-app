@@ -137,7 +137,14 @@ def send_campaign(conn, lead_nos: list[int], subject: str, body: str,
             else:
                 attempted_send = True
                 # Send the exact strings that passed the guard; never render a second time.
-                sender(lead["email"], rendered_subject, rendered_body, attachment)
+                # docs/95：这家公司别的信箱抄送在同一封信里，不另起一封。
+                from app import contacts as _contacts
+
+                cc = _contacts.also_reach(conn, lead["no"], lead["email"])
+                if cc:
+                    sender(lead["email"], rendered_subject, rendered_body, attachment, cc=cc)
+                else:
+                    sender(lead["email"], rendered_subject, rendered_body, attachment)
                 _mark_messaged(conn, lead["no"], today)
                 campaigns.log_send(conn, lead["no"], "email", label,
                                    subject=rendered_subject, body=rendered_body)

@@ -474,3 +474,37 @@ def merge_lead_contacts(conn: sqlite3.Connection, keep: int, duplicate: int) -> 
             conn.execute("UPDATE contacts SET is_primary=1 WHERE id=?", (first["id"],))
     _sync_lead(conn, keep)
     conn.commit()
+
+
+# docs/95：同一家公司别的信箱，抄送在同一封信里。
+#
+# Allen 09-03 的两条：找到的具名邮箱**不替换** `leads.email`（不知道哪个信箱后面真的
+# 坐着人，两个都发），但也不另发一封 —— 同一家公司收到两封几乎一样的冷邮件，比只收到
+# 一封更像群发。所以是一封信、两个收件人，占一个额度、留一条发信记录，日限额、退信
+# 抑制、免打扰全部原样生效。
+#
+# 地址只能来自这家公司自己的页面（docs/89）。这里不猜任何地址：库里已有的联系人是
+# `decision_maker_radar` 从官网上读到的，猜出来的地址从来进不了这张表。
+MAX_CC = 2
+
+
+def also_reach(conn: sqlite3.Connection, lead_no: int, primary: str | None) -> list[str]:
+    """这家公司另外还该抄送的地址，按录入顺序，最多两个。"""
+    # 这张表在老库和测试库里可能还没建起来。少一张表不该被发信循环那个宽 except
+    # 吞成「这封信发失败了」—— 那正是 23 个测试一起变红的原因。
+    ensure_schema(conn)
+    main = (primary or "").strip().lower()
+    out: list[str] = []
+    rows = conn.execute(
+        "SELECT email FROM contacts WHERE lead_no=? AND COALESCE(email,'')<>''"
+        " AND COALESCE(email_status,'') != 'invalid' ORDER BY is_primary DESC, id",
+        (lead_no,)).fetchall()
+    for row in rows:
+        addr = (row["email"] or "").strip()
+        low = addr.lower()
+        if not low or low == main or low in {o.lower() for o in out}:
+            continue
+        out.append(addr)
+        if len(out) >= MAX_CC:
+            break
+    return out

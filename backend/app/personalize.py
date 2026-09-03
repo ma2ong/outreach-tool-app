@@ -101,6 +101,40 @@ _HOOK_WORK_RE = re.compile(
     r"^Saw the (.+?) work(?: you do(?: around (.+?))?)?( on your site)?\.$")
 
 
+
+# 一个人名，还是页面上扫下来的一段文字。宁可漏掉真人，不可把公司名当成人叫出口 ——
+# 漏掉的代价是一封没有称呼的信（今天的常态），叫错的代价是这封信当场结束。
+_NOT_A_PERSON = re.compile(
+    r"\b(delivery|sales|services?|group|inc|llc|ltd|corp|company|team|support|media|"
+    r"productions?|systems?|solutions?|rental|events?|studio|technolog\w*|design|display|"
+    r"screens?|led|av|audio|sound|video|lighting|marketing|management|projects?|staff|"
+    r"department|office|centers?|centres?|quote|content|markdown|testimonials|"
+    r"entertainment|stage|visual|digital|creative|works|world|live|park|nationwide|"
+    r"outside|inside|customer|client|general|contact|about|home|welcome)\b", re.I)
+_PERSON_TOKEN = re.compile(r"[A-Za-z][A-Za-z'’\-\.]{0,19}")
+_KO_ZH_NAME = re.compile(r"^[가-힣]{2,4}$|^[一-鿿]{2,4}$")
+
+
+def looks_like_a_person(value: str) -> bool:
+    name = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not name or len(name) > 40:
+        return False
+    if _KO_ZH_NAME.fullmatch(name):
+        return True
+    if _NOT_A_PERSON.search(name):
+        return False
+    tokens = name.split()
+    # 只有名字的联系人（"Carlos"）是常态，不是残缺数据 —— 单段照收，
+    # 单段里的垃圾（"Contact" "Team" "Welcome"）由上面那张表挡。
+    if not 1 <= len(tokens) <= 3:
+        return False
+    for token in tokens:
+        core = token.strip(".")
+        if not core or not _PERSON_TOKEN.fullmatch(token) or not core[0].isupper():
+            return False
+    return True
+
+
 def hook_ko(lead: dict) -> str:
     """The stored English hook, said in Korean. Empty when the shape is unfamiliar.
 
@@ -163,6 +197,11 @@ def render(text: str | None, lead: dict) -> str:
         return ""
     company = lead.get("company_en") or ""
     contact = (lead.get("contact_name") or "").strip()
+    # docs/95，Allen 09-03：「只有当确定对方的名称时才称呼，不确定的情况下情愿不发。」
+    # 雷达从 about 页扫回来的名字里有「Nationwide Delivery」「Outside Sales」
+    # 「Markdown Content」这种 —— 一句「Hi Nationwide,」比没有称呼糟得多。
+    if contact and not looks_like_a_person(contact):
+        contact = ""
     values = {
         "name": company,
         "company": company,

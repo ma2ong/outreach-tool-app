@@ -46,11 +46,16 @@ class EmailSendRequest(BaseModel):
 
 def _rotating_sender(conn):
     """Per-email sender that rotates configured mailboxes and records usage."""
-    def send(to, subject, body, attachment):
+    def send(to, subject, body, attachment, cc=None):
         mbx = mailboxes.pick_mailbox(conn)
         if mbx is None:
             raise RuntimeError("no mailbox capacity")
-        email_adapter.send_via(mbx, to, subject, body, attachment)
+        # 没有抄送时按老的五参调用 —— 测试里替换 send_via 的假函数不认识第六个参数，
+        # 而它们测的是邮箱轮换，不是抄送。
+        if cc:
+            email_adapter.send_via(mbx, to, subject, body, attachment, cc)
+        else:
+            email_adapter.send_via(mbx, to, subject, body, attachment)
         mailboxes.record_send(conn, mbx["id"])
     return send
 

@@ -31,11 +31,16 @@ def get_password() -> str:
     return ""
 
 
-def build_message(sender: str, to: str, subject: str, body: str, attachment: str | None) -> MIMEMultipart:
+def build_message(sender: str, to: str, subject: str, body: str, attachment: str | None,
+                  cc: list[str] | None = None) -> MIMEMultipart:
     msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
     msg["From"] = sender
     msg["To"] = to
+    # docs/95: 同一家公司的第二个信箱抄送在同一封信里，不另发一封。Allen 09-03：
+    # 「不知道他哪个邮箱是真实的负责人只能都发」—— 都发，但只发一封。
+    if cc:
+        msg["Cc"] = ", ".join(cc)
     msg.attach(MIMEText(body, "plain", "utf-8"))
     if attachment:
         # Silently dropping a missing attachment is worse than failing: the copy says
@@ -59,9 +64,10 @@ def default_mailbox() -> dict:
             "username": FALLBACK_SENDER, "password": pw}
 
 
-def send_email(to: str, subject: str, body: str, attachment: str | None = None) -> None:
+def send_email(to: str, subject: str, body: str, attachment: str | None = None,
+               cc: list[str] | None = None) -> None:
     """Send from the fallback Gmail (used when no sender mailboxes are configured)."""
-    send_via(default_mailbox(), to, subject, body, attachment)
+    send_via(default_mailbox(), to, subject, body, attachment, cc)
 
 
 STARTTLS_FALLBACK_PORT = 587
@@ -96,12 +102,13 @@ def _connect(mailbox: dict):
         return _open(host, STARTTLS_FALLBACK_PORT, user, password)
 
 
-def send_via(mailbox: dict, to: str, subject: str, body: str, attachment: str | None = None) -> None:
+def send_via(mailbox: dict, to: str, subject: str, body: str, attachment: str | None = None,
+             cc: list[str] | None = None) -> None:
     """Send from a configured mailbox (rotation)."""
     sender = mailbox["email"]
-    msg = build_message(sender, to, subject, body, attachment)
+    msg = build_message(sender, to, subject, body, attachment, cc)
     with _connect(mailbox) as server:
-        server.sendmail(sender, to, msg.as_bytes())
+        server.sendmail(sender, [to, *(cc or [])], msg.as_bytes())
 
 
 def test_mailbox(mailbox: dict) -> None:

@@ -17,6 +17,7 @@ import time
 from app import campaigns
 from app import channel_outreach as co
 from app import message_guard
+from app import contacts
 from app import outreach as email_outreach
 from app import sequences
 from app.personalize import render
@@ -120,7 +121,14 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
                                   "enrollment_id": d["enrollment_id"]})
                 else:
                     attempted_send = True
-                    sender(to, subject_text, body_text, d.get("image") or image_default)
+                    # docs/95：同一家公司的第二个信箱跟着这一封走，不另发一封。
+                    # 老的四参 sender（测试里的假发信器）不认识 cc，没有抄送时不传。
+                    image = d.get("image") or image_default
+                    cc = contacts.also_reach(conn, no, to)
+                    if cc:
+                        sender(to, subject_text, body_text, image, cc=cc)
+                    else:
+                        sender(to, subject_text, body_text, image)
                     email_outreach._mark_messaged(conn, no, today)
                     remaining["email"] -= 1
                     batch_used["email"] += 1
