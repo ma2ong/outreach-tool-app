@@ -141,9 +141,10 @@ def run_due(conn, now: dt.datetime | None = None) -> dict:
     """Send whatever the Shenzhen clock allows right now, best recipient first.
 
     The window is ours (docs/92 R1): 09:00–18:20 normally, and after 18:30 for as long
-    as this process is alive, which is what "the computer is still on" means. The
-    customer's clock only sorts — whoever is inside their own 07:00–22:00 goes ahead of
-    whoever is not, and whoever is not still goes.
+    as this process is alive, which is what "the computer is still on" means. Inside it,
+    the customer's clock picks each message's moment — from their own 07:00–22:00 where
+    today offers one, from our window where it does not — and, among messages whose
+    moment has come, puts whoever is awake first. It never cancels one.
 
     `docs/65` had this the other way round and it cost six silent days: their clock was
     a veto, the queue's lifetime was Shenzhen's, and 24 of 31 messages were deleted
