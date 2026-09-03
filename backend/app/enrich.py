@@ -138,10 +138,30 @@ _CONTENT_LINK_WORDS = {
     "service": 1, "services": 1, "servicios": 1, "solution": 1, "solutions": 1,
     "business": 1, "portfolio": 1, "project": 1, "projects": 1, "사업": 1, "서비스": 1,
 }
+# docs/94 R1. 案例页也独立一档。它和产品页回答的是两个问题：产品页说他们卖什么，
+# 案例页说他们做过什么 —— 后者是开场白唯一的材料来源。以前 project/portfolio 挂在
+# _CONTENT_LINK_WORDS 里、权重 1，永远抢不到那 2 个名额。
+#
+# 词表覆盖西语、葡语、韩语、中文：书里 1311 家客户分布在这些市场，只写英文
+# 等于只对英文站生效。
+_CASE_LINK_WORDS = {
+    "case": 5, "cases": 5, "case-study": 5, "case-studies": 5, "casestudy": 5,
+    "reference": 4, "references": 4, "project": 4, "projects": 4,
+    "portfolio": 4, "installation": 4, "installations": 4, "gallery": 3,
+    "work": 2, "works": 2, "clients": 2, "customers": 2,
+    "proyecto": 4, "proyectos": 4, "obras": 4, "casos": 5, "referencias": 4,
+    "projeto": 4, "projetos": 4, "realizacoes": 4, "realizações": 4,
+    "시공사례": 5, "사례": 5, "실적": 4, "포트폴리오": 4, "구축사례": 5,
+    "案例": 5, "工程案例": 5, "成功案例": 5, "项目": 4, "业绩": 4,
+}
+
 # Current-event pages are followed independently. A company already listing P2.5 on the
 # homepage may still announce an RFQ tomorrow; product evidence must not suppress radar.
 _SIGNAL_LINK_WORDS = {
     "news": 4, "press": 4, "updates": 3, "career": 4, "careers": 4, "jobs": 4,
+    # docs/94 R3 —— blog 和 news 常常是同一个栏目的两个叫法，不另开一档。
+    "blog": 4, "insights": 3, "stories": 3, "articles": 3, "noticias": 4,
+    "notícias": 4, "블로그": 4, "博客": 4, "动态": 4,
     "tender": 5, "procurement": 5, "rfp": 5, "rfq": 5, "bid": 4,
     "event": 3, "events": 3, "expo": 3, "exhibition": 3,
     "뉴스": 4, "소식": 4, "공지": 4, "채용": 5, "입찰": 5, "조달": 5, "전시": 3,
@@ -150,8 +170,11 @@ _SIGNAL_LINK_WORDS = {
 _LINK_SKIP = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".pdf", ".zip",
               "facebook.com", "instagram.com", "youtube.com", "linkedin.com",
               "twitter.com", "x.com", "kakao", "naver.me")
-_MAX_FOLLOWED = 2
-_MAX_SIGNAL_FOLLOWED = 2
+# docs/94：官网放开 —— 抓官网不碰任何登录态，不触发平台风控，代价只是几次
+# r.jina.ai 请求和几秒钟。社媒的 20 次/天一动不动，那条线管的是封号，不是速度。
+_MAX_FOLLOWED = 3
+_MAX_SIGNAL_FOLLOWED = 3
+_MAX_CASE_FOLLOWED = 3
 
 
 def _rank_links(text: str, domain: str, seen: set[str], words: dict[str, int],
@@ -175,6 +198,11 @@ def _rank_links(text: str, domain: str, seen: set[str], words: dict[str, int],
 def _content_links(text: str, domain: str, seen: set[str]) -> list[str]:
     """Same-host evergreen pages, best evidence candidates first."""
     return _rank_links(text, domain, seen, _CONTENT_LINK_WORDS, _MAX_FOLLOWED)
+
+
+def _case_links(text: str, domain: str, seen: set[str]) -> list[str]:
+    """Same-host pages saying what this company has actually built (docs/94 R1)."""
+    return _rank_links(text, domain, seen, _CASE_LINK_WORDS, _MAX_CASE_FOLLOWED)
 
 
 def _signal_links(text: str, domain: str, seen: set[str]) -> list[str]:
@@ -242,6 +270,15 @@ def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict
         urls = _content_links(joined, domain, seen)
         _fetch_extra(pages, urls, fetch)
         seen.update(urls)
+
+    # docs/94 R2. 案例那一轮不看 `_pitches`：点距是规格，案例是「他们上个月做了什么」，
+    # 后者才是开场白的材料。知道他们卖 P2.5 不等于拿到了一句可以引用的话。
+    #
+    # 位置在 `country` 推断之后，一行都不能往上挪（R5）：一家葡萄牙公司的案例页上
+    # 全是迪拜、新加坡、伦敦 —— 那些是客户所在地，不是他们自己的国家。
+    case_urls = _case_links("\n".join(p["text"] for p in pages), domain, seen)
+    _fetch_extra(pages, case_urls, fetch)
+    seen.update(case_urls)
 
     # Buying-window pages are a separate bounded pass. This still reuses links from the
     # pages we already fetched and never becomes a site-wide crawler.

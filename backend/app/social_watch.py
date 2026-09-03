@@ -90,7 +90,9 @@ REVISIT_DAYS = 14
 _POST_DATE = re.compile(
     r"(20\d{2})\s*[年./-]\s*(\d{1,2})\s*[月./-]\s*(\d{1,2})|"
     r"(20\d{2})-(\d{1,2})-(\d{1,2})")
-STALE_AFTER_DAYS = 540           # 一年半没动静，说的是这条线索凉了
+# Allen 09-03：「只看近两年的帖子即可，太久远的不用看了」。两年是他给的线 ——
+# 一条 2023 年的帖子仍然说明这家公司活着、在做这门生意；2019 年的不说明任何还成立的事。
+STALE_AFTER_DAYS = 730
 
 # docs/91 R4. 平台自己的框架不是这家公司说的话。一句 excerpt 里混着 Cookie 政策，
 # 它就永远不能被放进给客户的信里 —— 这条决定了 R3 的成败。
@@ -197,7 +199,7 @@ def sending_pending(conn) -> int:
     it: how much of today's queue is still unsent.
     """
     try:
-        # The queue's day starts at 09:00, not midnight (docs/92 R2), so asking for the
+        # The queue's day starts at 09:00, not midnight (docs/94 R2), so asking for the
         # calendar date would report an empty queue every night between the two.
         from app import social_queue
 
