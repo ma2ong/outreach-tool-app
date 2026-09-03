@@ -19,7 +19,9 @@ def test_status_reports_what_the_agent_can_and_cannot_do(tmp_path):
     body = client.get("/api/agent/status").json()
     assert body["pending"] == 0
     assert body["autonomy"]["reply_draft"] == "propose"
-    assert set(body["llm"]["tasks"]) == {"classify", "draft"}
+    # docs/93 起多了 hook 这一档：写开场白的模型和分类走同一条便宜后端
+    assert set(body["llm"]["tasks"]) == {"classify", "draft", "hook"}
+    assert body["llm"]["tasks"]["hook"]["backend"] == "deepseek"
     assert body["llm"]["tasks"]["classify"]["backend"] == "deepseek"
 
 

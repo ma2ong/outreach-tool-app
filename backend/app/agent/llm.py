@@ -21,9 +21,9 @@ import urllib.request
 from app import settings
 
 BACKENDS = ("cli", "deepseek", "api")
-TASKS = ("classify", "draft")
+TASKS = ("classify", "draft", "hook")
 
-_DEFAULT_BACKEND = {"classify": "deepseek", "draft": "cli"}
+_DEFAULT_BACKEND = {"classify": "deepseek", "draft": "cli", "hook": "deepseek"}
 _K_BACKEND = "agent_llm_backend_%s"
 _K_CALLS = "agent_call_stats"
 _K_CLI_LIMIT = "agent_daily_call_limit"
@@ -213,8 +213,9 @@ def _call_cli(system: str, user: str, timeout: int, model: str) -> str:
     return payload.get("result") or ""
 
 
-_CLI_MODEL = {"classify": "haiku", "draft": "opus"}
-_API_MODEL = {"classify": "claude-haiku-4-5-20251001", "draft": "claude-opus-5"}
+_CLI_MODEL = {"classify": "haiku", "draft": "opus", "hook": "haiku"}
+_API_MODEL = {"classify": "claude-haiku-4-5-20251001", "draft": "claude-opus-5",
+              "hook": "claude-haiku-4-5-20251001"}
 
 
 def _call_backend(conn, backend: str, task: str, system: str, user: str,

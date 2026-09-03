@@ -67,13 +67,20 @@ def rewrite(hook: str, city: str | None, brief: str | None) -> str:
 
 def collisions(conn) -> list[dict]:
     """Leads whose hook is not theirs alone, with the rewrite each would get."""
+    from app import hook_writer
+
+    hook_writer.ensure_schema(conn)
     rows = conn.execute(
-        "SELECT no, company_en, city, hook, brief FROM leads"
+        "SELECT no, company_en, city, hook, brief, hook_quote FROM leads"
         " WHERE COALESCE(hook,'') != ''").fetchall()
     shared = {h for h, n in Counter(r["hook"] for r in rows).items() if n > 1}
     out = []
     for row in rows:
         if row["hook"] not in shared:
+            continue
+        # docs/93 R5：出处比「和别家撞车」更重要。这个改写器是从书里已有材料重写塌陷的
+        # 通用句，它没有资格覆盖一句能追溯到客户官网原文的开场白。
+        if str(row["hook_quote"] or "").strip():
             continue
         fresh = rewrite(row["hook"], row["city"], row["brief"])
         if fresh != row["hook"]:

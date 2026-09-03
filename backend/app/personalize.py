@@ -107,6 +107,11 @@ def hook_ko(lead: dict) -> str:
     Empty is the right answer for anything unrecognised: a half-translated opener is
     worse than none, and the letter closes the gap on its own.
     """
+    # docs/93: 模型写的韩语开场白直接存在书里，引的是这家公司自己韩文官网上的句子。
+    # 它赢过下面的词表通道 —— 那条通道只认得两种句型和一张固定词表，认不出就返回空。
+    stored = (lead.get("hook_ko") or "").strip()
+    if stored:
+        return stored
     hook = (lead.get("hook") or "").strip()
     if not hook:
         return ""

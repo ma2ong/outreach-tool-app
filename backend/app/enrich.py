@@ -302,4 +302,7 @@ def enrich_domain(domain: str, fetch: Callable[[str], str] = jina_fetch) -> dict
             "phone": phones[0] if phones else None, "phones": phones,
             "icp_type": icp["icp_type"], "fit_score": icp["fit_score"],
             "brief": written["brief"], "hook": written["hook"],
+            # docs/93: 正文跟着结果一起交出去，`hook_writer` 要拿它逐字校验模型给的出处。
+            # 抓完即弃是这份材料唯一一次在手里的时刻。
+            "text": text[:20000],
             "buying_signals": detect_pages(pages), **socials}

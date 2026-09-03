@@ -195,7 +195,7 @@ def run(conn: sqlite3.Connection, lead_no: int, enrich_fn=None,
     from app import activities, repository as repo
 
     row = conn.execute(
-        "SELECT no, company_en, website, target_fit, recheck_count,"
+        "SELECT no, company_en, country, website, target_fit, recheck_count,"
         "       email, phone, instagram, facebook, linkedin, brief, hook"
         " FROM leads WHERE no=?", (lead_no,)
     ).fetchone()
@@ -235,6 +235,14 @@ def run(conn: sqlite3.Connection, lead_no: int, enrich_fn=None,
         sets = ", ".join(f"{k}=?" for k in fills)
         conn.execute(f"UPDATE leads SET {sets}, updated_at=? WHERE no=?",
                      [*fills.values(), dt.datetime.now(dt.UTC).isoformat(), lead_no])
+
+    # docs/93 R6：官网重读的时候正文正好在手，顺路写一句引用得出的开场白。
+    # 失败向下退，不向上抛 —— 没有更好的开场白不是一次失败的复检。
+    from app import hook_writer
+
+    better = hook_writer.improve(conn, {**lead, **fills}, info.get("text") or "", website)
+    if better:
+        notes.append(f"开场白改用官网原话：{better['hook']}")
 
     has_finding = bool(notes or new_signals)
     count = 0 if has_finding else (lead["recheck_count"] or 0) + 1
