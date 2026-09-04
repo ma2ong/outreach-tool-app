@@ -243,8 +243,16 @@ def process_threads(conn, channel: str, threads: list[dict]) -> dict:
                  (t.get("name") or sender)[:120], body, now))
             stored += 1
             if kind == "reply":
-                from app import activities
+                from app import activities, reply_details
                 activities.create_reply_task(conn, cur.lastrowid)
+                # docs/106 R5. A customer who answers on WhatsApp or Instagram states
+                # his address and title in the same words he would use in an email;
+                # until now this path read none of them.
+                try:
+                    reply_details.apply(conn, no, body,
+                                        contact_id=contact["id"] if contact else None)
+                except Exception:  # noqa: BLE001 — enrichment may never lose a reply
+                    pass
         if not robot:
             repository.mark_replied(conn, no, channel)
     conn.commit()

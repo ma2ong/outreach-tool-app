@@ -230,12 +230,16 @@ def _store(conn, lead_no: int, kind: str, m: dict,
         (lead_no, contact_id, kind, _norm(m.get("from_addr")), m.get("subject") or "",
          m.get("body") or "", m.get("received_at") or "", m.get("mailbox_email") or ""))
     if cur.rowcount > 0 and kind == "reply":
-        # docs/86 R5. The signature is the customer stating their own number, site and
-        # name. Only on a genuinely new reply, and only into fields the book is missing.
+        # docs/86 R5. The signature is the customer stating their own number, site,
+        # name, title and address. Only on a genuinely new reply, and only into fields
+        # the book is missing. docs/106: the sender decides whose row it lands on and
+        # which addresses in the body are believable.
         from app import reply_details
         from app.agent import memory_events
         try:
-            reply_details.apply(conn, lead_no, m.get("body"))
+            reply_details.apply(conn, lead_no, m.get("body"),
+                                contact_id=contact_id,
+                                sender=_norm(m.get("from_addr")))
             # docs/87: remember it now, not only if the agent decides to draft an answer.
             memory_events.remember(conn, lead_no)
         except Exception:  # noqa: BLE001 — enrichment may never lose a reply

@@ -329,3 +329,32 @@ def test_an_attachment_without_text_is_not_a_human_reply(conn, preview):
     assert conn.execute(
         "SELECT status FROM outreach WHERE lead_no=1 AND channel='instagram'"
     ).fetchone()[0] == "messaged"
+
+
+# ---- what they say about themselves (docs/106 R5) ----
+
+def test_contact_details_in_a_social_reply_reach_the_book(conn):
+    """A customer who answers on Instagram states his address the same way he would in
+    an email. Until docs/106 this path read none of it."""
+    preview = "Sure, send it over.\nE: compras@ledwave.com.br\nW: ledwave.com.br"
+    inbound.process_threads(conn, "instagram", [_thread("LedWave", preview)])
+    row = conn.execute("SELECT email, website FROM leads WHERE no=1").fetchone()
+    assert row["email"] == "compras@ledwave.com.br"
+    assert row["website"] == "ledwave.com.br"
+
+
+def test_an_unlabelled_address_in_a_dm_is_not_adopted(conn):
+    """docs/106 R3. A DM has no sender domain to vouch for an address, and this lead
+    has no website either — so a bare address in the preview stays out of the book."""
+    inbound.process_threads(
+        conn, "instagram", [_thread("LedWave", "we buy from tony@absen.com")])
+    assert conn.execute("SELECT email FROM leads WHERE no=1").fetchone()[0] is None
+
+
+def test_a_social_reply_never_overwrites_what_the_book_holds(conn):
+    conn.execute("UPDATE leads SET email='old@ledwave.com.br' WHERE no=1")
+    conn.commit()
+    inbound.process_threads(
+        conn, "instagram", [_thread("LedWave", "E: novo@ledwave.com.br")])
+    assert conn.execute(
+        "SELECT email FROM leads WHERE no=1").fetchone()[0] == "old@ledwave.com.br"
