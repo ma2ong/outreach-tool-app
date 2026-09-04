@@ -523,6 +523,25 @@ class PlaywrightEngine:
     _DM_LABELS = re.compile(r"messag|发消息|发送消息|메시지|mensaje", re.I)
     _COMMENT_LABELS = re.compile(r"comment|评论|留言|댓글|reply|回复", re.I)
 
+    # Probed 09-04 against both live sites: Instagram's composer carries no aria-label
+    # and no placeholder at all, only `aria-placeholder="发消息..."` — which is why six
+    # boxes came back "(无标签)" and nothing went out for six days. Facebook's comment
+    # box repeats itself in the same attribute, so reading it makes the guard stricter
+    # in the direction that matters too (docs/99 R1).
+    _LABEL_ATTRS = ("aria-label", "placeholder", "aria-placeholder")
+
+    @classmethod
+    def _box_label(cls, box) -> str:
+        parts = []
+        for attr in cls._LABEL_ATTRS:
+            try:
+                value = box.get_attribute(attr)
+            except Exception:  # noqa: BLE001 — element went away mid-scan
+                continue
+            if value and value not in parts:
+                parts.append(value)
+        return " ".join(parts)
+
     @classmethod
     def _is_comment_box(cls, label: str) -> bool:
         """A box that names itself a comment is never a private message box."""
@@ -552,33 +571,48 @@ class PlaywrightEngine:
 
         Refusing costs a day. Typing into the wrong box publishes a cold pitch as a
         public comment, or delivers it to a different company entirely (docs/61 R1).
+
+        What identifies "this customer's" box changed under us twice, so it is no longer
+        the label (docs/99 R2). Facebook writes the display name — "发消息给Rentex Audio
+        Visual & Computer Rentals" — while the handle we hold is `rentexrentals`, a
+        contraction that is not a substring of it; Instagram writes nothing at all.
+        The fact underneath both is that `_send_op` navigated to this company's own page
+        and clicked the button on it, and a real navigation destroys every dock that was
+        open before. So the single message box on the page is the one we just opened.
+        Two of them is the docs/61 case and is still refused.
         """
         deadline = time.time() + timeout / 1000
         seen: list[str] = []
-        while time.time() < deadline:
+        while True:
             candidates = []
+            seen = []
             for box in page.locator(
                     "div[contenteditable='true'][role='textbox'], textarea[placeholder]").all():
                 try:
-                    label = " ".join(filter(None, [
-                        box.get_attribute("aria-label") or "",
-                        box.get_attribute("placeholder") or "",
-                    ]))
                     if not box.is_visible():
                         continue
+                    label = self._box_label(box)
                 except Exception:  # noqa: BLE001 — element went away mid-scan
                     continue
                 seen.append(label or "(无标签)")
+                # A box that calls itself a comment is never a candidate, however many
+                # boxes are left and however much today's queue wants to go out.
                 if self._is_dm_box(label):
                     candidates.append((label, box))
-            aimed = [b for label, b in candidates if self._addresses(label, target)]
-            if len(aimed) == 1:
-                return aimed[0]
-            if len(aimed) > 1:
+            named = [b for label, b in candidates if target and self._addresses(label, target)]
+            if len(named) == 1:
+                return named[0]
+            if len(named) > 1:
                 raise RuntimeError(
                     f"several message boxes match {target!r}: {seen} — refusing to guess")
-            if candidates and not target:
-                return candidates[-1][1]
+            if len(candidates) == 1:
+                return candidates[0][1]
+            if len(candidates) > 1:
+                raise RuntimeError(
+                    f"{len(candidates)} message boxes are open and none names {target!r}:"
+                    f" {seen} — refusing to guess which company this would reach")
+            if time.time() >= deadline:
+                break
             page.wait_for_timeout(1000)
         raise RuntimeError(
             "could not confirm this customer's private message box — refusing to type,"
