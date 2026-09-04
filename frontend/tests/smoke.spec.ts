@@ -235,3 +235,19 @@ test("the leads table never scrolls sideways", async ({ page }) => {
   // 渠道状态是最后一列，必须自己就在屏幕上，不用横拉
   await expect(page.getByRole("columnheader", { name: "渠道状态" })).toBeInViewport();
 });
+
+// SAFETY: types into the filter box and clears it — a read-only filter, nothing is sent.
+test("the search box can be emptied in one click", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /客户库/ }).click();
+  const box = page.getByPlaceholder("搜索公司/网站/城市");
+  await expect(page.getByRole("button", { name: "清空搜索" })).toHaveCount(0);
+  await box.fill("Roman");
+  await page.getByRole("button", { name: "清空搜索" }).click();
+  await expect(box).toHaveValue("");
+  // The cursor stays in the box: clearing is for typing the next word.
+  await expect(box).toBeFocused();
+  await box.fill("Roman");
+  await box.press("Escape");
+  await expect(box).toHaveValue("");
+});

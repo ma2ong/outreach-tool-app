@@ -128,6 +128,18 @@ a:hover { text-decoration: underline; }
 select.input { padding-right: 26px; }
 textarea.input { width: 100%; resize: vertical; }
 
+/* 搜索框里的清空键。列表页的搜索是「换一个词再看一次」，不是「填一个值提交」，
+   所以退出上一个词必须一步 —— 一个字一个字退格是在收改词的税。 */
+.search-box { position: relative; display: inline-flex; }
+.search-box .input { padding-right: 28px; }
+.search-box .search-clear {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: 50%; background: transparent; color: var(--dim);
+  font-size: 14px; line-height: 1; cursor: pointer; padding: 0;
+}
+.search-box .search-clear:hover { background: var(--surface-2); color: var(--text); }
+
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 /* 表头的 position:sticky 一直写着，却从不生效：overflow-x 让 .table-wrap 成了滚动容器，
    而它没有高度上限，永远不会纵向滚动，sticky 就没有参照物。给客户库这张长表一个高度，

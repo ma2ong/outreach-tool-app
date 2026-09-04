@@ -114,6 +114,7 @@ export function App() {
   const [has, setHas] = useState("");
   const [followUp, setFollowUp] = useState("");
   const [search, setSearch] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
   const [sort, setSort] = useState("no");
   const [order, setOrder] = useState("asc");
   const [leadPage, setLeadPage] = useState(0);
@@ -213,6 +214,8 @@ export function App() {
 
   // Reset to first page whenever a filter/sort changes so offset stays valid.
   const filterReset = () => setLeadPage(0);
+  // 清空之后光标留在框里：清空是为了打下一个词，不是为了看空列表。
+  const clearSearch = () => { setSearch(""); filterReset(); searchRef.current?.focus(); };
   function sortBy(col: string) {
     if (sort === col) { setOrder(order === "asc" ? "desc" : "asc"); }
     // 契合分默认高分在前（最优买家类型 rental/integrator 浮顶），其余列默认升序
@@ -364,7 +367,15 @@ export function App() {
                   <option value="instagram">有 IG</option>
                   <option value="email">有邮箱</option>
                 </select>
-                <input className="input" placeholder="搜索公司/网站/城市" value={search} onChange={(e) => { setSearch(e.target.value); filterReset(); }} />
+                <span className="search-box">
+                  <input ref={searchRef} className="input" placeholder="搜索公司/网站/城市" value={search}
+                    onChange={(e) => { setSearch(e.target.value); filterReset(); }}
+                    onKeyDown={(e) => { if (e.key === "Escape" && search) clearSearch(); }} />
+                  {search && (
+                    <button type="button" className="search-clear" onClick={clearSearch}
+                      title="清空搜索（Esc）" aria-label="清空搜索">×</button>
+                  )}
+                </span>
                 <button className={`btn btn-sm${followUp === "due" ? " btn-primary" : ""}`}
                   onClick={() => { setFollowUp(followUp === "due" ? "" : "due"); filterReset(); }}
                   title="只看已触达但超过7天没回复、或到跟进日期的客户">
