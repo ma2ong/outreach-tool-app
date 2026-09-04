@@ -90,7 +90,8 @@ def _run_send(job_id: str, db_path: str, items: list[dict]) -> None:
             conn, items, channels_api.ENGINE, image=send_api.DEFAULT_ATTACHMENT,
             campaign="每日社媒队列",
             on_progress=lambda done, total: jobs.update(job_id, done))
-        sent_ids = [item["id"] for item in items[:result["sent"]]]
+        # Which ones went, not how many — the same slice bug as run_due (docs/102 R1).
+        sent_ids = list(result.get("sent_ids") or [])
         if sent_ids:
             placeholders = ",".join("?" * len(sent_ids))
             conn.execute(

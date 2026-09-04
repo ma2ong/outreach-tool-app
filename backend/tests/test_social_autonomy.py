@@ -88,7 +88,8 @@ def test_nothing_is_sent_twice_across_the_day(conn, monkeypatch):
     sent = []
     monkeypatch.setattr(social_autonomy, "_deliver",
                         lambda conn, items: sent.extend(items) or
-                        {"sent": len(items), "failed": 0})
+                        {"sent": len(items), "failed": 0,
+                         "sent_ids": [i["id"] for i in items]})
 
     # Every ten minutes through the whole UTC day, the way the real loop runs.
     for minute in range(0, 24 * 60, 10):
@@ -109,7 +110,7 @@ def test_whatsapp_never_sends_two_in_the_same_minute(conn, monkeypatch):
 
     def fake(conn, items, _at=stamps):
         _at.extend([fake.now] * len(items))
-        return {"sent": len(items), "failed": 0}
+        return {"sent": len(items), "failed": 0, "sent_ids": [i["id"] for i in items]}
 
     monkeypatch.setattr(social_autonomy, "_deliver", fake)
     start = _monday().replace(tzinfo=dt.UTC)
@@ -130,7 +131,8 @@ def test_a_restart_does_not_fire_every_missed_moment_at_once(conn, monkeypatch):
     batches = []
     monkeypatch.setattr(social_autonomy, "_deliver",
                         lambda conn, items: batches.append(len(items)) or
-                        {"sent": len(items), "failed": 0})
+                        {"sent": len(items), "failed": 0,
+                         "sent_ids": [i["id"] for i in items]})
 
     # The service was down all day and comes back at the end of it.
     social_autonomy.run_due(
@@ -165,7 +167,8 @@ def test_an_automatic_send_always_leaves_a_record(conn, monkeypatch):
     social_autonomy.set_mode(conn, "whatsapp", "auto", confirm="whatsapp")
     social_queue.build_today(conn, now=_monday())
     monkeypatch.setattr(social_autonomy, "_deliver",
-                        lambda conn, items: {"sent": len(items), "failed": 0})
+                        lambda conn, items: {"sent": len(items), "failed": 0,
+                                            "sent_ids": [i["id"] for i in items]})
     for minute in range(0, 24 * 60, 10):
         social_autonomy.run_due(
             conn, now=_monday().replace(tzinfo=dt.UTC) + dt.timedelta(minutes=minute))

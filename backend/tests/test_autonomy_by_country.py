@@ -80,7 +80,8 @@ def test_the_automatic_run_skips_korea_but_sends_the_rest(conn, monkeypatch):
     sa.set_mode(conn, "whatsapp", "auto", confirm="whatsapp")
     sent: list[dict] = []
     monkeypatch.setattr(sa, "_deliver",
-                        lambda c, items: sent.extend(items) or {"sent": len(items)})
+                        lambda c, items: sent.extend(items) or
+                        {"sent": len(items), "sent_ids": [i["id"] for i in items]})
 
     _walk_a_day(conn, dt.date(2026, 8, 27))   # a Thursday everywhere that matters
     # #2 is Korean, so it waits for Allen. #3 has no country and goes anyway since
@@ -90,7 +91,8 @@ def test_the_automatic_run_skips_korea_but_sends_the_rest(conn, monkeypatch):
 
 def test_the_korean_row_stays_in_the_queue_for_him(conn, monkeypatch):
     sa.set_mode(conn, "whatsapp", "auto", confirm="whatsapp")
-    monkeypatch.setattr(sa, "_deliver", lambda c, items: {"sent": len(items)})
+    monkeypatch.setattr(sa, "_deliver", lambda c, items: {"sent": len(items),
+                                                  "sent_ids": [i["id"] for i in items]})
 
     _walk_a_day(conn, dt.date(2026, 8, 27))
     still = conn.execute(

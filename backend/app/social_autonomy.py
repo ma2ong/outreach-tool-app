@@ -214,19 +214,23 @@ def run_due(conn, now: dt.datetime | None = None) -> dict:
         return result
 
     outcome = _deliver(conn, items) or {}
-    sent = int(outcome.get("sent") or 0)
     failed = int(outcome.get("failed") or 0)
     errors = outcome.get("errors") or []
-    for item in items[:sent]:
+    # Which ones went, not how many (docs/102 R1). `items[:sent]` assumed the successes
+    # were at the front; on 09-04 the first failed and the second succeeded, so a letter
+    # that never left was marked sent and the one that did stayed in the queue.
+    sent_ids = list(outcome.get("sent_ids") or [])
+    went = [item for item in items if item["id"] in set(sent_ids)]
+    sent = len(went)
+    for item in went:
         settings.set_value(conn, _K_LAST_SEND % item["channel"], now.isoformat())
-    if sent:
-        sent_ids = [item["id"] for item in items[:sent]]
+    if sent_ids:
         placeholders = ",".join("?" * len(sent_ids))
         conn.execute(
             f"UPDATE social_dm_queue SET status='sent' WHERE id IN ({placeholders})", sent_ids)
         conn.commit()
     per_channel: dict[str, int] = {}
-    for item in items[:sent]:
+    for item in went:
         per_channel[item["channel"]] = per_channel.get(item["channel"], 0) + 1
     result = {"sent_batches": 1 if sent else 0, "channels": per_channel,
               "failed": failed, "attempted": len(items)}
@@ -236,7 +240,18 @@ def run_due(conn, now: dt.datetime | None = None) -> dict:
     # success was written down (docs/92 R5).
     record = {"at": now.isoformat(), "channels": per_channel,
               "failed": failed, "attempted": len(items)}
+    # Every channel's own error, not just the first one in the list (docs/102 R3). On
+    # 09-03 three channels each failed once and only the social-box error was kept, so
+    # WhatsApp's had to be asked for separately a day later.
+    by_channel: dict[str, str] = {}
+    for err in errors:
+        channel = str(err.get("channel") or "")
+        if channel and channel not in by_channel:
+            by_channel[channel] = str(err.get("error"))[:200]
+    if by_channel:
+        record["errors"] = by_channel
     if errors:
-        record["error"] = str(errors[0].get("error"))[:200]
+        # 92 号 R5 的保证不能因为按渠道分组反而变弱：认不出渠道也要留下一句。
+        record["error"] = next(iter(by_channel.values())) if by_channel             else str(errors[0].get("error"))[:200]
     settings.set_value(conn, _K_LAST_RUN, json.dumps(record, ensure_ascii=False))
     return result

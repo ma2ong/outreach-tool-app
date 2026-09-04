@@ -144,8 +144,15 @@ def send_prepared(conn, items: list[dict], engine, image: str | None = None,
     Items: {lead_no, channel, target, body, variant?}. Order is preserved, and the
     pacing delay is taken per item's own channel, because a mixed batch alternates
     between them. `variant` rides along so a DM can name its copy version (docs/90 R2).
+
+    Returns `sent_ids` — which items actually went — because a count cannot answer a
+    question about identity. Callers used to slice `items[:sent]`, which silently
+    assumes the successes are the ones at the front; on 09-04 the first item failed and
+    the second succeeded, so a message that never went out was marked sent and the one
+    that did stayed queued (docs/102 R1).
     """
     today = datetime.date.today().isoformat()
+    sent_ids: list = []
     sent = failed = deferred = 0
     errors: list[dict] = []
     used = {c: sent_today(conn, c) for c in DAILY_CAP}
@@ -164,17 +171,20 @@ def send_prepared(conn, items: list[dict], engine, image: str | None = None,
             used[channel] = used.get(channel, 0) + 1
             _note_whatsapp_result(conn, item["lead_no"], channel, None)
             sent += 1
+            if item.get("id") is not None:
+                sent_ids.append(item["id"])
         except Exception as exc:  # noqa: BLE001
             failed += 1
             _note_whatsapp_result(conn, item["lead_no"], channel, str(exc))
-            errors.append({"no": item["lead_no"], "error": str(exc)})
+            errors.append({"no": item["lead_no"], "channel": channel, "error": str(exc)})
         if on_progress:
             on_progress(i, total)
         if i < total:
             lo, hi = DEFAULT_DELAY.get(channel, (60, 90))
             if hi > 0:
                 time.sleep(random.randint(lo, hi))
-    return {"sent": sent, "failed": failed, "deferred": deferred, "errors": errors}
+    return {"sent": sent, "failed": failed, "deferred": deferred, "errors": errors,
+            "sent_ids": sent_ids}
 
 
 def send_channel_campaign(conn, lead_nos: list[int], channel: str, message: str,

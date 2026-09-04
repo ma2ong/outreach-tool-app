@@ -300,7 +300,8 @@ def _walk(conn, start: dt.datetime, until: dt.datetime, step: int = 5) -> list[d
 
         def deliver(c, items, _at=now):
             sent.extend([{**i, "_at": _at} for i in items])
-            return {"sent": len(items), "failed": 0, "errors": []}
+            return {"sent": len(items), "failed": 0, "errors": [],
+                    "sent_ids": [i["id"] for i in items]}
 
         sa._deliver = deliver
         try:

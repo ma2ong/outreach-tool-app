@@ -145,6 +145,36 @@ class PlaywrightEngine:
                 self._ctx.pop(channel, None)
         raise last  # type: ignore[misc]
 
+    # Playwright's wording when the context died under a page that still reports itself
+    # open. `_page` cannot see this: it returns a cached page without testing anything,
+    # and `page.is_closed()` is False (docs/102 R2).
+    _DEAD_CONTEXT = re.compile(
+        r"Target (page|closed)|context or browser has been closed|"
+        r"Target closed|browser has been closed", re.I)
+
+    def _open(self, channel, url, timeout=60000):
+        """Navigate, and treat the navigation itself as the liveness test.
+
+        `_page`'s docstring already says using the context is the only honest test, but
+        it only ever reaches that test when there is no cached page: with one, it returns
+        `live[0]` untested, and the next `goto` raises. That is what stopped a WhatsApp
+        send on 09-04.
+
+        Retrying here is safe because nothing has been typed yet — a failed `goto` means
+        nothing reached the customer. Nothing after this point is ever retried.
+        """
+        page = self._page(channel)
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+            return page
+        except Exception as exc:  # noqa: BLE001
+            if not self._DEAD_CONTEXT.search(str(exc)):
+                raise
+            self._ctx.pop(channel, None)     # a dead context must not be cached
+        page = self._page(channel)
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+        return page
+
     def _connect_op(self, channel):
         page = self._page(channel)
         page.goto(LOGIN_URLS[channel], wait_until="domcontentloaded", timeout=60000)
@@ -174,10 +204,9 @@ class PlaywrightEngine:
         return "connecting"
 
     def _send_op(self, channel, target, message, image=None):
-        page = self._page(channel)
         if channel == "whatsapp":
             url = f"https://web.whatsapp.com/send?phone={target}&text={urllib.parse.quote(message)}"
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            page = self._open(channel, url)
             # invalid/unregistered number surfaces a dialog instead of a chat
             try:
                 if page.get_by_text(re.compile("invalid|not.*valid|isn't on whatsapp|无效", re.I)).first.is_visible(timeout=4000):
@@ -195,7 +224,7 @@ class PlaywrightEngine:
                 self._wa_attach_image(page, image)
             return True
         if channel == "instagram":
-            page.goto(f"https://www.instagram.com/{target}/", wait_until="domcontentloaded", timeout=60000)
+            page = self._open(channel, f"https://www.instagram.com/{target}/")
             btn = page.get_by_role("button", name=re.compile("message|发消息|发送消息|信息", re.I)).first
             btn.click(timeout=20000)
             box = self._dm_composer(page, target)
@@ -210,7 +239,7 @@ class PlaywrightEngine:
             return True
         if channel == "facebook":
             # Page inbox lives on the page itself; the Message button opens the chat dock.
-            page.goto(f"https://www.facebook.com/{target}", wait_until="domcontentloaded", timeout=60000)
+            page = self._open(channel, f"https://www.facebook.com/{target}")
             page.wait_for_timeout(2500)
             btn = page.get_by_role("button", name=re.compile("^(message|发消息|发送消息|send message)$", re.I)).first
             try:
