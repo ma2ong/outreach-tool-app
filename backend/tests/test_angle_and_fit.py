@@ -57,11 +57,18 @@ def test_a_korean_greeting_with_no_name_drops_the_honorific_too():
     assert "님" not in out.splitlines()[0]
 
 
-def test_a_korean_name_keeps_its_honorific():
+def test_a_korean_name_is_never_spoken_but_a_known_title_is():
+    """docs/96 推翻了这条测试原来断言的行为（「안녕하세요, 김종수님.」）。
+
+    Allen 09-03：韩语 B2B 冷邮件里直呼名字是失礼的，对的写法是职位加 님；职位不知道
+    时就只说 안녕하세요 —— 知道名字也不叫。
+    """
     tpl = "안녕하세요, {contact}님.\n\n{fit_ko}"
-    out = personalize.render(tpl, {"company_en": "X", "contact_name": "김종수",
-                                   "tags": ""})
-    assert out.splitlines()[0] == "안녕하세요, 김종수님."
+    base = {"company_en": "X", "contact_name": "김종수", "tags": ""}
+    named = personalize.render(tpl, base).splitlines()[0]
+    titled = personalize.render(tpl, {**base, "title": "대표"}).splitlines()[0]
+    assert named == "안녕하세요."
+    assert titled == "안녕하세요, 대표님."
 
 
 @pytest.mark.parametrize("hook,expected_fragment", [

@@ -192,6 +192,35 @@ def _fit_line(lead: dict, table: dict | None = None) -> str:
     return ""
 
 
+
+# docs/96：韩语只认职位，不认名字。
+#
+# 只在**确实知道**职位时才称呼 —— Allen 的原话是「一定要知道对方职位的情况下才加上
+# 对方的职位」。所以这张表是白名单，不是猜测表：`Director`、`Manager`、
+# `International Sales` 一律落空，因为韩国的职级是具体的（부장 和 과장 差两级），
+# 从一个英文头衔猜哪一级，猜错比不称呼更糟。
+#
+# 唯一从英文映射过来的是 CEO / President / Owner / Founder → 대표，这一条在韩国
+# 公司里是稳的：一人公司的老板名片上印的就是 대표.
+_KO_TITLES = ("대표이사", "대표", "사장", "회장", "부사장", "전무", "상무", "이사",
+              "본부장", "부장", "차장", "과장", "대리", "팀장", "실장", "소장", "원장")
+_EN_TO_KO_TITLE = re.compile(
+    r"\b(chief executive officer|ceo|president|owner|founder|co-founder)\b", re.I)
+
+
+def korean_title(lead: dict) -> str:
+    """这家客户该被称呼的韩语职位，不知道就返回空字符串。"""
+    haystack = " ".join(str(lead.get(field) or "")
+                        for field in ("title", "contact_name", "role"))
+    for word in _KO_TITLES:          # 长的排在前面，대표이사 不会被 대표 抢走
+        if word in haystack:
+            # 名片上印 대표이사，当面叫的是 대표님。Allen 给的例子就是 대표.
+            return "대표" if word == "대표이사" else word
+    if _EN_TO_KO_TITLE.search(haystack):
+        return "대표"
+    return ""
+
+
 def render(text: str | None, lead: dict) -> str:
     if not text:
         return ""
@@ -202,10 +231,15 @@ def render(text: str | None, lead: dict) -> str:
     # 「Markdown Content」这种 —— 一句「Hi Nationwide,」比没有称呼糟得多。
     if contact and not looks_like_a_person(contact):
         contact = ""
+    # docs/96，Allen 09-03：韩语信里绝不直呼名字。「안녕하세요, 윤주영님.」在韩国 B2B
+    # 冷邮件里是失礼的；对的写法是职位加 님（대표님 / 과장님 / 이사님），而职位不知道时
+    # 就只说「안녕하세요.」—— 知道名字也不叫。所以韩语抬头这一格放的是职位，不是名字。
+    ko_address = "{contact}님" in text
     values = {
         "name": company,
         "company": company,
-        "contact": contact.split()[0] if contact else "",
+        "contact": (korean_title(lead) if ko_address
+                    else (contact.split()[0] if contact else "")),
         "country": lead.get("country") or "",
         "city": lead.get("city") or "",
         "hook": (lead.get("hook") or "").strip(),
