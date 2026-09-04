@@ -34,7 +34,10 @@ def sent_today(conn, channel: str) -> int:
 
 # WhatsApp says this when the number has no account. Anything else — a timeout, a dead
 # browser — is a fact about our run, not about the number (docs/59 R1).
-_NOT_ON_WHATSAPP = re.compile(r"not on whatsapp|number not on|invalid|不存在|无效", re.I)
+# The engine raises one fixed phrase now (docs/104 R4). Two regexes independently
+# missing the same sentence is how docs/59 sat dead for a month, so this one is only
+# responsible for that phrase, not for guessing the platform's wording.
+_NOT_ON_WHATSAPP = re.compile(r"not on whatsapp|number not on", re.I)
 
 
 def _note_whatsapp_result(conn, lead_no: int, channel: str, error: str | None) -> None:

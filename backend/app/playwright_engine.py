@@ -203,20 +203,60 @@ class PlaywrightEngine:
                 pass
         return "connecting"
 
+    # What the platform says when a number has no account, in the words it actually
+    # uses. Allen's 09-04 screenshot: 「电话号码+27 12 809 1494没有注册 WhatsApp。」 —— and
+    # the old pattern (`invalid|not.*valid|isn't on whatsapp|无效`) matched none of it,
+    # so docs/59 never once recorded a dead number: 1318 blanks, 2 active, 0 none.
+    #
+    # Both halves are required. `get_by_text` searches the whole page, and `?text=`
+    # has already put our own copy in the composer — matching "not valid" alone would
+    # let an opening line mark a good number permanently dead. Our copy never contains
+    # the word WhatsApp (measured: 0 occurrences across all four families), so the
+    # platform's name is the half that cannot come from us.
+    _WA_REFUSAL = re.compile(
+        r"没有注册|未注册|沒有註冊|未註冊|不存在|无效|無效"
+        r"|is\s+not\s+on|isn'?t\s+on|not\s+registered|n'est\s+pas\s+sur"
+        r"|no\s+est[aá]\s+en|não\s+est[aá]\s+no", re.I)
+    NOT_ON_WHATSAPP_ERROR = "number not on WhatsApp"
+
+    @classmethod
+    def says_not_on_whatsapp(cls, text: str) -> bool:
+        """Is this the platform refusing the number, rather than any other sentence?"""
+        value = str(text or "")
+        return bool(re.search(r"whats\s?app", value, re.I)) and bool(cls._WA_REFUSAL.search(value))
+
+    def _dismiss_dialog(self, page) -> None:
+        """Click the dialog away. A refusal left on screen is a window someone closes.
+
+        The browser is headed and sits on Allen's desktop; an automation window parked
+        on an error is the most closeable thing there is, and closing it takes the whole
+        context with it (docs/104 R2).
+        """
+        try:
+            button = page.get_by_role(
+                "button", name=re.compile(r"^\s*(确定|確定|好|好的|OK|Ok|Aceptar|OK\.)\s*$")).first
+            if button.is_visible(timeout=2000):
+                button.click(timeout=3000)
+        except Exception:  # noqa: BLE001 — a dialog we cannot close is not worth failing over
+            pass
+
     def _send_op(self, channel, target, message, image=None):
         if channel == "whatsapp":
             url = f"https://web.whatsapp.com/send?phone={target}&text={urllib.parse.quote(message)}"
             page = self._open(channel, url)
-            # invalid/unregistered number surfaces a dialog instead of a chat
+            # An unregistered number surfaces a dialog instead of a chat (docs/104).
+            refused = False
             try:
-                if page.get_by_text(re.compile("invalid|not.*valid|isn't on whatsapp|无效", re.I)).first.is_visible(timeout=4000):
-                    raise RuntimeError("number not on WhatsApp")
-            except RuntimeError:
-                raise
-            except Exception:  # noqa: BLE001
-                pass
+                refused = page.get_by_text(self._WA_REFUSAL).first.is_visible(timeout=4000)                     and self.says_not_on_whatsapp(page.inner_text("body"))
+            except Exception:  # noqa: BLE001 — no such text on the page is the normal case
+                refused = False
+            if refused:
+                self._dismiss_dialog(page)
+                raise RuntimeError(self.NOT_ON_WHATSAPP_ERROR)
             box = page.locator("footer div[contenteditable='true']").first
-            box.wait_for(state="visible", timeout=45000)
+            # 20s, not 45: a real chat is ready in seconds, and the only case that ever
+            # used the full wait is the one where the composer is never coming.
+            box.wait_for(state="visible", timeout=20000)
             page.wait_for_timeout(1500)
             page.keyboard.press("Enter")
             page.wait_for_timeout(2500)
