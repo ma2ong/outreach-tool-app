@@ -135,6 +135,12 @@ def _diff(lead: dict, info: dict) -> tuple[dict, list[str]]:
     for field, label in (("brief", "简介"), ("hook", "开场白")):
         fresh = (info.get(field) or "").strip()
         had = (lead.get(field) or "").strip()
+        # docs/100：带出处的开场白不被正则重建覆盖。09-04 真跑时看见 MW LED 的
+        # 「Saw P2 panels listed on your site.」被换成了「Saw the events work on your
+        # site.」—— 一句具体的换成一句类目的，是降级。docs/93 R5 已经在
+        # `refresh_hooks` 上立过同一条规矩，这里是它漏掉的另一条写入路径。
+        if field == "hook" and str(lead.get("hook_quote") or "").strip():
+            continue
         if fresh and fresh != had:
             # Derived from the page rather than typed by anyone, so these are safe to
             # replace outright — they describe the site as it reads today.
@@ -192,11 +198,13 @@ def run(conn: sqlite3.Connection, lead_no: int, enrich_fn=None,
     another touch" on all of them would bury genuine current buying windows. Public
     buying signals are therefore only activated on later rechecks, not the historical
     first-read backfill."""
-    from app import activities, repository as repo
+    from app import activities, hook_writer, repository as repo
 
+    # 下面的 SELECT 要读 hook_quote，老库和测试库里这几列可能还没建。
+    hook_writer.ensure_schema(conn)
     row = conn.execute(
         "SELECT no, company_en, country, website, target_fit, recheck_count,"
-        "       email, phone, instagram, facebook, linkedin, brief, hook"
+        "       email, phone, instagram, facebook, linkedin, brief, hook, hook_quote"
         " FROM leads WHERE no=?", (lead_no,)
     ).fetchone()
     if row is None:

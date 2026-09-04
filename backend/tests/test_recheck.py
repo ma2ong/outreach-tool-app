@@ -161,3 +161,24 @@ def test_an_unchanged_hook_is_not_rewritten(conn):
     recheck.run(conn, 1, enrich_fn=lambda d: info)
     second = recheck.run(conn, 1, enrich_fn=lambda d: info)
     assert second["changed"] is False
+
+
+def test_a_sourced_opener_is_not_overwritten_by_the_regex_rebuild():
+    """docs/100：09-04 真跑时 MW LED 的「Saw P2 panels listed on your site.」被正则
+    重建换成了「Saw the events work on your site.」—— 具体的换成类目的，是降级。
+
+    docs/93 R5 已经在 `refresh_hooks` 上立过同一条规矩；这里是它漏掉的另一条写入路径。
+    """
+    from app import recheck
+
+    sourced = {"no": 1, "brief": "x", "hook": "Saw the arena screen you built.",
+               "hook_quote": "we built the arena screen"}
+    fills, _notes = recheck._diff(sourced, {"brief": "x",
+                                            "hook": "Saw the events work on your site."})
+    assert "hook" not in fills
+
+    plain = {"no": 2, "brief": "x", "hook": "Saw the events work on your site.",
+             "hook_quote": ""}
+    fills2, _ = recheck._diff(plain, {"brief": "x",
+                                      "hook": "Saw the signage work on your site."})
+    assert fills2["hook"] == "Saw the signage work on your site."
