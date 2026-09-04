@@ -110,7 +110,7 @@ _NOT_A_PERSON = re.compile(
     r"screens?|led|av|audio|sound|video|lighting|marketing|management|projects?|staff|"
     r"department|office|centers?|centres?|quote|content|markdown|testimonials|"
     r"entertainment|stage|visual|digital|creative|works|world|live|park|nationwide|"
-    r"outside|inside|customer|client|general|contact|about|home|welcome)\b", re.I)
+    r"outside|inside|customer|client|general|contact|about|home|welcome|innovation|activit\w*|areas?|history|profile|overview|awards?|mentorship|foundation)\b", re.I)
 _PERSON_TOKEN = re.compile(r"[A-Za-z][A-Za-z'’\-\.]{0,19}")
 _KO_ZH_NAME = re.compile(r"^[가-힣]{2,4}$|^[一-鿿]{2,4}$")
 
