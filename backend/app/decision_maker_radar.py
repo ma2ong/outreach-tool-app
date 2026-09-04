@@ -343,7 +343,7 @@ def scan(conn: sqlite3.Connection, lead_no: int, *, role_kinds: set[str] | None 
     """Search and read a bounded set of company-owned public pages for named people."""
     from app import search
     from app.jina import fetch as jina_fetch
-    from app.people_detector import detect_pages
+    from app.people_detector import detect_pages_with_model
 
     ensure_schema(conn)
     lead = conn.execute(
@@ -387,7 +387,9 @@ def scan(conn: sqlite3.Connection, lead_no: int, *, role_kinds: set[str] | None 
             continue
         if text:
             pages.append({"url": url, "text": text})
-    candidates = [row for row in detect_pages(pages, company_domain=domain)
+    # docs/98：先让模型认人（名字、职位、邮箱都要在页面上逐字对得上），模型不可用或
+    # 这一页上没有人时，回到原来的正则通道。
+    candidates = [row for row in detect_pages_with_model(conn, pages, company_domain=domain)
                   if row["role_kind"] in wanted]
     persisted = persist_candidates(conn, lead_no, candidates, auto_promote=True)
     error_text = "; ".join(errors)[:1000] or None
@@ -430,12 +432,21 @@ def _cold_accounts_missing_authority(conn, today: dt.date, seen: set) -> list[di
     # score_lead is called with _ensure=False per lead below, so its tables have to be
     # there before the loop rather than created 77 times inside it.
     sales_intelligence.ensure_schema(conn)
+    # docs/98：条件原来是「序列还在跑」，于是一家公司的序列一结束就从队列里掉出去。
+    # 428 家发过信的公司库里没有人名，其中 299 家因为这一条永远排不上 —— 而序列结束
+    # 恰恰不是不需要人名的理由，那正是没人回信的那一批。
     rows = conn.execute(
-        "SELECT DISTINCT e.lead_no, l.company_en, l.website FROM sequence_enrollments e"
-        " JOIN leads l ON l.no = e.lead_no"
-        " WHERE e.status='active' AND COALESCE(l.do_not_contact,0)=0"
+        "SELECT l.no AS lead_no, l.company_en, l.website FROM leads l"
+        " WHERE COALESCE(l.do_not_contact,0)=0"
         "   AND COALESCE(l.stage,'new') NOT IN ('won','lost')"
-        " ORDER BY e.lead_no").fetchall()
+        "   AND COALESCE(l.website,'') != ''"
+        "   AND ("
+        "        EXISTS (SELECT 1 FROM sequence_enrollments e"
+        "                WHERE e.lead_no=l.no AND e.status='active')"
+        "        OR (COALESCE(l.contact_name,'') = ''"
+        "            AND EXISTS (SELECT 1 FROM send_log s WHERE s.lead_no=l.no))"
+        "   )"
+        " ORDER BY l.no").fetchall()
     out = []
     for row in rows:
         lead_no = row["lead_no"]

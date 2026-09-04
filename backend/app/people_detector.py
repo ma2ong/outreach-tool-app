@@ -157,3 +157,62 @@ def detect_pages(pages: list[dict], company_domain: str | None = None) -> list[d
             if current is None or candidate["confidence"] > current["confidence"]:
                 best[key] = candidate
     return sorted(best.values(), key=lambda row: (-row["confidence"], row["name"]))
+
+
+# ── docs/98：正则提名，模型判断 ──────────────────────────────────────────────
+#
+# 上面那条正则通道找的是「职位行附近最近的一行大写文字」，在一张服务列表页上那就是
+# 一个服务名。库里 246 个没邮箱的候选人里，抓回来的有「Nationwide Delivery」当项目
+# 经理、「Great Park Live」当技术总监、「Outside Sales」当制作经理、以及 jina 的排版
+# 残渣「Markdown Content」当创始人。收紧正则试过两轮，两头都不准：`Bart McCollum`、
+# `TOM WILSON` 这种真人被误挡，`Air Sanitizer` 照样放过。
+#
+# 第一版把整页交给模型让它自己找人，两个真实页面都返回空 —— 一张 about 页有三万六千
+# 字，人名在截断之后。所以分工反过来：**正则提名，模型判断**。正则擅长定位职位行，
+# 模型擅长回答「这是不是一个人」，而证据仍然是机械的：模型只能在候选里挑，不能新造
+# 一个名字（docs/93 的同一条规矩）。
+JUDGE_SYSTEM = """You are given rows scraped from one company web page. Each row has an
+id, a name as scraped, and a job title.
+
+For each row answer whether the name is a real human being named on that page. A service
+name ("Nationwide Delivery"), a venue ("Great Park Live"), a department ("Outside
+Sales"), a page heading or a markdown artefact ("Markdown Content") is not a person,
+however capitalised it is.
+
+Return JSON: {"people": [{"id": 1, "is_person": true}, {"id": 2, "is_person": false}]}
+Judge every id you are given. Do not invent names and do not rewrite them."""
+
+
+def judge_people(conn, rows: list[dict]) -> list[dict]:
+    """让模型从正则提出来的候选里挑出真人。模型不可用时原样返回。"""
+    from app.agent import llm
+
+    if not rows:
+        return []
+    listing = "\n".join(
+        f'id: {i} | name: {r["name"]} | title: {r["title"]}' for i, r in enumerate(rows))
+    try:
+        data = llm.complete_json(conn, "hook", JUDGE_SYSTEM, listing)
+    except Exception:  # noqa: BLE001 — 判不了就照旧，少一个判断不是少一封信
+        return rows
+    verdicts = {}
+    for item in data.get("people") or []:
+        try:
+            verdicts[int(item.get("id"))] = bool(item.get("is_person"))
+        except (TypeError, ValueError):
+            continue
+    if not verdicts:
+        return rows
+    # 没被提到的行按「不确定」处理，保持原样交给下游 —— 模型漏答一行不该悄悄删掉它。
+    return [r for i, r in enumerate(rows) if verdicts.get(i, True)]
+
+
+def detect_pages_with_model(conn, pages: list[dict],
+                            company_domain: str | None = None) -> list[dict]:
+    """正则先提名，模型再判断，两道都通过的才进候选池。"""
+    from app.personalize import looks_like_a_person
+
+    rows = detect_pages(pages, company_domain)
+    # 明显不是人的先用那张黑名单挡掉，省下模型要判的行数（也省下它判错的机会）。
+    rows = [r for r in rows if looks_like_a_person(r["name"])]
+    return judge_people(conn, rows)
