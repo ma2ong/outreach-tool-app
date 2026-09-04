@@ -84,6 +84,23 @@ So each agent gets its own working tree on its own branch:
 Work, test and commit on your own branch. Merge to `main` when Allen asks; that is where
 the app is built and served from.
 
+**Spec numbers: Claude takes even, Codex odd, from 100 onward.** On 2026-09-04 the same
+number was claimed three times in one morning — a spec written as 96 became 97, then 98,
+and a different 98 landed anyway, so `docs/98` now names two unrelated things in six
+files' comments. Renaming is cheap on the day it is written and expensive by the time
+the number is in a dozen comments, a commit message and three cross-references.
+
+The fix is not a better renaming procedure. Two workers taking the next free number off
+one counter will race, however carefully they check first, because the check and the
+merge are minutes apart. So there is no shared counter: each side has its own supply and
+never needs to look at the other's. Gaps in the sequence are expected and are not
+missing specs.
+
+A number still collides sometimes — a third worktree, or a spec written by hand. Then
+**whoever merges second renames, before merging, not after.** The number is an
+identity: `docs/61` in a comment has to mean one document, or every reference to it is
+a guess.
+
 **A second server cannot double-send, and it is worth knowing why.** The first instinct
 is that two servers on one database would both see the same due queue and mail every
 customer twice. They would not: `runtime_leases` is a row in that database, owned by

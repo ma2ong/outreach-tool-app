@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""正则提名，模型判断谁是人（docs/98）。"""
+"""正则提名，模型判断谁是人（docs/101）。"""
 import datetime as dt
 
 from app import decision_maker_radar as radar

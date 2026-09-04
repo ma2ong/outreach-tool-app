@@ -387,7 +387,7 @@ def scan(conn: sqlite3.Connection, lead_no: int, *, role_kinds: set[str] | None 
             continue
         if text:
             pages.append({"url": url, "text": text})
-    # docs/98：先让模型认人（名字、职位、邮箱都要在页面上逐字对得上），模型不可用或
+    # docs/101：先让模型认人（名字、职位、邮箱都要在页面上逐字对得上），模型不可用或
     # 这一页上没有人时，回到原来的正则通道。
     candidates = [row for row in detect_pages_with_model(conn, pages, company_domain=domain)
                   if row["role_kind"] in wanted]
@@ -432,7 +432,7 @@ def _cold_accounts_missing_authority(conn, today: dt.date, seen: set) -> list[di
     # score_lead is called with _ensure=False per lead below, so its tables have to be
     # there before the loop rather than created 77 times inside it.
     sales_intelligence.ensure_schema(conn)
-    # docs/98：条件原来是「序列还在跑」，于是一家公司的序列一结束就从队列里掉出去。
+    # docs/101：条件原来是「序列还在跑」，于是一家公司的序列一结束就从队列里掉出去。
     # 428 家发过信的公司库里没有人名，其中 299 家因为这一条永远排不上 —— 而序列结束
     # 恰恰不是不需要人名的理由，那正是没人回信的那一批。
     rows = conn.execute(

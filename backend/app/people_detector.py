@@ -159,7 +159,7 @@ def detect_pages(pages: list[dict], company_domain: str | None = None) -> list[d
     return sorted(best.values(), key=lambda row: (-row["confidence"], row["name"]))
 
 
-# ── docs/98：正则提名，模型判断 ──────────────────────────────────────────────
+# ── docs/101：正则提名，模型判断 ──────────────────────────────────────────────
 #
 # 上面那条正则通道找的是「职位行附近最近的一行大写文字」，在一张服务列表页上那就是
 # 一个服务名。库里 246 个没邮箱的候选人里，抓回来的有「Nationwide Delivery」当项目
