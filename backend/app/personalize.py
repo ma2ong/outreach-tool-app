@@ -221,6 +221,19 @@ def korean_title(lead: dict) -> str:
     return ""
 
 
+
+def _generic_hook() -> str:
+    from app.backfill_hooks import GENERIC_HOOK
+
+    return GENERIC_HOOK
+
+
+def _generic_hook_ko() -> str:
+    from app.backfill_hooks import GENERIC_HOOK_KO
+
+    return GENERIC_HOOK_KO
+
+
 def render(text: str | None, lead: dict) -> str:
     if not text:
         return ""
@@ -242,10 +255,13 @@ def render(text: str | None, lead: dict) -> str:
                     else (contact.split()[0] if contact else "")),
         "country": lead.get("country") or "",
         "city": lead.get("city") or "",
-        "hook": (lead.get("hook") or "").strip(),
+        # docs/99，Allen 09-04：「空 hook 也不要拦，直接用通用 hook。」
+        # 空开场白原来会让首封被守卫拦成 impersonal —— 一封信因为我们没查到东西而不发，
+        # 代价落在客户开发上，而 docs/85 早就备好了那句人人都能用的话。
+        "hook": (lead.get("hook") or "").strip() or _generic_hook(),
         "fit": _fit_line(lead),
         "fit_ko": _fit_line(lead, _FIT_LINES_KO),
-        "hook_ko": hook_ko(lead),
+        "hook_ko": hook_ko(lead) or _generic_hook_ko(),
     }
     dropped = False
 

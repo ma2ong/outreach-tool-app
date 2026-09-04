@@ -95,10 +95,13 @@ def test_a_self_referring_term_is_readable_but_never_sent():
     assert out["hook"] == ""
 
 
-def test_render_drops_an_empty_hook_without_leaving_a_gap():
+def test_render_fills_an_empty_hook_with_the_generic_line():
+    """docs/100：空开场白补成通用句，而不是留个空位 —— 留空会让首封被拦下。"""
+    from app.backfill_hooks import GENERIC_HOOK
+
     lead = {"company_en": "Acme", "contact_name": "", "hook": ""}
-    assert personalize.render("Hi {contact}, {hook} We build LED panels.", lead) == \
-        "Hi, We build LED panels."
+    out = personalize.render("Hi {contact}, {hook} We build LED panels.", lead)
+    assert out == f"Hi, {GENERIC_HOOK} We build LED panels."
 
 
 def test_render_inserts_the_hook_when_there_is_one():

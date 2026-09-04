@@ -85,8 +85,19 @@ def test_the_korean_letter_gets_a_korean_opener(hook, expected_fragment):
 
 
 @pytest.mark.parametrize("hook", ["Saw the widget work on your site.", "", None])
-def test_an_unfamiliar_opener_yields_nothing_rather_than_half_english(hook):
-    assert personalize.render("{hook_ko}", {"company_en": "X", "hook": hook}) == ""
+def test_an_unfamiliar_opener_falls_back_to_the_generic_korean_line(hook):
+    """半句英文混在韩语信里是不行的 —— 那条规矩没变，`hook_ko()` 仍然返回空。
+
+    变的是空之后拿什么补：docs/100（Allen 09-04「空 hook 也不要拦，直接用通用 hook」）
+    让渲染补上那句通用韩语，而不是留一个空行然后被守卫拦成 impersonal。
+    """
+    from app.backfill_hooks import GENERIC_HOOK_KO
+
+    lead = {"company_en": "X", "hook": hook}
+    assert personalize.hook_ko(lead) == ""          # 认不出的句式仍然不硬译
+    out = personalize.render("{hook_ko}", lead)
+    assert out == GENERIC_HOOK_KO
+    assert "Saw" not in out
 
 
 def test_a_dash_with_nothing_after_it_goes_too():

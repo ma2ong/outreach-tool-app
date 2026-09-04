@@ -65,20 +65,27 @@ def test_the_generic_line_claims_only_what_the_book_supports():
         assert word not in bh.GENERIC_HOOK.lower()
 
 
-def test_a_deliberate_generic_hook_may_be_sent_but_a_missing_one_may_not():
-    """docs/85 R4. The exemption is the stored hook, not the sentence — otherwise any
-    letter could pass by quoting it."""
+def test_a_missing_hook_is_now_the_generic_one_rather_than_a_hold():
+    """docs/100 推翻了这条测试原来的下半段。
+
+    Allen 09-04：「空 hook 也不要拦，直接用通用 hook。」渲染时空开场白就变成同一句
+    通用句，所以「刻意标记的通用 hook」和「还没查到东西」在信里是同一封信 —— 判成
+    两种结果没有道理，而代价是一封本来该发的信没发。
+
+    没变的是 docs/85 R4 的另一半：光在正文里引用那句话，不能替一封什么都没说的信买路。
+    """
     from app.personalize import render
 
     _o, _d, subject, body = seed_sequences.steps_for("rental", False)[0]
     marked = {"no": 1, "company_en": "Verum AV", "hook": bh.GENERIC_HOOK}
     blank = {"no": 2, "company_en": "Verum AV"}
-    assert not message_guard.check(
-        render(body, marked), marked, subject=render(subject, marked)).blocked
-    assert message_guard.check(
-        render(body, blank), blank, subject=render(subject, blank)).blocked
-    # And the sentence alone does not buy a pass for a lead nobody looked at.
-    assert message_guard.check(bh.GENERIC_HOOK, blank, subject="x").blocked
+    for lead in (marked, blank):
+        assert not message_guard.check(
+            render(body, lead), lead, subject=render(subject, lead)).blocked
+    # 没变的那一半：一家我们查到过真开场白的公司，信里必须写着**它自己**那句话；
+    # 光抄那句人人都有的通用句买不到路。
+    real = {"no": 3, "company_en": "Verum AV", "hook": "Saw the arena screen you built."}
+    assert message_guard.check(bh.GENERIC_HOOK, real, subject="x").blocked
 
 
 def test_a_district_in_brackets_is_not_part_of_the_place():

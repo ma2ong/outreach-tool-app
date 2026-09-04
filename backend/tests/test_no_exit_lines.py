@@ -95,4 +95,9 @@ def test_a_lead_with_nothing_specific_is_still_held():
     from app.personalize import render
     _o, _off, subject, body = seed_sequences.steps_for("rental", False)[0]
     verdict = message_guard.check(render(body, bare), bare, subject=render(subject, bare))
-    assert verdict.blocked and verdict.reason == "impersonal"
+    # docs/100：这封信不再被扣下 —— 空开场白已经在渲染时补成了通用句。
+    assert not verdict.blocked
+    # 真正什么都没有的一段文字，照旧拦下。
+    naked = message_guard.check("We build LED panels.", {**bare, "hook": "Saw it."},
+                                subject="x")
+    assert naked.blocked and naked.reason == "impersonal"

@@ -40,15 +40,22 @@ def test_a_letter_is_never_held_just_because_nobody_is_named():
         assert not verdict.blocked, f"{country}: {verdict.reason} {verdict.detail}"
 
 
-def test_every_lead_in_the_book_has_an_opener(conn):
-    """docs/85 的保证：没有 hook 的客户，首封会被守卫拦成 impersonal。
+def test_an_empty_hook_becomes_the_generic_one_instead_of_a_hold(conn):
+    """Allen 09-04：「空 hook 也不要拦，直接用通用 hook。」
 
-    真库里今天是 0 家。这条测试盯的是别让任何一条写入路径又造出空 hook 来。
+    原来空开场白会让首封被拦成 impersonal —— 一封信因为我们没查到东西而不发，代价落在
+    客户开发上，而 docs/85 早就备好了那句人人都能用的话。现在渲染时就补上，
+    「没有 hook」和「hook 是通用句」在信里是同一封信。
     """
+    from app.backfill_hooks import GENERIC_HOOK, GENERIC_HOOK_KO
+
     conn.execute("UPDATE leads SET hook='' WHERE no=1")
     conn.commit()
     lead = dict(conn.execute("SELECT * FROM leads WHERE no=1").fetchone())
     lead["country"] = "USA"
     body = personalize.render(EN, lead)
-    assert message_guard.check(body, lead, subject="S", step_order=0).blocked, \
-        "空 hook 应该被拦下 —— 这正是 docs/85 要给每个人一句开场白的原因"
+    assert GENERIC_HOOK in body
+    assert not message_guard.check(body, lead, subject="S", step_order=0).blocked
+
+    lead["country"] = "South Korea"
+    assert GENERIC_HOOK_KO in personalize.render(KO, lead)

@@ -179,7 +179,10 @@ def check(body: str, lead: dict, *, subject: str = "", channel: str = "email",
     # deliberately marked. A lead with no hook at all is still refused.
     from app.backfill_hooks import GENERIC_HOOK
 
-    if str(lead.get("hook") or "").strip() == GENERIC_HOOK:
+    # docs/99，Allen 09-04：空 hook 也不再拦 —— 渲染时它已经变成同一句通用开场白，
+    # 所以「没有 hook」和「hook 是通用句」在信里是同一封信，判成两种结果没有道理。
+    stored_hook = str(lead.get("hook") or "").strip()
+    if stored_hook in ("", GENERIC_HOOK):
         return Verdict(False)
 
     company = lead.get("company_en") or f"#{lead.get('no')}"
