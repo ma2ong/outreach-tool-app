@@ -210,6 +210,25 @@ def auto_social_queue() -> None:
             conn.close()
 
 
+def auto_contact_names() -> None:
+    """Give a greeting to companies whose name is sitting unused in the radar (docs/98).
+
+    246 candidates had waited at `new` since the radar was built, held by a rule about
+    who may receive a letter — while those companies were being mailed anyway, opening
+    "Hi,". Saying a name needs no address.
+    """
+    from app import contact_names
+    conn = None
+    try:
+        conn = connect(DB_PATH)
+        contact_names.run_if_due(conn)
+    except Exception:  # noqa: BLE001 — a greeting must never take the loop down
+        pass
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def auto_agent_run() -> None:
     """Run the autonomous sales operator against the current business state."""
     if os.environ.get("OUTREACH_AGENT", "1") == "0":
@@ -246,6 +265,7 @@ def background_cycle() -> bool:
     auto_prune_sequences()
     auto_send_sequences()
     auto_social_queue()
+    auto_contact_names()
     auto_agent_run()
     return ok
 
