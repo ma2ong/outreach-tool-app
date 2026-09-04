@@ -492,8 +492,33 @@ def _record(conn, target: dict, profile: dict) -> int:
                         "signals": signals[:5]})
             written += 1
         lead = conn.execute(
-            "SELECT no, hook, city FROM leads WHERE no=?", (target["lead_no"],)).fetchone()
-        fresh_hook = hook_from_signals(dict(lead), signals) if lead else ""
+            "SELECT no, company_en, country, hook, city FROM leads WHERE no=?",
+            (target["lead_no"],)).fetchone()
+        # docs/97，Allen 09-03：「开场白引用官网原文**或者看到社媒最近做的一些项目**，
+        # 引不出退回通用句。」一条带日期的社媒原句，讲的是他们上个月做的项目，比官网上
+        # 挂了三年的那段介绍更具体 —— 先让 docs/93 的模型读这段清理过的主页文字，它
+        # 一样要交回逐字对得上的出处。引不出才退回下面那句类目级的。
+        better = None
+        if lead:
+            from app import hook_writer
+
+            hook_writer.ensure_schema(conn)
+            sourced = conn.execute(
+                "SELECT COALESCE(hook_quote,'') q FROM leads WHERE no=?",
+                (target["lead_no"],)).fetchone()["q"].strip()
+            # docs/91 R3 的那条不降级规矩仍然成立，只是判据换了：已经有出处的开场白
+            # （官网原话）不被社媒盖掉。没有出处的（正则句、通用句）才让模型来写。
+            if not sourced:
+                better = hook_writer.improve(conn, dict(lead), strip_chrome(text),
+                                             profile.get("url") or "")
+        if better:
+            relationship_events.record(
+                conn, target["lead_no"], "fact",
+                f"开场白改用社媒原话：{better['hook']}",
+                source="discovery", channel=target["channel"],
+                detail={"url": profile.get("url"), "quote": better["quote"][:200]})
+            written += 1
+        fresh_hook = "" if better else (hook_from_signals(dict(lead), signals) if lead else "")
         if fresh_hook:
             conn.execute("UPDATE leads SET hook=? WHERE no=?",
                          (fresh_hook, target["lead_no"]))

@@ -37,6 +37,26 @@ def _auth_disabled(tmp_path, monkeypatch):
     monkeypatch.setenv("OUTREACH_AGENT", "0")
 
 
+@pytest.fixture(autouse=True)
+def _never_call_a_live_model(monkeypatch):
+    """AGENTS.md：测试永不调用真实模型。
+
+    这条是 docs/97 把 `hook_writer` 接进 `social_watch` 之后才发现缺的 —— 两个社媒
+    测试真的打了 DeepSeek 的接口，因为 `backend/deepseek_key.txt` 就在仓库里，而
+    `complete_json` 找得到它。挡在 `_call_backend` 这一层：换掉 `complete_json` 的
+    测试照常工作，忘了换的测试会拿到「后端不可用」，而不是一次真实调用。
+    """
+    from app.agent import llm
+
+    def refuse(*args, **kwargs):
+        raise llm.LLMUnavailable("测试里不调用真实模型")
+
+    # 挡在最底下那三个真正发请求的函数上，不挡 `_call_backend` —— 后端选择和降级
+    # 本身是有测试的，它们替换的正是这三个，替换发生在这条 fixture 之后，覆盖得掉。
+    for transport in ("_call_cli", "_call_deepseek", "_call_api"):
+        monkeypatch.setattr(llm, transport, refuse)
+
+
 @pytest.fixture
 def conn(tmp_path):
     c = connect(str(tmp_path / "t.db"))
