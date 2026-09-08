@@ -161,3 +161,68 @@ def test_bulk_delete_can_block_the_domains(tmp_path):
     r = client.post("/api/leads/bulk_delete", json={"nos": [1], "block": True})
     assert r.json()["blocked_domains"] == ["a.com"]
     assert [b["domain"] for b in client.get("/api/blocklist").json()] == ["a.com"]
+
+
+def _merge_client(tmp_path):
+    """Two rows of the same company that automatic dedupe cannot see: different
+    websites, different spellings of the name (docs/109)."""
+    db = str(tmp_path / "m.db")
+    c = connect(db)
+    init_schema(c)
+    c.executescript("""
+        INSERT INTO leads(no, company_en, country, website, email, contact_name, stage) VALUES
+            (119,'PixelFLEX LED','USA','pixel-flex.com','sales@pixel-flex.com',NULL,'contacted'),
+            (972,'PixelFLEX','USA','pixelflexled.com',NULL,'Steve Paladino','new'),
+            (5,'Other Co','USA','other.com',NULL,NULL,'new');
+    """)
+    c.commit()
+    c.close()
+    main.app.dependency_overrides[main.get_conn] = lambda: connect(db)
+    return TestClient(main.app)
+
+
+def test_manual_merge_folds_the_selected_rows_into_the_kept_one(tmp_path):
+    client = _merge_client(tmp_path)
+    r = client.post("/api/leads/merge", json={"keep": 119, "dups": [972]})
+    assert r.status_code == 200, r.text
+    assert r.json()["merged"] == 1
+    keeper = r.json()["keep"]
+    assert keeper["no"] == 119
+    assert keeper["website"] == "pixel-flex.com"      # the kept row wins conflicts
+    assert keeper["contact_name"] == "Steve Paladino"  # blanks filled from the dup
+    assert [l["no"] for l in client.get("/api/leads").json()] == [5, 119]
+
+
+def test_manual_merge_can_keep_the_newer_row(tmp_path):
+    client = _merge_client(tmp_path)
+    r = client.post("/api/leads/merge", json={"keep": 972, "dups": [119]})
+    assert r.status_code == 200, r.text
+    keeper = r.json()["keep"]
+    assert keeper["website"] == "pixelflexled.com"
+    assert keeper["email"] == "sales@pixel-flex.com"
+    assert keeper["stage"] == "contacted"  # never walks a company back to 'new'
+
+
+def test_manual_merge_leaves_a_note_on_the_kept_row(tmp_path):
+    client = _merge_client(tmp_path)
+    client.post("/api/leads/merge", json={"keep": 119, "dups": [972]})
+    notes = [n["text"] for n in client.get("/api/leads/119").json()["notes"]]
+    assert any("972" in n and "PixelFLEX" in n for n in notes)
+
+
+def test_manual_merge_refuses_a_single_row_and_a_missing_one(tmp_path):
+    client = _merge_client(tmp_path)
+    assert client.post("/api/leads/merge", json={"keep": 119, "dups": [119]}).status_code == 400
+    assert client.post("/api/leads/merge", json={"keep": 119, "dups": []}).status_code == 400
+    r = client.post("/api/leads/merge", json={"keep": 119, "dups": [999]})
+    assert r.status_code == 404
+    assert "999" in r.json()["detail"]
+    assert client.post("/api/leads/merge", json={"keep": 999, "dups": [119]}).status_code == 404
+
+
+def test_manual_merge_refuses_a_batch_too_big_to_have_been_checked(tmp_path):
+    client = _merge_client(tmp_path)
+    r = client.post("/api/leads/merge", json={"keep": 119, "dups": list(range(200, 215))})
+    assert r.status_code == 400
+    assert "10" in r.json()["detail"]
+    assert len(client.get("/api/leads").json()) == 3  # nothing merged

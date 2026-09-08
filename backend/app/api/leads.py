@@ -147,6 +147,41 @@ def merge_duplicates(conn=Depends(get_conn)):
     return dedupe.merge_all(conn)
 
 
+# docs/109: 自动查重找不出的重复（官网不同、公司名拼写不同），由人勾中后合并。
+# 上限存在的理由是「全选 879 条」和这个按钮在同一条操作栏上，而合并不可撤销。
+MANUAL_MERGE_MAX = 10
+
+
+class MergeRequest(BaseModel):
+    keep: int
+    dups: list[int]
+
+
+@router.post("/leads/merge")
+def merge_selected(req: MergeRequest, conn=Depends(get_conn)):
+    """Fold the rows Allen ticked into the one he chose to keep. Same merge logic the
+    automatic dedupe uses — a second copy of it would be the next thing to forget."""
+    dups = [n for n in dict.fromkeys(req.dups) if n != req.keep]
+    if not dups:
+        raise HTTPException(status_code=400, detail="至少要选两家不同的客户才能合并")
+    if len(dups) + 1 > MANUAL_MERGE_MAX:
+        raise HTTPException(
+            status_code=400,
+            detail=f"一次最多合并 {MANUAL_MERGE_MAX} 家。合并不可撤销，请分批确认。")
+    if repo.get_lead(conn, req.keep) is None:
+        raise HTTPException(status_code=404, detail=f"#{req.keep} 已不在库里，刷新后重试")
+    merged_names = []
+    for n in dups:
+        lead = repo.get_lead(conn, n)
+        if lead is None:
+            raise HTTPException(status_code=404, detail=f"#{n} 已不在库里，刷新后重试")
+        merged_names.append(f"#{n} {lead.company_en or ''}".strip())
+    dedupe.merge_leads(conn, req.keep, dups)
+    # 三个月后再看这条客户，字段来自哪一行只有这句话说得清（docs/109 R4）
+    repo.add_note(conn, req.keep, "手动合并：" + "、".join(merged_names))
+    return {"keep": repo.get_lead(conn, req.keep), "merged": len(dups)}
+
+
 @router.post("/leads/bulk_delete")
 def bulk_delete(req: BulkDeleteRequest, conn=Depends(get_conn)):
     """Delete the leads Allen ticked, in one go. Ids that are already gone are skipped

@@ -143,6 +143,7 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
                 engine.send_message(ch, target, social_body,
                                     d.get("image") or image_default)
                 co._mark_messaged(conn, no, ch, today)
+                co.after_social_send(conn, engine, no, ch, target, social_body)
                 remaining[ch] -= 1
                 batch_used[ch] += 1
                 sent_this_item = True

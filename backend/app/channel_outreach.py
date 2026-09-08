@@ -145,6 +145,31 @@ def _mark_messaged(conn, lead_no: int, channel: str, date: str) -> None:
     recheck.schedule_after_send(conn, lead_no)
 
 
+def _count_harvest(totals: dict, outcome: dict) -> None:
+    """顺手做的那几件事，发完一批要说得出结果（关注了几家、记下几条近况）。"""
+    if outcome.get("followed") == "已关注":
+        totals["followed"] += 1
+    totals["learned"] += int(outcome.get("facts") or 0)
+
+
+def after_social_send(conn, engine, lead_no: int, channel: str, target: str,
+                      body: str = "") -> dict:
+    """私信刚发完，浏览器还停在对方主页上：关注、重读、把近况记下来（docs/110 R1）。
+
+    发送的三条路（本文件两条 + `sequence_send`）都走这里，所以规则只有一份。
+    这一步永远不许把已经发出去的信变成一次失败。
+    """
+    if channel not in ("instagram", "facebook"):
+        return {}
+    try:
+        from app import social_watch
+
+        return social_watch.after_send(conn, engine, lead_no, channel, target,
+                                       sent_body=body)
+    except Exception:  # noqa: BLE001 — docs/110 R7
+        return {}
+
+
 def send_prepared(conn, items: list[dict], engine, image: str | None = None,
                   campaign: str | None = None,
                   on_progress: Callable[[int, int], None] | None = None) -> dict:
@@ -168,6 +193,7 @@ def send_prepared(conn, items: list[dict], engine, image: str | None = None,
     today = datetime.date.today().isoformat()
     sent_ids: list = []
     sent = failed = deferred = 0
+    harvest = {"followed": 0, "learned": 0}
     errors: list[dict] = []
     used = {c: sent_today(conn, c) for c in DAILY_CAP}
     total = len(items)
@@ -184,6 +210,9 @@ def send_prepared(conn, items: list[dict], engine, image: str | None = None,
                                body=item["body"], variant=item.get("variant"))
             used[channel] = used.get(channel, 0) + 1
             _note_whatsapp_result(conn, item["lead_no"], channel, None)
+            _count_harvest(harvest,
+                           after_social_send(conn, engine, item["lead_no"], channel,
+                                             item["target"], item["body"]))
             sent += 1
             if item.get("id") is not None:
                 sent_ids.append(item["id"])
@@ -198,7 +227,7 @@ def send_prepared(conn, items: list[dict], engine, image: str | None = None,
             if hi > 0:
                 time.sleep(random.randint(lo, hi))
     return {"sent": sent, "failed": failed, "deferred": deferred, "errors": errors,
-            "sent_ids": sent_ids}
+            "sent_ids": sent_ids, **harvest}
 
 
 def send_channel_campaign(conn, lead_nos: list[int], channel: str, message: str,
@@ -214,6 +243,7 @@ def send_channel_campaign(conn, lead_nos: list[int], channel: str, message: str,
     targets = all_targets[:min(MAX_BATCH, remaining_today)]
     deferred = len(all_targets) - len(targets)
     sent = failed = 0
+    harvest = {"followed": 0, "learned": 0}
     errors: list[dict] = []
     for i, lead in enumerate(targets, 1):
         try:
@@ -222,6 +252,9 @@ def send_channel_campaign(conn, lead_nos: list[int], channel: str, message: str,
             _mark_messaged(conn, lead["no"], channel, today)
             campaigns.log_send(conn, lead["no"], channel, label, body=rendered)
             _note_whatsapp_result(conn, lead["no"], channel, None)
+            _count_harvest(harvest,
+                           after_social_send(conn, engine, lead["no"], channel,
+                                             _target(channel, lead), rendered))
             sent += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1
@@ -234,4 +267,4 @@ def send_channel_campaign(conn, lead_nos: list[int], channel: str, message: str,
             if hi > 0:
                 time.sleep(random.randint(lo, hi))
     return {"sent": sent, "failed": failed, "deferred": deferred,
-            "skipped": len(lead_nos) - len(all_targets), "errors": errors}
+            "skipped": len(lead_nos) - len(all_targets), "errors": errors, **harvest}

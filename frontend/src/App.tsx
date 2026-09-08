@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchLead, fetchLeads, fetchLeadsPage, fetchStats, markReplied, fetchSequences, enrollLeads, startVerify, fetchVerifyJob, startClassify, fetchClassifyJob, fetchDuplicates, mergeDuplicates, fetchInboxPending, quickAddLead, fetchAuthStatus, login, fetchActivityStats, bulkDeleteLeads } from "./api";
+import { fetchLead, fetchLeads, fetchLeadsPage, fetchStats, markReplied, fetchSequences, enrollLeads, startVerify, fetchVerifyJob, startClassify, fetchClassifyJob, fetchDuplicates, mergeDuplicates, fetchInboxPending, quickAddLead, fetchAuthStatus, login, fetchActivityStats, bulkDeleteLeads, mergeLeads } from "./api";
 import type { ActivityStats, Lead, Stats, Sequence } from "./types";
 import { Dashboard } from "./components/Dashboard";
 import { LeadsTable } from "./components/LeadsTable";
@@ -127,6 +127,10 @@ export function App() {
   const [outreachOpen, setOutreachOpen] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [bulkMsg, setBulkMsg] = useState("");
+  // 手动合并：自动查重按官网/公司名分组，官网不同、名字拼写不同的同一家它看不出来（docs/109）
+  const [mergeRows, setMergeRows] = useState<Lead[] | null>(null);
+  const [mergeKeep, setMergeKeep] = useState(0);
+  const [mergeBusy, setMergeBusy] = useState(false);
   const [err, setErr] = useState("");
   const [pendingReplies, setPendingReplies] = useState(0);
   const [activityStats, setActivityStats] = useState<ActivityStats | null>(null);
@@ -197,6 +201,39 @@ export function App() {
       setSelected(new Set());
       fetchSequences().then(setSequences).catch((e) => setErr(String(e)));
     } catch (e) { setEnrollMsg("加入序列失败：" + String(e)); }
+  }
+
+  const MERGE_MAX = 10;
+  // 面板里的那几行是打开那一刻的快照；勾选一变它就过期了，关掉比留着一份旧的安全
+  useEffect(() => { setMergeRows(null); }, [selected]);
+  async function openMerge() {
+    if (mergeRows) { setMergeRows(null); return; }
+    const nos = [...selected].sort((a, b) => a - b);
+    if (nos.length > MERGE_MAX) {
+      setBulkMsg(`一次最多合并 ${MERGE_MAX} 家。合并不可撤销，请分批确认。`); return;
+    }
+    setBulkMsg("");
+    try {
+      // 跨页全选时，勾中的客户可能不在当前这一页里，缺的按编号取回来
+      const rows = await Promise.all(nos.map((no) => {
+        const onPage = leads.find((l) => l.no === no);
+        return onPage ? Promise.resolve(onPage) : fetchLead(no);
+      }));
+      setMergeRows(rows);
+      setMergeKeep(rows[0].no);  // 默认最早入库的那条
+    } catch (e) { setBulkMsg("读取选中客户失败：" + String(e)); }
+  }
+  async function doMerge() {
+    if (!mergeRows) return;
+    setMergeBusy(true);
+    try {
+      const r = await mergeLeads(mergeKeep, mergeRows.filter((l) => l.no !== mergeKeep).map((l) => l.no));
+      setBulkMsg(`已把 ${r.merged} 家合并进 #${r.keep.no} ${r.keep.company_en ?? ""}`);
+      setMergeRows(null); setSelected(new Set());
+      setDetail(r.keep);  // 合并完直接看结果，不用再去表里找那一行
+      reload();
+    } catch (e) { setBulkMsg("合并失败：" + String(e instanceof Error ? e.message : e)); }
+    finally { setMergeBusy(false); }
   }
 
   function loadLeads() {
@@ -468,6 +505,12 @@ export function App() {
                         {sequences.map((s) => <option key={s.id} value={s.id}>{s.name}（{s.channel}）</option>)}
                       </select>
                     )}
+                    {selected.size >= 2 && (
+                      <button className={`btn btn-sm${mergeRows ? " btn-primary" : ""}`} onClick={openMerge}
+                        title="确认这几条是同一家公司时把它们合成一条：资料补齐、触达/对话/任务/商机转到保留的那条名下">
+                        ⧉ 合并{mergeRows ? " ▲" : " ▼"}
+                      </button>
+                    )}
                     {confirmBulkDelete ? (
                       <>
                         <span className="warn-text" style={{ fontSize: 13 }}>
@@ -488,10 +531,33 @@ export function App() {
                     )}
                     {(enrollMsg || bulkMsg) && <span className="muted" style={{ fontSize: 13 }}>{enrollMsg || bulkMsg}</span>}
                     <button className="btn btn-sm" style={{ marginLeft: "auto" }}
-                      onClick={() => { setSelected(new Set()); setOutreachOpen(false); setConfirmBulkDelete(false); setBulkMsg(""); }}>
+                      onClick={() => { setSelected(new Set()); setOutreachOpen(false); setConfirmBulkDelete(false); setMergeRows(null); setBulkMsg(""); }}>
                       取消选择
                     </button>
                   </div>
+                  {mergeRows && (
+                    <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+                      <div style={{ fontSize: 13, marginBottom: 6 }}>
+                        保留哪一条？<span className="muted">（保留行已有的资料不会被覆盖，其余行只补它的空缺字段）</span>
+                      </div>
+                      {mergeRows.map((l) => (
+                        <label key={l.no} style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "3px 0", cursor: "pointer" }}>
+                          <input type="radio" name="merge-keep" checked={mergeKeep === l.no}
+                            onChange={() => setMergeKeep(l.no)} />
+                          <b style={{ minWidth: 200 }}>#{l.no} {l.company_en}</b>
+                          <span className="muted" style={{ fontSize: 12 }}>
+                            {[l.website, l.email, l.phone, l.contact_name, l.country, l.stage].filter(Boolean).join(" · ") || "无资料"}
+                          </span>
+                        </label>
+                      ))}
+                      <div className="warn-text" style={{ fontSize: 12, margin: "8px 0" }}>
+                        其余 {mergeRows.length - 1} 家的触达记录、对话、任务、商机、跟进序列会转到 #{mergeKeep} 名下，然后删除。不可撤销。
+                      </div>
+                      <button className="btn btn-sm btn-primary" onClick={doMerge} disabled={mergeBusy}>
+                        {mergeBusy ? "合并中…" : `确认合并这 ${mergeRows.length} 家为 #${mergeKeep}`}
+                      </button>
+                    </div>
+                  )}
                   {outreachOpen && (
                     <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
                       <OutreachPanel selected={[...selected]} onDone={reload}

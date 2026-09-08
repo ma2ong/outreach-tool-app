@@ -408,10 +408,19 @@ def follow_if_worth_it(conn, engine, target: dict, profile: dict) -> str:
     Returns a short outcome for the report. Following an unrelated account costs more
     than the wasted slot: it makes this account's following list look less like someone
     in the LED trade, which is one of the things a platform reads.
+
+    That test is about a stranger met while browsing. A company Allen has decided to
+    write to has already passed a stronger one, which is why the send path calls
+    `follow_now` instead (docs/110 R2).
     """
     worth, why = looks_like_a_customer(profile.get("text", ""))
     if not worth:
         return f"不关注：{why}"
+    return follow_now(conn, engine, target, profile.get("url"))
+
+
+def follow_now(conn, engine, target: dict, url: str | None = None) -> str:
+    """点关注。额度、当天停手、留痕都在这里，判断值不值得关注的在调用方。"""
     if follows_left(conn) <= 0:
         return "今天的关注额度用完了"
     try:
@@ -423,14 +432,69 @@ def follow_if_worth_it(conn, engine, target: dict, profile: dict) -> str:
             conn, target["lead_no"], "fact", f"关注失败，今天不再关注任何人：{str(exc)[:60]}",
             source="agent", channel=target["channel"])
         return f"关注失败，当天停止关注：{str(exc)[:50]}"
-    _spend_follow(conn)
+    # docs/110 R2：额度限的是写动作。已经关注着的时候一次点击都没发生，不该扣。
     if result.get("already"):
         return "本来就已关注"
+    _spend_follow(conn)
     relationship_events.record(
         conn, target["lead_no"], "fact", f"已关注 {target['channel']} @{target['handle']}",
-        source="agent", channel=target["channel"],
-        detail={"url": profile.get("url")})
+        source="agent", channel=target["channel"], detail={"url": url})
     return "已关注"
+
+
+def strip_sent(text: str, sent_body: str) -> str:
+    """把我们刚发出去的那段话从页面文字里删掉（docs/110 R4）。
+
+    FB / IG 的聊天浮层在导航之后仍然挂在页面上，而我们的信里有 "LED display"、
+    有我们自己的邮箱和电话 —— 不删，它会被记成「客户的近况」和「主页上补到的联系方式」。
+    """
+    out = text or ""
+    body = (sent_body or "").strip()
+    if not body:
+        return out
+    out = out.replace(body, " ")
+    for line in body.splitlines():
+        line = line.strip()
+        if len(line) >= 12:
+            out = out.replace(line, " ")
+    return out
+
+
+def after_send(conn, engine, lead_no: int, channel: str, handle: str,
+               sent_body: str = "") -> dict:
+    """私信刚发完，浏览器就停在对方主页上 —— 别空手离开（docs/110 R1）。
+
+    关注、重读主页、把读到的记下来。任何一步失败都只是一行记录：这些是顺手做的事，
+    不许反噬那条已经发出去的私信（docs/110 R7）。
+    """
+    if channel not in ("instagram", "facebook") or not handle:
+        return {}
+    target = {"lead_no": lead_no, "channel": channel,
+              "handle": str(handle).strip().lstrip("@")}
+    out = {"read": False, "facts": 0, "followed": ""}
+    try:
+        profile = engine.read_profile(channel, target["handle"])
+    except Exception as exc:  # noqa: BLE001 — 读不了就是读不了，信已经发出去了
+        record_visit(conn, lead_no, channel, target["handle"],
+                     f"发完私信读不了主页：{str(exc)[:40]}")
+        out["error"] = str(exc)[:80]
+        return out
+    # docs/110 R4，在任何解析之前。
+    profile = {**profile, "text": strip_sent(profile.get("text", ""), sent_body)}
+    out["read"] = True
+    try:
+        out["facts"] = _record(conn, target, profile)
+    except Exception as exc:  # noqa: BLE001
+        out["error"] = str(exc)[:80]
+    # docs/110 R3：不花 20 家/天的浏览额度（这次访问已经发生了），但要记进访问表，
+    # 否则明天浏览线还会把这家排到最前面，去读一遍昨天刚读过的主页。
+    record_visit(conn, lead_no, channel, target["handle"],
+                 f"发私信时顺带读：{out['facts']} 条" if out["facts"] else "发私信时顺带读：无新内容")
+    try:
+        out["followed"] = follow_now(conn, engine, target, profile.get("url"))
+    except Exception as exc:  # noqa: BLE001
+        out["followed"] = f"关注出错：{str(exc)[:50]}"
+    return out
 
 
 # docs/91 R3。社媒信号类别 → docs/85 认识的词汇。表里没有的类别不进 hook：
@@ -468,6 +532,67 @@ def _already_written(conn, lead_no: int, summary: str) -> bool:
         (lead_no, summary)).fetchone() is not None
 
 
+def _radar_signal(conn, target: dict, profile: dict, best: dict, posted: dt.date) -> None:
+    """一条带日期的近期动态，也要出现在销售雷达上（docs/110 R5）。
+
+    在这之前，社媒读到的东西只写进 `relationship_events` —— Agent 读得到，人看不到。
+    库里 17 条社媒动态，雷达上 0 条 social 信号，就是这条线断在这里。
+    """
+    from app import sales_intelligence
+
+    url = (profile.get("url") or "").strip()
+    if not re.match(r"^https?://", url, re.I):
+        return  # 雷达要求来源可以点开验证；点不开的证据不算证据
+    try:
+        sales_intelligence.create_signal(conn, target["lead_no"], {
+            "signal_type": "social",
+            "headline": f"社媒{best['kind']}：{target['channel']} @{target['handle']}",
+            "evidence": best["excerpt"][:2000],
+            "source_url": url,
+            "occurred_at": posted.isoformat(),
+            # 60：主页上的一句原话，日期是帖子自己写的。比官网改版（70）弱一点，
+            # 因为关键词命中的那一句未必就是这家公司最近在做的事。
+            "confidence": 60,
+        })
+    except Exception:  # noqa: BLE001 — 雷达写不进，动态照样进时间线
+        pass
+
+
+def _named_people(conn, target: dict, profile: dict) -> int:
+    """主页上写着「名字 + 职位」的人，进决策人雷达的候选名单（docs/110 R6）。
+
+    不自动写进客户资料：一个猜出来的负责人姓名比没有姓名更贵 —— 下一封信会直呼其名。
+    """
+    from app import decision_maker_radar, people_detector
+
+    try:
+        found = people_detector.detect_page(profile.get("url") or "",
+                                            strip_chrome_lines(profile.get("text", "")))
+        if not found:
+            return 0
+        result = decision_maker_radar.persist_candidates(
+            conn, target["lead_no"], found, auto_promote=False)
+        if result["created"]:
+            names = "、".join(f"{c['name']}（{c['title']}）" for c in found[:3])
+            relationship_events.record(
+                conn, target["lead_no"], "fact", f"社媒主页上看到负责人：{names}",
+                source="discovery", channel=target["channel"],
+                detail={"url": profile.get("url")})
+        return result["created"]
+    except Exception:  # noqa: BLE001 — 认不出人不影响这次访问的其余部分
+        return 0
+
+
+def strip_chrome_lines(text: str) -> str:
+    """按行剔平台导航 —— `detect_page` 按行读，`strip_chrome` 会把换行也压掉。"""
+    keep = []
+    for line in (text or "").splitlines():
+        clean = line.strip()
+        if clean and not any(word in clean for word in _CHROME):
+            keep.append(clean)
+    return "\n".join(keep)
+
+
 def _record(conn, target: dict, profile: dict) -> int:
     """Write down what this visit learned, and fill blanks on the record."""
     from app import repository as repo
@@ -491,6 +616,7 @@ def _record(conn, target: dict, profile: dict) -> int:
                 detail={"url": profile.get("url"), "posted_at": posted.isoformat(),
                         "signals": signals[:5]})
             written += 1
+        _radar_signal(conn, target, profile, best, posted)
         lead = conn.execute(
             "SELECT no, company_en, country, hook, city FROM leads WHERE no=?",
             (target["lead_no"],)).fetchone()
@@ -560,4 +686,5 @@ def _record(conn, target: dict, profile: dict) -> int:
                 source="discovery", channel=target["channel"],
                 detail={"url": profile.get("url"), "fields": patch})
             written += 1
+    written += _named_people(conn, target, profile)
     return written

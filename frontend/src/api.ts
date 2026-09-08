@@ -339,6 +339,15 @@ export async function mergeDuplicates(): Promise<{ groups: number; removed: numb
   return r.json();
 }
 
+// 手动合并：自动查重看不出是同一家时，由 Allen 勾中并指定保留哪条（docs/109）
+export async function mergeLeads(keep: number, dups: number[]): Promise<{ keep: Lead; merged: number }> {
+  const r = await fetch("/api/leads/merge", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep, dups }),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `merge ${r.status}`);
+  return r.json();
+}
+
 export async function startVerify(lead_nos?: number[]): Promise<{ job_id: string }> {
   const r = await fetch("/api/leads/verify", {
     method: "POST", headers: { "Content-Type": "application/json" },

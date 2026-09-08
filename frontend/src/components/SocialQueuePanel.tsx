@@ -66,7 +66,9 @@ export function SocialQueuePanel() {
           const r: any = j.result ?? {};
           setMsg(j.status === "error"
             ? `发送出错：${r.error ?? "未知原因"}`
-            : `已发出 ${r.sent ?? 0} 条，失败 ${r.failed ?? 0}${r.deferred ? `，超出今日渠道上限延后 ${r.deferred}` : ""}`);
+            : `已发出 ${r.sent ?? 0} 条，失败 ${r.failed ?? 0}${r.deferred ? `，超出今日渠道上限延后 ${r.deferred}` : ""}`
+              // 发完顺手做的两件事（docs/110）：关注对方、把主页上的近况记进销售雷达
+              + `${r.followed ? `，顺带关注 ${r.followed} 家` : ""}${r.learned ? `，记下 ${r.learned} 条近况（见销售雷达）` : ""}`);
           reload();
         }
       } catch { /* 下一轮再试 */ }
