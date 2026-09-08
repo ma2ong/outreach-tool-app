@@ -10,6 +10,7 @@ from app.personalize import render
 # must agree about what a number is. A number we cannot make international is a
 # number we do not dial (docs/62 R3).
 from app.phone_format import CALLING_CODES as _CALLING_CODES
+from app.phone_format import is_fixed_line as _is_fixed_line
 from app.phone_format import is_toll_free as _is_toll_free
 from app.phone_format import split_numbers
 
@@ -72,9 +73,7 @@ def dialable_whatsapp(phone: str | None, country: str | None) -> str:
         return ""
     if raw.lstrip().startswith("+"):
         # A written +1 does not exempt a switchboard from being a switchboard.
-        if _is_toll_free(digits):
-            return ""
-        return digits if 8 <= len(digits) <= 15 else ""
+        return _usable(digits)
     code = _CALLING_CODES.get(str(country or "").strip().lower())
     if not code:
         return ""
@@ -84,10 +83,22 @@ def dialable_whatsapp(phone: str | None, country: str | None) -> str:
         if len(digits) != 10:
             return ""
     national = digits[len(code):] if digits.startswith(code) and len(digits) > 10 else digits
-    full = code + national
-    if _is_toll_free(full):
+    return _usable(code + national)
+
+
+def _usable(digits: str) -> str:
+    """The number, or "" when its range cannot hold a WhatsApp account.
+
+    Both exclusions are things already known before the browser opens: a switchboard
+    range (docs/62 R2) and a line we can show is a landline (docs/108 R2). Neither is
+    written down as `whatsapp_status`, because neither says the company has no
+    WhatsApp — only that this number is not where it would be.
+    """
+    if not 8 <= len(digits) <= 15:
         return ""
-    return full if 8 <= len(full) <= 15 else ""
+    if _is_toll_free(digits) or _is_fixed_line(digits):
+        return ""
+    return digits
 
 
 def _target(channel: str, lead: dict) -> str:

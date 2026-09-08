@@ -12,14 +12,15 @@ burned all 280 permanently. These tests are what keeps the two specs compatible.
 import pytest
 
 from app.channel_outreach import dialable_whatsapp as dial
+from app.phone_format import split_numbers
 
 
 @pytest.mark.parametrize("phone,country,expected", [
     ("404-835-2230", "USA", "14048352230"),
     ("(202) 695-3325", "USA", "12026953325"),
     ("281-630-6900", "United States", "12816306900"),
-    ("+82 31 504-3773", "South Korea", "82315043773"),
-    ("11 3044-4609", "Brazil", "551130444609"),
+    ("10-5504-3773", "South Korea", "821055043773"),
+    ("11 99044-4609", "Brazil", "5511990444609"),
 ])
 def test_a_national_number_gets_its_country_code(phone, country, expected):
     assert dial(phone, country) == expected
@@ -27,7 +28,24 @@ def test_a_national_number_gets_its_country_code(phone, country, expected):
 
 def test_a_number_already_international_is_left_alone():
     # Adding 82 again would produce 8282…, a number belonging to nobody.
-    assert dial("+82 31 504-3773", "South Korea") == "82315043773"
+    assert dial("+82 10 5504-3773", "South Korea") == "821055043773"
+
+
+@pytest.mark.parametrize("phone,country", [
+    ("+82 31 504-3773", "South Korea"),
+    ("11 3044-4609", "Brazil"),
+])
+def test_a_landline_gets_its_code_but_still_is_not_dialled(phone, country):
+    """These two used to be this file's examples of code completion, and they still are
+    — but the completed number is a landline, so docs/108 R2 stops before dialling it.
+
+    Both halves are asserted here rather than one replacing the other: the code is still
+    added correctly, and WhatsApp is still not attempted.
+    """
+    from app.phone_format import international
+
+    assert international(phone, country)
+    assert dial(phone, country) == ""
 
 
 def test_a_us_number_written_with_its_1_is_not_doubled():
@@ -66,12 +84,14 @@ def test_the_number_labelled_wa_is_the_one_dialled():
 
 
 def test_an_unlabelled_second_number_is_still_ignored():
-    assert dial("+55 11 2291-0031 / 11 95663-5316", "Brazil") == "551122910031"
+    # Asserted on the split rather than the dial: both of these voice lines are
+    # landlines, so docs/108 R2 answers "" either way and would hide which half won.
+    assert split_numbers("+55 11 2291-0031 / 11 95663-5316")[1] == "+55 11 2291-0031"
 
 
 def test_a_wa_label_pointing_at_a_link_falls_back_to_the_number():
     """`WA: wa.link/7jz8hw` names no number, so the voice line is all we have."""
-    assert dial("(54) 3025-2921 / WA: wa.link/7jz8hw", "Brazil") == "555430252921"
+    assert split_numbers("(54) 3025-2921 / WA: wa.link/7jz8hw")[1] == "(54) 3025-2921"
 
 
 def test_the_stored_number_is_never_rewritten():

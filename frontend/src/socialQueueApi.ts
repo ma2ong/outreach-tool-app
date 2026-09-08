@@ -58,6 +58,12 @@ export async function dropSocialQueueItem(id: number): Promise<void> {
   await jsonOrThrow(await fetch(`/api/social-queue/${id}`, { method: "DELETE" }), "drop queue item");
 }
 
+// 「不发」只管今天；这一个记的是这个号码本身没有 WhatsApp，永久生效（docs/108 R1）。
+export async function markNoWhatsapp(id: number): Promise<void> {
+  await jsonOrThrow(await fetch(`/api/social-queue/${id}/no-whatsapp`, { method: "POST" }),
+    "mark no whatsapp");
+}
+
 export async function sendSocialQueue(ids: number[]): Promise<{ job_id: string; will_send: number }> {
   return jsonOrThrow(await fetch("/api/social-queue/send", {
     method: "POST", headers: { "Content-Type": "application/json" },

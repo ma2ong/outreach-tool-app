@@ -421,3 +421,24 @@ def drop(conn, queue_id: int) -> bool:
     cur = conn.execute("DELETE FROM social_dm_queue WHERE id=? AND status='ready'", (queue_id,))
     conn.commit()
     return cur.rowcount > 0
+
+
+def mark_no_whatsapp(conn, queue_id: int) -> bool:
+    """Allen read WhatsApp's own dialog on this number: it has no account (docs/108 R1).
+
+    Not the same button as `drop`, and deliberately so. `drop` is about today; this is a
+    fact about the number, and it is permanent. Sending it by hand is how these numbers
+    are sent — docs/59 only ever recorded what the Playwright path saw, and that path
+    has not run since 08-28, so every dialog he closed was an observation thrown away.
+
+    Written where docs/59 R2 already reads it. The company keeps email and Instagram.
+    """
+    row = conn.execute(
+        "SELECT lead_no FROM social_dm_queue"
+        " WHERE id=? AND status='ready' AND channel='whatsapp'", (queue_id,)).fetchone()
+    if row is None:
+        return False
+    conn.execute("UPDATE leads SET whatsapp_status='none' WHERE no=?", (row["lead_no"],))
+    conn.execute("DELETE FROM social_dm_queue WHERE id=?", (queue_id,))
+    conn.commit()
+    return True

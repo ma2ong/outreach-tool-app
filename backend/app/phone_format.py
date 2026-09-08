@@ -29,6 +29,7 @@ CALLING_CODES = {
     "sweden": "46", "se": "46", "finland": "358", "fi": "358",
     "russia": "7", "ru": "7", "turkey": "90", "tr": "90",
     "australia": "61", "au": "61", "new zealand": "64", "nz": "64",
+    "south africa": "27", "za": "27",
     "india": "91", "in": "91", "indonesia": "62", "id": "62", "malaysia": "60", "my": "60",
 }
 
@@ -44,13 +45,13 @@ _NATIONAL_LEN = {
     "34": (9, 9), "44": (9, 10), "33": (9, 9), "39": (9, 11), "49": (9, 11),
     "43": (9, 11), "30": (10, 10), "48": (9, 9), "46": (7, 9), "358": (7, 10),
     "7": (10, 10), "90": (10, 10), "61": (9, 9), "64": (8, 9),
-    "91": (10, 10), "62": (9, 12), "60": (9, 10),
+    "91": (10, 10), "62": (9, 12), "60": (9, 10), "27": (9, 9),
 }
 
 # Countries that dial long distance through a leading '0'. Korea's 02, Britain's 0161
 # and Australia's 04 all drop it once the calling code is in front.
 _TRUNK_ZERO = {"82", "44", "33", "39", "49", "43", "30", "48", "46", "358",
-               "7", "90", "61", "64", "62", "60", "58"}
+               "7", "90", "61", "64", "62", "60", "58", "27"}
 
 # Ranges that do not route from abroad, so a '+' in front of them invents a number that
 # cannot be dialed. Korea's 15xx/16xx/18xx, Australia's 13/1300/1800, freephone 0800.
@@ -63,6 +64,47 @@ _UNROUTABLE = {
     # 0300 service number rather than a real line.
     "55": re.compile(r"^0"),
 }
+
+
+# Fixed-line ranges, by calling code, matched against the national part. Only a positive
+# match here excludes a number from WhatsApp (docs/108 R2): the question this table
+# answers is "can we show this is a landline", never "does it look like a mobile".
+# A country that is not here keeps its WhatsApp channel, and North America can never be
+# here — NANP does not split by use, so `404-835-2230` carries no answer to read.
+_FIXED_LINE = {
+    "82": re.compile(r"^[2-6]"),       # 02 Seoul, 031-064; mobile is 010/011/016-019
+    "55": re.compile(r"^\d{2}[2-5]"),  # area + 8 digits; a mobile is area + 9 + 8
+    "56": re.compile(r"^[2-8]"),       # mobile is 9
+    "57": re.compile(r"^[124-8]"),     # 60x and the old area codes; mobile is 3
+    "51": re.compile(r"^[1-8]"),       # mobile is 9
+    "27": re.compile(r"^[1-5]"),       # mobile is 6/7/8
+    "34": re.compile(r"^[89]"),        # mobile is 6/7
+    "44": re.compile(r"^[12]"),        # mobile is 7
+    "61": re.compile(r"^[2378]"),      # mobile is 4
+    "7": re.compile(r"^[3-8]"),        # mobile is 9
+    "64": re.compile(r"^[34679]"),     # mobile is 2
+    "358": re.compile(r"^[1239]"),     # mobile is 4/5
+}
+
+# Longest first, so 358 is read as Finland rather than 3 + something.
+_CODES_LONGEST_FIRST = sorted(set(CALLING_CODES.values()), key=len, reverse=True)
+
+
+def is_fixed_line(digits: str) -> bool:
+    """True only when this number's own country says the range is a landline.
+
+    False is the answer for everything we cannot show, unknown countries included.
+    Excluding a mobile by mistake costs a company its channel, which is exactly the harm
+    docs/62 exists to prevent; dialling a landline costs one dialog.
+    """
+    code = next((c for c in _CODES_LONGEST_FIRST if digits.startswith(c)), None)
+    pattern = _FIXED_LINE.get(code or "")
+    if pattern is None:
+        return False
+    national = digits[len(code):]
+    if code in _TRUNK_ZERO:
+        national = national.lstrip("0") or national
+    return bool(pattern.match(national))
 
 
 def parts(field: str) -> list[str]:

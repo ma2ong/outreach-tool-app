@@ -81,6 +81,14 @@ def drop_item(queue_id: int, conn=Depends(get_conn)):
     return {"ok": True}
 
 
+@router.post("/{queue_id}/no-whatsapp")
+def mark_no_whatsapp(queue_id: int, conn=Depends(get_conn)):
+    """He saw WhatsApp say this number has no account. Keep it (docs/108 R1)."""
+    if not social_queue.mark_no_whatsapp(conn, queue_id):
+        raise HTTPException(status_code=404, detail="这条不是待发的 WhatsApp，或已经不在队列里")
+    return {"ok": True}
+
+
 def _run_send(job_id: str, db_path: str, items: list[dict]) -> None:
     from app.db import connect
 

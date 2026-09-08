@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchJob } from "../api";
 import {
   buildSocialQueue, dropSocialQueueItem, editSocialQueueItem, fetchSocialAutonomy,
-  fetchSocialQueue, sendSocialQueue, setSocialMode,
+  fetchSocialQueue, markNoWhatsapp, sendSocialQueue, setSocialMode,
   type QueueBuildResult, type SocialAutonomy, type SocialMode, type SocialQueueItem,
 } from "../socialQueueApi";
 
@@ -98,6 +98,16 @@ export function SocialQueuePanel() {
   async function drop(id: number) {
     try { await dropSocialQueueItem(id); reload(); }
     catch (e) { setMsg("删除失败：" + String(e)); }
+  }
+
+  // WhatsApp 弹「该号码没有注册」时按这个。和「不发」不同：这条记进客户档案，
+  // 以后不再从这个渠道排他，邮件和 Instagram 照旧（docs/108 R1）。
+  async function noWhatsapp(id: number, company: string) {
+    try {
+      await markNoWhatsapp(id);
+      setMsg(`已记下：${company} 这个号码没有 WhatsApp，以后不再排进队列（邮件和 Instagram 不受影响）`);
+      reload();
+    } catch (e) { setMsg("标记失败：" + String(e)); }
   }
 
   async function send() {
@@ -216,7 +226,7 @@ export function SocialQueuePanel() {
               <th style={{ width: 150 }}>客户</th>
               <th style={{ width: 90 }}>渠道</th>
               <th>要发的话</th>
-              <th style={{ width: 120 }}></th>
+              <th style={{ width: 170 }}></th>
             </tr>
           </thead>
           <tbody>
@@ -262,7 +272,13 @@ export function SocialQueuePanel() {
                     <>
                       <button className="btn btn-sm" style={{ marginRight: 6 }}
                         onClick={() => { setEditing(it.id); setDraft(it.body); }}>改</button>
-                      <button className="btn btn-sm" onClick={() => drop(it.id)}>不发</button>
+                      <button className="btn btn-sm" style={{ marginRight: 6 }}
+                        onClick={() => drop(it.id)}>不发</button>
+                      {it.channel === "whatsapp" && (
+                        <button className="btn btn-sm"
+                          title="WhatsApp 弹「该号码没有注册」时按这个：以后不再用 WhatsApp 排这家，邮件和 Instagram 照旧"
+                          onClick={() => noWhatsapp(it.id, it.company_en)}>没 WA</button>
+                      )}
                     </>
                   )}
                 </td>
