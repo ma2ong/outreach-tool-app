@@ -265,6 +265,7 @@ class PlaywrightEngine:
             return True
         if channel == "instagram":
             page = self._open(channel, f"https://www.instagram.com/{target}/")
+            self._mark_open_boxes(page)  # docs/111 R1，必须在点击之前
             btn = page.get_by_role("button", name=re.compile("message|发消息|发送消息|信息", re.I)).first
             btn.click(timeout=20000)
             box = self._dm_composer(page, target)
@@ -281,6 +282,7 @@ class PlaywrightEngine:
             # Page inbox lives on the page itself; the Message button opens the chat dock.
             page = self._open(channel, f"https://www.facebook.com/{target}")
             page.wait_for_timeout(2500)
+            self._mark_open_boxes(page)  # docs/111 R1，必须在点击之前
             btn = page.get_by_role("button", name=re.compile("^(message|发消息|发送消息|send message)$", re.I)).first
             try:
                 btn.click(timeout=20000)
@@ -404,6 +406,22 @@ class PlaywrightEngine:
     # public action costs (docs/71 R3).
     _PROFILE_SCROLLS = 2
 
+    # docs/111 R3. 聊天浮层留在页面上，`body` 里就混着上一家公司的整段对话 —— 那不是
+    # 这家公司主页上的内容。主页内容在 main 里，浮层不在。读不到才退回 body。
+    _MAIN_SELECTOR = "main, div[role='main']"
+    _MAIN_MIN_CHARS = 200
+
+    def _profile_text(self, page) -> str:
+        try:
+            main = page.locator(self._MAIN_SELECTOR).first
+            if main.is_visible(timeout=2000):
+                text = main.inner_text()
+                if len(text.strip()) >= self._MAIN_MIN_CHARS:
+                    return text
+        except Exception:  # noqa: BLE001 — 没有 main 就按老办法读整页
+            pass
+        return page.inner_text("body")
+
     def _read_profile_op(self, channel, handle):
         page = self._page(channel)
         handle = str(handle or "").strip().lstrip("@")
@@ -414,7 +432,7 @@ class PlaywrightEngine:
         page.goto(url, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(2500)
 
-        body = page.inner_text("body")[:6000]
+        body = self._profile_text(page)[:6000]
         # A login wall or a missing account is an answer, not a reason to try again
         # from another angle (docs/71 R6).
         low = body.lower()
@@ -428,7 +446,7 @@ class PlaywrightEngine:
         for _ in range(self._PROFILE_SCROLLS):
             page.mouse.wheel(0, 1400)
             page.wait_for_timeout(1200)
-        body = page.inner_text("body")[:12000]
+        body = self._profile_text(page)[:12000]
 
         links = page.eval_on_selector_all(
             "a[href^='http']",
@@ -624,6 +642,29 @@ class PlaywrightEngine:
     def _slug(text: str) -> str:
         return re.sub(r"[^a-z0-9]", "", (text or "").lower())
 
+    # docs/111 R1. Facebook 的聊天浮层挂在 Messenger 外壳上，`goto` 到另一家公司的
+    # 主页之后它照样开着 —— 09-08 EKM 的信就是这样落进 PixelFLEX 的对话框的。
+    # 点「发消息」之前把已经开着的框全标上：这一刻页面上的框，没有一个是我们要的。
+    _STALE_ATTR = "data-mc-stale"
+    _BOX_SELECTOR = "div[contenteditable='true'][role='textbox'], textarea[placeholder]"
+
+    def _mark_open_boxes(self, page) -> int:
+        """Tag every box that exists before we click Message. Returns how many."""
+        try:
+            return page.eval_on_selector_all(
+                self._BOX_SELECTOR,
+                "els => { els.forEach(e => e.setAttribute('%s','1')); return els.length; }"
+                % self._STALE_ATTR)
+        except Exception:  # noqa: BLE001 — 标不上就退回旧行为，不能因此不发信
+            return 0
+
+    @classmethod
+    def _is_stale(cls, box) -> bool:
+        try:
+            return box.get_attribute(cls._STALE_ATTR) == "1"
+        except Exception:  # noqa: BLE001 — element went away mid-scan
+            return False
+
     @classmethod
     def _addresses(cls, label: str, target: str) -> bool:
         """True when this composer is aimed at the company we meant to write to.
@@ -652,11 +693,12 @@ class PlaywrightEngine:
         """
         deadline = time.time() + timeout / 1000
         seen: list[str] = []
+        stale: list[tuple] = []
         while True:
             candidates = []
+            stale = []
             seen = []
-            for box in page.locator(
-                    "div[contenteditable='true'][role='textbox'], textarea[placeholder]").all():
+            for box in page.locator(self._BOX_SELECTOR).all():
                 try:
                     if not box.is_visible():
                         continue
@@ -666,8 +708,10 @@ class PlaywrightEngine:
                 seen.append(label or "(无标签)")
                 # A box that calls itself a comment is never a candidate, however many
                 # boxes are left and however much today's queue wants to go out.
-                if self._is_dm_box(label):
-                    candidates.append((label, box))
+                if not self._is_dm_box(label):
+                    continue
+                # docs/111 R2. 导航之前就开着的框属于上一家公司，永远不是这一次点开的。
+                (stale if self._is_stale(box) else candidates).append((label, box))
             named = [b for label, b in candidates if target and self._addresses(label, target)]
             if len(named) == 1:
                 return named[0]
@@ -680,9 +724,19 @@ class PlaywrightEngine:
                 raise RuntimeError(
                     f"{len(candidates)} message boxes are open and none names {target!r}:"
                     f" {seen} — refusing to guess which company this would reach")
+            # 一个新框都没开出来：这一家的窗口可能本来就开着。认得出名字才用，
+            # 认不出就拒发 —— 少发一条，好过让一家真客户收到写给另一家的信。
+            named_stale = [b for label, b in stale if target and self._addresses(label, target)]
+            if len(named_stale) == 1:
+                return named_stale[0]
             if time.time() >= deadline:
                 break
             page.wait_for_timeout(1000)
+        if stale:
+            raise RuntimeError(
+                f"the only message boxes on this page were open before we clicked Message"
+                f" — they belong to another company, not {target!r}: {[l for l, _ in stale]}"
+                " — refusing to type")
         raise RuntimeError(
             "could not confirm this customer's private message box — refusing to type,"
             f" because the box on this page would post a public comment. saw: {seen[:6]}")

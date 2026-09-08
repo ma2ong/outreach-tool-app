@@ -182,3 +182,95 @@ def test_the_refusal_says_what_it_saw():
     with pytest.raises(RuntimeError) as exc:
         engine._dm_composer(page, "rentexrentals", timeout=300)
     assert "评论" in str(exc.value)
+
+
+# ---- docs/111：上一家公司的聊天窗还开着 ----
+
+FB_STALE = _Box(**{"aria-label": "发消息给PixelFlex LED", "aria-placeholder": "Aa",
+                   "role": "textbox", "data-mc-stale": "1"})
+
+
+def test_a_leftover_dock_is_never_the_box_we_just_opened():
+    """09-08 真实事故：EKM 的信落进了 PixelFLEX 的对话框（docs/111）。
+
+    页面上只有一个聊天框，但它是导航之前就开着的那一个 —— 旧规则「只有一个就是它」
+    会把它交出去。
+    """
+    engine = E()
+    page = _Page([FB_STALE])
+    with pytest.raises(RuntimeError, match="refusing"):
+        engine._dm_composer(page, "EKMexports", timeout=300)
+
+
+def test_the_refusal_names_the_company_the_leftover_dock_belongs_to():
+    engine = E()
+    page = _Page([FB_STALE])
+    with pytest.raises(RuntimeError) as exc:
+        engine._dm_composer(page, "EKMexports", timeout=300)
+    assert "PixelFlex LED" in str(exc.value)
+
+
+def test_the_box_that_opened_now_wins_over_the_one_that_was_open_before():
+    engine = E()
+    fresh = _Box(**{"aria-label": "发消息给EKM Exports", "role": "textbox"})
+    page = _Page([FB_STALE, fresh])
+    assert engine._dm_composer(page, "EKMexports") is fresh
+
+
+def test_an_unlabelled_fresh_box_still_sends():
+    """Instagram 的框什么都不写（docs/99 R2）—— 标记机制不能把它一起挡掉。"""
+    engine = E()
+    page = _Page([FB_STALE, IG_DM])
+    assert engine._dm_composer(page, "digitaloutdooradvertising") is IG_DM
+
+
+def test_the_same_companys_dock_already_open_is_still_usable_when_it_names_them():
+    """本来就开着这一家的窗口，点「发消息」不会再开一个 —— 认得出名字就用它。"""
+    engine = E()
+    page = _Page([FB_STALE])
+    assert engine._dm_composer(page, "PixelFlexLED") is FB_STALE
+
+
+# ---- docs/111 R3：读主页读的是主内容区，不是整页 ----
+
+class _MainPage:
+    """主内容区有货、body 里还挂着上一家公司的聊天浮层。"""
+
+    def __init__(self, main_text, body_text):
+        self.main_text, self.body_text = main_text, body_text
+
+    def locator(self, _selector):
+        page = self
+
+        class _L:
+            @property
+            def first(self):
+                return self
+
+            def is_visible(self, timeout=None):
+                return page.main_text is not None
+
+            def inner_text(self):
+                return page.main_text
+        return _L()
+
+    def inner_text(self, _selector):
+        return self.body_text
+
+
+def test_the_chat_overlay_is_not_this_companys_profile():
+    engine = E()
+    page = _MainPage("EKM Exports. " + "We export produce. " * 20,
+                     "EKM Exports … 发消息给PixelFlex LED: Hi Steve Paladino, saw the rental work")
+    assert "PixelFlex" not in engine._profile_text(page)
+
+
+def test_a_page_without_a_main_falls_back_to_the_whole_body():
+    engine = E()
+    assert engine._profile_text(_MainPage(None, "whole page")) == "whole page"
+
+
+def test_an_almost_empty_main_falls_back_too():
+    """主内容区还没渲染出来时，读到的两个字不该被当成这家公司的全部内容。"""
+    engine = E()
+    assert engine._profile_text(_MainPage("加载中", "whole page")) == "whole page"

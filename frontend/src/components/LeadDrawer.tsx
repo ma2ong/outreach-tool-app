@@ -333,8 +333,34 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
     <div className="drawer-overlay" onClick={onClose}>
       <div className="drawer" onClick={(e) => e.stopPropagation()}>
         <button className="drawer-close" onClick={onClose} title="关闭">×</button>
-        <h2>{draft.company_en}</h2>
-        <div className="muted" style={{ marginBottom: 12 }}>#{lead.no} · {draft.country}{draft.city ? ` · ${draft.city}` : ""}</div>
+        {/* 「不再联系」放在标题这一行的右边：决定还发不发这家，是打开这条客户第一眼
+            要看见的状态，不该埋在阶段和任务中间靠滚动才找得到。 */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between",
+                      gap: 12, marginBottom: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <h2>{draft.company_en}</h2>
+            <div className="muted">#{lead.no} · {draft.country}{draft.city ? ` · ${draft.city}` : ""}</div>
+          </div>
+          <div style={{ textAlign: "right", flexShrink: 0, maxWidth: 260 }}>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer",
+                            fontSize: 13, whiteSpace: "nowrap" }}
+              title="打开后此客户被所有发送路径排除：群发、WA/IG、跟进序列都不会再触达（客户要求退订或不想再联系时用）">
+              <input type="checkbox" checked={!!draft.do_not_contact}
+                onChange={async (e) => {
+                  const v = e.target.checked;
+                  setDraft((d) => ({ ...d, do_not_contact: v }));
+                  try { const u = await updateLead(lead.no, { do_not_contact: v }); onChange(u); }
+                  catch (er) { setErr(String(er)); }
+                }} />
+              🚫 不再联系
+            </label>
+            {!!draft.do_not_contact && (
+              <div className="muted" style={{ fontSize: 11, marginTop: 3, whiteSpace: "normal" }}>
+                已排除：群发、WhatsApp/Instagram、跟进序列都不会再发给这家。
+              </div>
+            )}
+          </div>
+        </div>
 
         <div className="section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span>客户简介</span>
@@ -433,21 +459,6 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
           <label>客户类型</label>
           <CustomerTypePicker value={draft.tags ?? ""} options={typeOptions}
             onChange={(next) => set("tags", next)} />
-        </div>
-
-        <div className="field">
-          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
-            title="打开后此客户被所有发送路径排除：群发、WA/IG、跟进序列都不会再触达（客户要求退订或不想再联系时用）">
-            <input type="checkbox" checked={!!draft.do_not_contact}
-              onChange={async (e) => {
-                const v = e.target.checked;
-                setDraft((d) => ({ ...d, do_not_contact: v }));
-                try { const u = await updateLead(lead.no, { do_not_contact: v }); onChange(u); }
-                catch (er) { setErr(String(er)); }
-              }} />
-            🚫 不再联系（从所有发送中排除）
-          </label>
-          {!!draft.do_not_contact && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>已排除：群发、WhatsApp/Instagram、跟进序列都不会再发给这家。</div>}
         </div>
 
         <div className="section-title">下一步行动</div>
