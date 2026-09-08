@@ -101,7 +101,10 @@ def test_target_fit_still_carries_the_score(conn):
     assert fit == "租赁公司 (90)"
 
 
-def test_an_unknown_verdict_writes_nothing_at_all(conn):
+def test_an_unknown_verdict_names_no_customer_type(conn):
+    """docs/112 R1 记下判不出来这件事；但判不出来就不该编一个客户类型出来 ——
+    docs/64 管的是「分级说了什么就写什么」，unknown 什么都没说。"""
     icp.apply_to_lead(conn, 1, {"icp_type": "unknown", "fit_score": 0})
     row = conn.execute("SELECT tags, target_fit FROM leads WHERE no=1").fetchone()
-    assert not row["tags"] and not row["target_fit"]
+    assert row["target_fit"] == "未知 (0)"
+    assert row["tags"] == "icp:unknown"   # 只有机器标签，没有客户类型

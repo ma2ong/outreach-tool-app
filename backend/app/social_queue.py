@@ -237,7 +237,10 @@ def _candidates(conn, now: dt.datetime) -> list[dict]:
     ).fetchall()
     # The ICP score lives inside `target_fit` as "租赁公司 (98)", so ranking happens here
     # rather than in SQL.
-    leads = [dict(r) for r in rows]
+    # docs/112 R3. 库里没有一句话说这家跟屏有关的，不进今天的队列 —— 它去体检里等人判。
+    from app import icp
+
+    leads = [dict(r) for r in rows if not icp.is_off_trade(r)]
     # docs/80 R3. A hook ranks above a generic opener, but below a buying signal and
     # below ICP fit: a company that is buying right now is worth the slot even if all
     # we can say is what we make. There are 8-15 slots a day, so this is the whole of

@@ -5,6 +5,7 @@ import { scanHealth, fixHealth, fetchCleanable, bulkDeleteLeads, type HealthLead
 const ISSUE_META: Record<string, { title: string; hint: string; fixable: boolean; fixLabel?: string; blockDefault?: boolean }> = {
   peer: { title: "同行 / 供应商", hint: "中国·港台 LED 厂（+86 电话或 .cn 域名）——发给他们纯浪费额度", fixable: true, fixLabel: "标为不再联系", blockDefault: true },
   directory: { title: "B2B 目录站 / 平台", hint: "alibaba、tradekey 这类平台，不是买家", fixable: true, fixLabel: "标为不再联系", blockDefault: true },
+  off_trade: { title: "看不出跟显示屏这一行有关", hint: "库里关于这家的全部文字里，没有一句话提到屏、面板、租赁、活动——不是「不是客户」，是「我们不知道」。自动发送已经跳过它们，看一眼再决定", fixable: true, fixLabel: "标为不再联系" },
   stale_stage: { title: "阶段没跟上", hint: "已经发过消息，销售阶段却还停在「新客户」", fixable: true, fixLabel: "推进到「已联系」" },
   no_contact: { title: "没有任何联系方式", hint: "邮箱/电话/IG/FB 全空——留着占位，永远发不出去。补不到资料就勾选删掉", fixable: false },
   junk_name: { title: "公司名可疑", hint: "抓成了 Contact / Home 这种网页标题，发信开头会很怪。能改名就打开改，改不了就删", fixable: false },
