@@ -1,5 +1,5 @@
 // 客户对话：左边是等我们回的人，右边是和这个人的全部往来。docs/56
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   fetchConversation, fetchConversations, sendReply,
   type Conversation, type ConversationEvent, type ConversationRow,
@@ -72,7 +72,7 @@ function ReplyBox({ no, onSent }: { no: number; onSent: () => void }) {
   }
 
   return (
-    <div className="card" style={{ marginTop: 12 }}>
+    <div className="card" style={{ marginTop: 12, flexShrink: 0 }}>
       <textarea value={body} onChange={(e) => { setBody(e.target.value); setBlocked(null); }}
         rows={4} placeholder="写回复…发出去走的是和 Agent 一样的邮箱、一样的检查"
         style={{ width: "100%", resize: "vertical" }} />
@@ -102,6 +102,7 @@ export function ConversationPanel({ onOpenLead }: { onOpenLead?: (no: number) =>
   const [conv, setConv] = useState<Conversation | null>(null);
   const [showQuiet, setShowQuiet] = useState(false);
   const [err, setErr] = useState("");
+  const timeline = useRef<HTMLDivElement>(null);
 
   async function loadList() {
     try { setRows(await fetchConversations(waitingOnly)); }
@@ -114,18 +115,28 @@ export function ConversationPanel({ onOpenLead }: { onOpenLead?: (no: number) =>
 
   useEffect(() => { loadList(); }, [waitingOnly]);
   useEffect(() => { if (picked != null) loadConv(picked); }, [picked]);
+  // 换一个客户，右边从最新的一条开始看 —— 时间线是旧在上、新在下，而要处理的是最后
+  // 那一条。不重置的话，这个 div 会留着上一个客户的滚动位置。
+  useEffect(() => {
+    const el = timeline.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [conv]);
 
   const events = conv ? conv.events.filter((e) => showQuiet || !e.quiet) : [];
   const hidden = conv ? conv.events.length - events.length : 0;
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 16 }}>
-      <div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+    // 两栏各自滚动，页面本身不滚。之前整页是一个滚动条，客户列表一长，点到下面的客户
+    // 时右边的对话已经在屏幕上方几千像素处，每选一个人都要先往上拉一次。
+    <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 16,
+                  flex: 1, minHeight: 360 }}>
+      <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexShrink: 0 }}>
           <button className={waitingOnly ? "btn btn-primary" : "btn"}
             onClick={() => setWaitingOnly((v) => !v)}>只看等我们回的</button>
           <button className="btn" onClick={loadList}>刷新</button>
         </div>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 6 }}>
         {err && <div className="ts" style={{ color: "var(--danger)" }}>{err}</div>}
         {rows.length === 0 && <div className="ts">还没有任何往来记录。</div>}
         {rows.map((r) => (
@@ -143,13 +154,14 @@ export function ConversationPanel({ onOpenLead }: { onOpenLead?: (no: number) =>
             <div className="ts">{fmt(r.last_at)}</div>
           </div>
         ))}
+        </div>
       </div>
 
-      <div>
+      <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
         {!conv && <div className="ts">左边选一个客户，看和他的全部往来。</div>}
         {conv && (
           <>
-            <div className="card" style={{ marginBottom: 10 }}>
+            <div className="card" style={{ marginBottom: 10, flexShrink: 0 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 16 }}>
@@ -176,22 +188,23 @@ export function ConversationPanel({ onOpenLead }: { onOpenLead?: (no: number) =>
               )}
             </div>
 
-            <div style={{ maxHeight: "58vh", overflowY: "auto", paddingRight: 6 }}>
+            <div ref={timeline}
+              style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 6 }}>
               {events.map((e) => <Event key={e.kind + "-" + e.id} e={e} />)}
             </div>
             {hidden > 0 && (
-              <button className="btn" style={{ marginTop: 8 }} onClick={() => setShowQuiet(true)}>
+              <button className="btn" style={{ marginTop: 8, flexShrink: 0 }} onClick={() => setShowQuiet(true)}>
                 还有 {hidden} 条系统消息（退信、自动回复、Agent 动作）
               </button>
             )}
             {showQuiet && (
-              <button className="btn" style={{ marginTop: 8 }} onClick={() => setShowQuiet(false)}>
+              <button className="btn" style={{ marginTop: 8, flexShrink: 0 }} onClick={() => setShowQuiet(false)}>
                 收起系统消息
               </button>
             )}
 
             {conv.lead.do_not_contact
-              ? <div className="ts" style={{ marginTop: 12 }}>这个客户标了不再联系，不能在这里回信。</div>
+              ? <div className="ts" style={{ marginTop: 12, flexShrink: 0 }}>这个客户标了不再联系，不能在这里回信。</div>
               : <ReplyBox no={conv.lead.no} onSent={() => { loadConv(conv.lead.no); loadList(); }} />}
           </>
         )}
