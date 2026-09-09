@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead, fetchActivities, createActivity, completeActivity, fetchLead, fetchContacts, createContact, updateContact, setPrimaryContact, deleteContact, recheckLead, addContactChannel, promoteContactChannel, deleteContactChannel, ContactAddressTaken } from "../api";
+import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead, fetchActivities, createActivity, completeActivity, fetchLead, fetchContacts, createContact, updateContact, setPrimaryContact, deleteContact, recheckLead, addContactChannel, promoteContactChannel, deleteContactChannel, updateContactChannel, ContactAddressTaken } from "../api";
 import type { Activity, Contact, ContactChannel, Lead, LeadIntelligence, Opportunity } from "../types";
 import { fetchLeadIntelligence } from "../salesIntelligenceApi";
 import { fetchLeadMemory, writeLeadMemory, forgetLeadMemory, type MemoryItem } from "../agentApi";
@@ -40,8 +40,49 @@ function localToday(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// docs/114：一个人可以有多个信箱 / 号码。默认那个在上面的输入框里，附加的排在下面，
-// 每个都能提上来当默认或删掉。＋ 展开一个输入框，不是一张表单。
+// docs/114：一个人可以有多个信箱 / 号码。它们在界面上就是同一列里的第二个、第三个
+// 输入框——默认那个在最上面，下面每个自己带着「设为默认」和「删除」。长得像输入框
+// 就得能改，所以失焦即保存。
+function ExtraChannel({ channel, onRefresh, onError, busy, setBusy }: {
+  channel: ContactChannel; onRefresh: () => Promise<void>;
+  onError: (message: string) => void; busy: boolean; setBusy: (v: boolean) => void;
+}) {
+  const [value, setValue] = useState(channel.value);
+  useEffect(() => setValue(channel.value), [channel.value]);
+  async function act(fn: () => Promise<unknown>, what: string) {
+    setBusy(true); onError("");
+    try { await fn(); await onRefresh(); }
+    catch (e) { onError(`${what}失败：${String(e)}`); setValue(channel.value); }
+    finally { setBusy(false); }
+  }
+  async function save() {
+    const next = value.trim();
+    if (!next || next === channel.value) { setValue(channel.value); return; }
+    await act(() => updateContactChannel(channel.id, next), "修改");
+  }
+  // 两个动作浮在框里，第二个框才和第一个一样宽 —— 并排放会把地址挤掉一截。
+  const icon: React.CSSProperties = {
+    background: "none", border: "none", cursor: "pointer", padding: "0 3px",
+    fontSize: 12, lineHeight: 1, color: "var(--dim)",
+  };
+  return (
+    <div style={{ position: "relative", marginTop: 4 }}>
+      <input className="input" style={{ width: "100%", paddingRight: 42 }} value={value}
+        disabled={busy}
+        title={channel.status === "invalid" ? "这个地址已退信，不会被抄送" : undefined}
+        onChange={(e) => setValue(e.target.value)} onBlur={save}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
+      <span style={{ position: "absolute", right: 5, top: "50%", transform: "translateY(-50%)",
+        display: "flex", gap: 1 }}>
+        <button style={icon} disabled={busy} title="设为默认"
+          onClick={() => act(() => promoteContactChannel(channel.id), "设为默认")}>★</button>
+        <button style={{ ...icon, color: "var(--danger)" }} disabled={busy} title="删除这个联系方式"
+          onClick={() => act(() => deleteContactChannel(channel.id), "删除")}>×</button>
+      </span>
+    </div>
+  );
+}
+
 function ChannelField({ label, kind, contact, value, onValue, onRefresh, onError }: {
   label: string; kind: "email" | "phone"; contact: Contact; value: string;
   onValue: (v: string | null) => void; onRefresh: () => Promise<void>;
@@ -67,12 +108,6 @@ function ChannelField({ label, kind, contact, value, onValue, onRefresh, onError
       else onError(`添加${label}失败：${String(e)}`);
     } finally { setBusy(false); }
   }
-  async function act(fn: () => Promise<unknown>, what: string) {
-    setBusy(true); onError("");
-    try { await fn(); await onRefresh(); }
-    catch (e) { onError(`${what}失败：${String(e)}`); }
-    finally { setBusy(false); }
-  }
 
   return (
     <div className="field">
@@ -84,26 +119,17 @@ function ChannelField({ label, kind, contact, value, onValue, onRefresh, onError
       </label>
       <input className="input" value={value} onChange={(e) => onValue(e.target.value || null)} />
       {extras.map((channel) => (
-        // 字段列很窄：地址占满一行，按钮排到下面 —— 截断的地址看不出是哪一个。
-        <div key={channel.id} style={{ display: "flex", flexWrap: "wrap", alignItems: "center",
-          gap: 4, marginTop: 4 }}>
-          <span style={{ fontSize: 12, flex: "1 1 100%", wordBreak: "break-all" }}>
-            {channel.value}
-            {channel.status === "invalid" && <span className="muted" style={{ marginLeft: 5 }}>已退信</span>}
-          </span>
-          <button className="btn btn-sm" style={{ marginLeft: "auto" }} disabled={busy}
-            onClick={() => act(() => promoteContactChannel(channel.id), "设为默认")}>设为默认</button>
-          <button className="btn btn-sm" style={{ color: "var(--danger)" }} disabled={busy}
-            onClick={() => act(() => deleteContactChannel(channel.id), "删除")}>×</button>
-        </div>
+        <ExtraChannel key={channel.id} channel={channel} onRefresh={onRefresh}
+          onError={onError} busy={busy} setBusy={setBusy} />
       ))}
       {adding && <div style={{ marginTop: 4 }}>
-        <div style={{ display: "flex", gap: 6 }}>
-          <input className="input" autoFocus value={draft} disabled={busy}
-            placeholder={kind === "email" ? "另一个邮箱" : "另一个号码"}
+        <div style={{ display: "flex", gap: 3 }}>
+          <input className="input" style={{ flex: 1, minWidth: 0 }} autoFocus value={draft}
+            disabled={busy} placeholder={kind === "email" ? "另一个邮箱" : "另一个号码"}
             onChange={(e) => { setDraft(e.target.value); setTaken(null); }}
             onKeyDown={(e) => { if (e.key === "Enter") add(); }} />
-          <button className="btn btn-primary btn-sm" onClick={() => add()} disabled={busy}>添加</button>
+          <button className="btn btn-primary btn-sm" style={{ padding: "0 8px" }}
+            onClick={() => add()} disabled={busy}>添加</button>
         </div>
         {taken && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
           {draft.trim()} 已经是本客户下的另一个联系人

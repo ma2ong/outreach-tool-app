@@ -146,6 +146,20 @@ def test_promoting_an_extra_address_swaps_it_with_the_default(conn):
     assert conn.execute("SELECT email FROM leads WHERE no=1").fetchone()[0] == "info@alpha.com"
 
 
+def test_an_extra_address_can_be_edited_in_place(conn):
+    javier = contacts.create(conn, 1, {"name": "Javier", "email": "javier@alpha.com"})
+    channel = contacts.add_channel(conn, javier["id"], "email", "inf@alpha.com")
+    contacts.update_channel(conn, channel["id"], "Info@Alpha.com")
+    assert contacts.get(conn, javier["id"])["channels"][0]["value"] == "info@alpha.com"
+    # 改成默认地址、或改成别人的地址，都不成立。
+    with pytest.raises(contacts.ContactValidation):
+        contacts.update_channel(conn, channel["id"], "javier@alpha.com")
+    contacts.create(conn, 1, {"email": "sales@alpha.com"})
+    with pytest.raises(contacts.ContactConflict):
+        contacts.update_channel(conn, channel["id"], "sales@alpha.com")
+    assert contacts.get(conn, javier["id"])["channels"][0]["value"] == "info@alpha.com"
+
+
 def test_deleting_an_extra_address_leaves_the_person(conn):
     javier = contacts.create(conn, 1, {"name": "Javier", "email": "javier@alpha.com"})
     channel = contacts.add_channel(conn, javier["id"], "email", "info@alpha.com")

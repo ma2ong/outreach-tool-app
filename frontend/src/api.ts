@@ -511,6 +511,21 @@ export async function promoteContactChannel(
   return r.json();
 }
 
+export async function updateContactChannel(
+  channelId: number, value: string,
+): Promise<import("./types").ContactChannel> {
+  const r = await fetch(`/api/contacts/channels/${channelId}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  if (!r.ok) {
+    const detail = (await r.json().catch(() => null))?.detail;
+    throw new Error(typeof detail === "string" ? detail
+      : detail?.message || `contact channel ${r.status}`);
+  }
+  return r.json();
+}
+
 export async function deleteContactChannel(channelId: number): Promise<void> {
   const r = await fetch(`/api/contacts/channels/${channelId}`, { method: "DELETE" });
   if (!r.ok) throw new Error(`contact channel ${r.status}`);

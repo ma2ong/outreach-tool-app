@@ -96,6 +96,21 @@ def add_channel(contact_id: int, req: ChannelCreate, conn=Depends(get_conn)):
         _bad(exc)
 
 
+class ChannelUpdate(BaseModel):
+    value: str
+
+
+@router.patch("/channels/{channel_id}")
+def update_channel(channel_id: int, req: ChannelUpdate, conn=Depends(get_conn)):
+    try:
+        result = contacts.update_channel(conn, channel_id, req.value)
+    except contacts.ContactValidation as exc:
+        _bad(exc)
+    if result is None:
+        raise HTTPException(status_code=404, detail="联系方式不存在")
+    return result
+
+
 @router.delete("/channels/{channel_id}")
 def delete_channel(channel_id: int, conn=Depends(get_conn)):
     if not contacts.delete_channel(conn, channel_id):

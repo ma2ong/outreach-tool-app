@@ -351,6 +351,27 @@ def add_channel(conn: sqlite3.Connection, contact_id: int, kind: str, value) -> 
             "value": clean, "status": None}
 
 
+def update_channel(conn: sqlite3.Connection, channel_id: int, value) -> dict | None:
+    """改一个附加地址。它在界面上就是个输入框，能敲进去的就该能改。"""
+    ensure_schema(conn)
+    row = conn.execute(
+        "SELECT * FROM contact_channels WHERE id=?", (channel_id,)).fetchone()
+    if row is None:
+        return None
+    contact = _with_company(conn, row["contact_id"])
+    if contact is None:
+        return None
+    clean = _channel_value(row["kind"], value)
+    if _same(row["kind"], clean, row["value"]):
+        return dict(row)
+    _claim(conn, contact, row["kind"], clean)
+    conn.execute("UPDATE contact_channels SET value=?, status=NULL, updated_at=? WHERE id=?",
+                 (clean, _now(), channel_id))
+    conn.commit()
+    return {"id": channel_id, "contact_id": row["contact_id"], "kind": row["kind"],
+            "value": clean, "status": None}
+
+
 def delete_channel(conn: sqlite3.Connection, channel_id: int) -> bool:
     ensure_schema(conn)
     cur = conn.execute("DELETE FROM contact_channels WHERE id=?", (channel_id,))
