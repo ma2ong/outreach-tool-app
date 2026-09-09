@@ -5,7 +5,7 @@ import { fetchDailyReport } from "../agentApi";
 import { fetchSocialQueue } from "../socialQueueApi";
 import { StatCards } from "./StatCards";
 import { ReadinessPanel } from "./ReadinessPanel";
-import { DailyReportCards } from "./DailyReportCards";
+import { DailyReport } from "./DailyReport";
 import { TodayPlanCard } from "./TodayPlanCard";
 
 const CH_LABEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook" };
@@ -211,7 +211,7 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
           )}
         </div>
       )}
-      {report && <DailyReportCards text={report} />}
+      {report && <DailyReport text={report} />}
       <TodayPlanCard onGoto={onGoto} />
       <ReadinessPanel onGoto={onGoto} />
       {loadErrors.length > 0 && (
