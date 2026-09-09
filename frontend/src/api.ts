@@ -477,6 +477,45 @@ export async function deleteContact(id: number): Promise<void> {
   if (!r.ok) throw new Error(`contact ${r.status}`);
 }
 
+// docs/114：这个地址已经是同公司另一个联系人的——是不是同一个人，只有 Allen 知道。
+export class ContactAddressTaken extends Error {
+  constructor(readonly contactId: number, readonly contactName: string | null, message: string) {
+    super(message);
+  }
+}
+
+export async function addContactChannel(
+  id: number, kind: "email" | "phone", value: string, merge = false,
+): Promise<import("./types").Contact | import("./types").ContactChannel> {
+  const r = await fetch(`/api/contacts/${id}/channels`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, value, merge }),
+  });
+  if (r.status === 409) {
+    const d = (await r.json().catch(() => null))?.detail;
+    throw new ContactAddressTaken(d?.contact_id, d?.contact_name ?? null,
+      d?.message || "这个联系方式已被占用");
+  }
+  if (!r.ok) {
+    const detail = (await r.json().catch(() => null))?.detail;
+    throw new Error(detail || `contact channel ${r.status}`);
+  }
+  return r.json();
+}
+
+export async function promoteContactChannel(
+  channelId: number,
+): Promise<import("./types").Contact> {
+  const r = await fetch(`/api/contacts/channels/${channelId}/primary`, { method: "POST" });
+  if (!r.ok) throw new Error(`contact channel ${r.status}`);
+  return r.json();
+}
+
+export async function deleteContactChannel(channelId: number): Promise<void> {
+  const r = await fetch(`/api/contacts/channels/${channelId}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(`contact channel ${r.status}`);
+}
+
 export async function fetchOpportunities(params: {
   stage?: string; lead_no?: number; attention?: boolean;
 } = {}): Promise<import("./types").Opportunity[]> {

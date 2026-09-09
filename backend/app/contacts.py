@@ -33,11 +33,36 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_lead_email
     ON contacts(lead_no, lower(email)) WHERE email IS NOT NULL AND email != '';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_one_primary
     ON contacts(lead_no) WHERE is_primary=1;
+
+-- docs/114：同一个人的其它信箱和号码。主地址仍在 contacts 上，这里只放附加的。
+CREATE TABLE IF NOT EXISTS contact_channels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    contact_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    value TEXT NOT NULL,
+    status TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(contact_id) REFERENCES contacts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_contact_channels_contact
+    ON contact_channels(contact_id, kind);
+CREATE INDEX IF NOT EXISTS idx_contact_channels_value
+    ON contact_channels(value COLLATE NOCASE);
 """
 
 
 class ContactValidation(ValueError):
     pass
+
+
+class ContactConflict(ContactValidation):
+    """这个地址已经属于同一家公司的另一个联系人（docs/114 R3）。"""
+
+    def __init__(self, message: str, contact_id: int, contact_name: str | None):
+        super().__init__(message)
+        self.contact_id = contact_id
+        self.contact_name = contact_name
 
 
 def _now() -> str:
@@ -114,7 +139,14 @@ def _with_company(conn: sqlite3.Connection, contact_id: int) -> dict | None:
         return None
     data = dict(row)
     data["is_primary"] = bool(data["is_primary"])
+    data["channels"] = _channels(conn, contact_id)
     return data
+
+
+def _channels(conn: sqlite3.Connection, contact_id: int) -> list[dict]:
+    return [dict(row) for row in conn.execute(
+        "SELECT id, contact_id, kind, value, status FROM contact_channels"
+        " WHERE contact_id=? ORDER BY id", (contact_id,))]
 
 
 def get(conn: sqlite3.Connection, contact_id: int) -> dict | None:
@@ -137,6 +169,7 @@ def list_all(conn: sqlite3.Connection, lead_no: int | None = None) -> list[dict]
     for row in conn.execute(sql, params):
         data = dict(row)
         data["is_primary"] = bool(data["is_primary"])
+        data["channels"] = _channels(conn, data["id"])
         result.append(data)
     return result
 
@@ -244,6 +277,169 @@ def delete(conn: sqlite3.Connection, contact_id: int) -> bool:
     return True
 
 
+# docs/114：一个人的第二个信箱、第二个号码。主地址仍是 contacts.email / contacts.phone
+# ——发信、报价单抬头、`leads` 同步全部走它；这里放的是「还能从哪认出他、还该抄送谁」。
+KINDS = ("email", "phone")
+
+
+def _channel_value(kind: str, value) -> str:
+    if kind not in KINDS:
+        raise ContactValidation("联系方式只能是邮箱或电话")
+    if kind == "email":
+        clean = _email(value)
+    else:
+        clean = _text(value)
+        if clean and len(_phone(clean)) < 8:
+            raise ContactValidation("电话号码位数不足")
+    if not clean:
+        raise ContactValidation("请填写要添加的联系方式")
+    return clean
+
+
+def _same(kind: str, a: str | None, b: str | None) -> bool:
+    if not a or not b:
+        return False
+    if kind == "email":
+        return a.strip().lower() == b.strip().lower()
+    return _phone(a) == _phone(b)
+
+
+def _claim(conn: sqlite3.Connection, contact: dict, kind: str, value: str,
+           *, ignore: int | None = None) -> None:
+    """这家公司里还没人用这个地址——用了的话说出是谁（docs/114 R3）。
+
+    合并时传 `ignore`：被并掉的那个人还在库里，他自己的地址不算「已被占用」。
+    """
+    own = contact["email"] if kind == "email" else contact["phone"]
+    if _same(kind, own, value):
+        raise ContactValidation("这已经是该联系人的默认联系方式")
+    for row in conn.execute(
+        "SELECT c.id, c.name, c.email, c.phone FROM contacts c WHERE c.lead_no=?",
+        (contact["lead_no"],),
+    ).fetchall():
+        held = row["email"] if kind == "email" else row["phone"]
+        if not _same(kind, held, value) or row["id"] == ignore:
+            continue
+        if row["id"] == contact["id"]:
+            raise ContactValidation("这已经是该联系人的默认联系方式")
+        raise ContactConflict("这家公司已存在使用该联系方式的联系人", row["id"], row["name"])
+    for row in conn.execute(
+        "SELECT ch.value, ch.contact_id, c.name FROM contact_channels ch"
+        " JOIN contacts c ON c.id=ch.contact_id"
+        " WHERE c.lead_no=? AND ch.kind=?", (contact["lead_no"], kind),
+    ).fetchall():
+        if not _same(kind, row["value"], value) or row["contact_id"] == ignore:
+            continue
+        if row["contact_id"] == contact["id"]:
+            raise ContactValidation("该联系方式已经在这个联系人下面了")
+        raise ContactConflict("这家公司已存在使用该联系方式的联系人", row["contact_id"], row["name"])
+
+
+def add_channel(conn: sqlite3.Connection, contact_id: int, kind: str, value) -> dict:
+    ensure_schema(conn)
+    contact = _with_company(conn, contact_id)
+    if contact is None:
+        raise ContactValidation("联系人不存在")
+    clean = _channel_value(kind, value)
+    _claim(conn, contact, kind, clean)
+    now = _now()
+    cur = conn.execute(
+        "INSERT INTO contact_channels(contact_id, kind, value, created_at, updated_at)"
+        " VALUES (?, ?, ?, ?, ?)", (contact_id, kind, clean, now, now))
+    conn.commit()
+    return {"id": cur.lastrowid, "contact_id": contact_id, "kind": kind,
+            "value": clean, "status": None}
+
+
+def delete_channel(conn: sqlite3.Connection, channel_id: int) -> bool:
+    ensure_schema(conn)
+    cur = conn.execute("DELETE FROM contact_channels WHERE id=?", (channel_id,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def promote_channel(conn: sqlite3.Connection, channel_id: int) -> dict | None:
+    """和默认联系方式对调。改的是发信地址，所以这是一个显式动作，不是加地址的副作用。"""
+    ensure_schema(conn)
+    row = conn.execute(
+        "SELECT * FROM contact_channels WHERE id=?", (channel_id,)).fetchone()
+    if row is None:
+        return None
+    contact = _with_company(conn, row["contact_id"])
+    if contact is None:
+        return None
+    field = "email" if row["kind"] == "email" else "phone"
+    demoted = contact[field]
+    now = _now()
+    conn.execute(f"UPDATE contacts SET {field}=?, updated_at=? WHERE id=?",
+                 (row["value"], now, contact["id"]))
+    if row["kind"] == "email":
+        # 状态跟着地址走：降下去的那个带着自己的退信状态，升上来的接管联系人这一栏。
+        conn.execute("UPDATE contacts SET email_status=? WHERE id=?",
+                     (row["status"], contact["id"]))
+    if demoted:
+        conn.execute(
+            "UPDATE contact_channels SET value=?, status=?, updated_at=? WHERE id=?",
+            (demoted, contact["email_status"] if row["kind"] == "email" else None,
+             now, channel_id))
+    else:
+        conn.execute("DELETE FROM contact_channels WHERE id=?", (channel_id,))
+    if contact["is_primary"]:
+        _sync_lead(conn, contact["lead_no"])
+    conn.commit()
+    return _with_company(conn, contact["id"])
+
+
+def fold_into(conn: sqlite3.Connection, keep_id: int, duplicate_id: int) -> dict | None:
+    """把 duplicate 这个人整个并进 keep：地址变成附加地址，历史改挂过去（docs/114 R4）。"""
+    ensure_schema(conn)
+    keep = _with_company(conn, keep_id)
+    duplicate = conn.execute("SELECT * FROM contacts WHERE id=?", (duplicate_id,)).fetchone()
+    if keep is None or duplicate is None:
+        return None
+    if keep_id == duplicate_id:
+        raise ContactValidation("不能把联系人并进它自己")
+    if keep["lead_no"] != duplicate["lead_no"]:
+        raise ContactValidation("只能合并同一家公司下的联系人")
+    if duplicate["is_primary"]:
+        raise ContactValidation("主要联系人不能被合并掉，请先把主要联系人设成另一位")
+    now = _now()
+    # 空缺才填，不覆盖已经确认过的信息。
+    fill = {f: duplicate[f] for f in ("name", "title", "linkedin", "note")
+            if not keep[f] and duplicate[f]}
+    if fill:
+        fill["updated_at"] = now
+        conn.execute(f"UPDATE contacts SET {', '.join(f'{k}=?' for k in fill)} WHERE id=?",
+                     [*fill.values(), keep_id])
+        keep = _with_company(conn, keep_id)
+    for kind, value, status in (("email", duplicate["email"], duplicate["email_status"]),
+                                ("phone", duplicate["phone"], None)):
+        if not value:
+            continue
+        try:
+            _claim(conn, keep, kind, value, ignore=duplicate_id)
+        except ContactValidation:
+            continue  # 同一个地址两边都有：留 keep 的那一份就够了。
+        conn.execute(
+            "INSERT INTO contact_channels(contact_id, kind, value, status, created_at,"
+            " updated_at) VALUES (?, ?, ?, ?, ?, ?)", (keep_id, kind, value, status, now, now))
+    for row in conn.execute(
+        "SELECT kind, value, status FROM contact_channels WHERE contact_id=? ORDER BY id",
+        (duplicate_id,),
+    ).fetchall():
+        try:
+            _claim(conn, keep, row["kind"], row["value"], ignore=duplicate_id)
+        except ContactValidation:
+            continue
+        conn.execute(
+            "INSERT INTO contact_channels(contact_id, kind, value, status, created_at,"
+            " updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (keep_id, row["kind"], row["value"], row["status"], now, now))
+    _fold_into(conn, keep_id, duplicate)
+    conn.commit()
+    return _with_company(conn, keep_id)
+
+
 def _migrate_lead(conn: sqlite3.Connection, lead_no: int) -> bool:
     if conn.execute("SELECT 1 FROM contacts WHERE lead_no=?", (lead_no,)).fetchone():
         return False
@@ -329,11 +525,20 @@ def find_email(conn: sqlite3.Connection, email: str,
     value = (email or "").strip().lower()
     if not value:
         return None
-    sql = "SELECT * FROM contacts WHERE lower(email)=?"
-    params: list = [value]
+    # docs/114：默认信箱和附加信箱一起找，同一个人只算一次。
+    sql = (
+        "SELECT c.* FROM contacts c WHERE lower(c.email)=?"
+        " UNION SELECT c.* FROM contacts c JOIN contact_channels ch ON ch.contact_id=c.id"
+        " WHERE ch.kind='email' AND lower(ch.value)=?"
+    )
+    params: list = [value, value]
     if lead_no is not None:
-        sql += " AND lead_no=?"
-        params.append(lead_no)
+        sql = (
+            "SELECT c.* FROM contacts c WHERE lower(c.email)=? AND c.lead_no=?"
+            " UNION SELECT c.* FROM contacts c JOIN contact_channels ch ON ch.contact_id=c.id"
+            " WHERE ch.kind='email' AND lower(ch.value)=? AND c.lead_no=?"
+        )
+        params = [value, lead_no, value, lead_no]
     rows = conn.execute(sql, params).fetchall()
     if len(rows) != 1:
         return None
@@ -347,6 +552,11 @@ def email_leads(conn: sqlite3.Connection) -> dict[str, int]:
         "SELECT lead_no, email FROM contacts WHERE COALESCE(email, '') != ''"
     ):
         candidates.setdefault(row["email"].strip().lower(), set()).add(row["lead_no"])
+    for row in conn.execute(
+        "SELECT c.lead_no, ch.value FROM contact_channels ch"
+        " JOIN contacts c ON c.id=ch.contact_id WHERE ch.kind='email'"
+    ):
+        candidates.setdefault(row["value"].strip().lower(), set()).add(row["lead_no"])
     # Compatibility for a DB being used before its migration has run.
     for row in conn.execute("SELECT no, email FROM leads WHERE COALESCE(email, '') != ''"):
         candidates.setdefault(row["email"].strip().lower(), set()).add(row["no"])
@@ -366,6 +576,13 @@ def phone_leads(conn: sqlite3.Connection, min_digits: int = 8) -> dict[str, int]
         digits = _phone(row["phone"])
         if len(digits) >= min_digits:
             candidates.setdefault(digits, set()).add(row["lead_no"])
+    for row in conn.execute(
+        "SELECT c.lead_no, ch.value FROM contact_channels ch"
+        " JOIN contacts c ON c.id=ch.contact_id WHERE ch.kind='phone'"
+    ):
+        digits = _phone(row["value"])
+        if len(digits) >= min_digits:
+            candidates.setdefault(digits, set()).add(row["lead_no"])
     for row in conn.execute("SELECT no, phone FROM leads WHERE COALESCE(phone, '') != ''"):
         digits = _phone(row["phone"])
         if len(digits) >= min_digits:
@@ -378,20 +595,35 @@ def find_phone(conn: sqlite3.Connection, value: str, lead_no: int) -> dict | Non
     digits = _phone(value)
     if len(digits) < 8:
         return None
-    matches = []
+    matches: dict[int, sqlite3.Row] = {}
     for row in conn.execute(
-        "SELECT * FROM contacts WHERE lead_no=? AND COALESCE(phone, '') != ''", (lead_no,)
+        "SELECT c.*, c.phone AS number FROM contacts c"
+        " WHERE c.lead_no=? AND COALESCE(c.phone, '') != ''"
+        " UNION ALL"
+        " SELECT c.*, ch.value AS number FROM contacts c"
+        " JOIN contact_channels ch ON ch.contact_id=c.id"
+        " WHERE c.lead_no=? AND ch.kind='phone'", (lead_no, lead_no)
     ):
-        stored = _phone(row["phone"])
+        stored = _phone(row["number"])
+        if not stored:
+            continue
         if stored == digits or stored.endswith(digits[-8:]) or digits.endswith(stored[-8:]):
-            matches.append(row)
-    return dict(matches[0]) if len(matches) == 1 else None
+            matches[row["id"]] = row
+    if len(matches) != 1:
+        return None
+    return dict(next(iter(matches.values())))
 
 
 def _fold_into(conn: sqlite3.Connection, target_id: int, row: sqlite3.Row) -> None:
     """Point everything that referenced `row` at `target_id`, then drop `row`."""
     conn.execute("UPDATE inbox_messages SET contact_id=? WHERE contact_id=?",
                  (target_id, row["id"]))
+    # docs/114：提案上的收件人也要跟着走，否则删掉的联系人会在提案里留一个悬空 id。
+    if conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_proposals'"
+    ).fetchone():
+        conn.execute("UPDATE agent_proposals SET contact_id=? WHERE contact_id=?",
+                     (target_id, row["id"]))
     # Formal documents keep the exact addressee when duplicate companies merge.
     if conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='quotes'"
@@ -495,12 +727,21 @@ def also_reach(conn: sqlite3.Connection, lead_no: int, primary: str | None) -> l
     ensure_schema(conn)
     main = (primary or "").strip().lower()
     out: list[str] = []
+    # docs/114：同一个人的第二个信箱和别人的信箱一样该抄送 —— 把两行并成一个人之前
+    # 它就在这份名单里，并完之后不该消失。
     rows = conn.execute(
-        "SELECT email FROM contacts WHERE lead_no=? AND COALESCE(email,'')<>''"
-        " AND COALESCE(email_status,'') != 'invalid' ORDER BY is_primary DESC, id",
-        (lead_no,)).fetchall()
+        "SELECT email AS addr, is_primary, id FROM contacts"
+        " WHERE lead_no=? AND COALESCE(email,'')<>''"
+        " AND COALESCE(email_status,'') != 'invalid'"
+        " UNION ALL"
+        " SELECT ch.value AS addr, c.is_primary, c.id FROM contact_channels ch"
+        " JOIN contacts c ON c.id=ch.contact_id"
+        " WHERE c.lead_no=? AND ch.kind='email'"
+        " AND COALESCE(ch.status,'') != 'invalid'"
+        " ORDER BY is_primary DESC, id",
+        (lead_no, lead_no)).fetchall()
     for row in rows:
-        addr = (row["email"] or "").strip()
+        addr = (row["addr"] or "").strip()
         low = addr.lower()
         if not low or low == main or low in {o.lower() for o in out}:
             continue

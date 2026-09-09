@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead, fetchActivities, createActivity, completeActivity, fetchLead, fetchContacts, createContact, updateContact, setPrimaryContact, deleteContact, recheckLead } from "../api";
-import type { Activity, Contact, Lead, LeadIntelligence, Opportunity } from "../types";
+import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead, fetchActivities, createActivity, completeActivity, fetchLead, fetchContacts, createContact, updateContact, setPrimaryContact, deleteContact, recheckLead, addContactChannel, promoteContactChannel, deleteContactChannel, ContactAddressTaken } from "../api";
+import type { Activity, Contact, ContactChannel, Lead, LeadIntelligence, Opportunity } from "../types";
 import { fetchLeadIntelligence } from "../salesIntelligenceApi";
 import { fetchLeadMemory, writeLeadMemory, forgetLeadMemory, type MemoryItem } from "../agentApi";
 import { CustomerTypePicker } from "./CustomerTypePicker";
@@ -38,6 +38,82 @@ function localToday(): string {
   const d = new Date();
   const pad = (v: number) => String(v).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// docs/114：一个人可以有多个信箱 / 号码。默认那个在上面的输入框里，附加的排在下面，
+// 每个都能提上来当默认或删掉。＋ 展开一个输入框，不是一张表单。
+function ChannelField({ label, kind, contact, value, onValue, onRefresh, onError }: {
+  label: string; kind: "email" | "phone"; contact: Contact; value: string;
+  onValue: (v: string | null) => void; onRefresh: () => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [taken, setTaken] = useState<ContactAddressTaken | null>(null);
+  const extras: ContactChannel[] = (contact.channels ?? []).filter((c) => c.kind === kind);
+
+  function close() { setAdding(false); setDraft(""); setTaken(null); }
+
+  async function add(merge = false) {
+    if (!draft.trim()) return;
+    setBusy(true); onError("");
+    try {
+      await addContactChannel(contact.id, kind, draft.trim(), merge);
+      close();
+      await onRefresh();
+    } catch (e) {
+      if (e instanceof ContactAddressTaken) setTaken(e);
+      else onError(`添加${label}失败：${String(e)}`);
+    } finally { setBusy(false); }
+  }
+  async function act(fn: () => Promise<unknown>, what: string) {
+    setBusy(true); onError("");
+    try { await fn(); await onRefresh(); }
+    catch (e) { onError(`${what}失败：${String(e)}`); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="field">
+      <label>
+        {label}
+        <button className="btn btn-sm" style={{ marginLeft: 6, padding: "0 6px", lineHeight: 1.6 }}
+          onClick={() => (adding ? close() : setAdding(true))} disabled={busy}
+          title={`添加一个${label}`}>{adding ? "×" : "＋"}</button>
+      </label>
+      <input className="input" value={value} onChange={(e) => onValue(e.target.value || null)} />
+      {extras.map((channel) => (
+        // 字段列很窄：地址占满一行，按钮排到下面 —— 截断的地址看不出是哪一个。
+        <div key={channel.id} style={{ display: "flex", flexWrap: "wrap", alignItems: "center",
+          gap: 4, marginTop: 4 }}>
+          <span style={{ fontSize: 12, flex: "1 1 100%", wordBreak: "break-all" }}>
+            {channel.value}
+            {channel.status === "invalid" && <span className="muted" style={{ marginLeft: 5 }}>已退信</span>}
+          </span>
+          <button className="btn btn-sm" style={{ marginLeft: "auto" }} disabled={busy}
+            onClick={() => act(() => promoteContactChannel(channel.id), "设为默认")}>设为默认</button>
+          <button className="btn btn-sm" style={{ color: "var(--danger)" }} disabled={busy}
+            onClick={() => act(() => deleteContactChannel(channel.id), "删除")}>×</button>
+        </div>
+      ))}
+      {adding && <div style={{ marginTop: 4 }}>
+        <div style={{ display: "flex", gap: 6 }}>
+          <input className="input" autoFocus value={draft} disabled={busy}
+            placeholder={kind === "email" ? "另一个邮箱" : "另一个号码"}
+            onChange={(e) => { setDraft(e.target.value); setTaken(null); }}
+            onKeyDown={(e) => { if (e.key === "Enter") add(); }} />
+          <button className="btn btn-primary btn-sm" onClick={() => add()} disabled={busy}>添加</button>
+        </div>
+        {taken && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+          {draft.trim()} 已经是本客户下的另一个联系人
+          {taken.contactName ? `「${taken.contactName}」` : ""}。是同一个人吗？
+          <button className="btn btn-sm" style={{ marginLeft: 6 }} disabled={busy}
+            onClick={() => add(true)}>是，合并过来</button>
+        </div>}
+      </div>}
+    </div>
+  );
 }
 
 function ContactCard({ contact, onRefresh, onError }: {
@@ -85,8 +161,10 @@ function ContactCard({ contact, onRefresh, onError }: {
       <div className="field-grid">
         <div className="field"><label>姓名</label><input className="input" value={draft.name ?? ""} onChange={(e) => set("name", e.target.value || null)} /></div>
         <div className="field"><label>职位</label><input className="input" value={draft.title ?? ""} onChange={(e) => set("title", e.target.value || null)} /></div>
-        <div className="field"><label>邮箱</label><input className="input" value={draft.email ?? ""} onChange={(e) => set("email", e.target.value || null)} /></div>
-        <div className="field"><label>电话 / WhatsApp</label><input className="input" value={draft.phone ?? ""} onChange={(e) => set("phone", e.target.value || null)} /></div>
+        <ChannelField label="邮箱" kind="email" contact={contact} value={draft.email ?? ""}
+          onValue={(v) => set("email", v)} onRefresh={onRefresh} onError={onError} />
+        <ChannelField label="电话 / WhatsApp" kind="phone" contact={contact} value={draft.phone ?? ""}
+          onValue={(v) => set("phone", v)} onRefresh={onRefresh} onError={onError} />
         <div className="field"><label>LinkedIn</label><input className="input" value={draft.linkedin ?? ""} onChange={(e) => set("linkedin", e.target.value || null)} /></div>
         <div className="field"><label>采购角色</label>
           <select className="input" value={draft.role} onChange={(e) => set("role", e.target.value)}>
