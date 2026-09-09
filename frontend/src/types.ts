@@ -181,6 +181,14 @@ export interface InboxMessage {
   contact_name: string | null;
   country: string | null;
 }
+// docs/114：同一个人的另一个信箱 / 号码。默认那个仍在 Contact.email / phone 上。
+export interface ContactChannel {
+  id: number;
+  contact_id: number;
+  kind: "email" | "phone";
+  value: string;
+  status: string | null;
+}
 export interface Contact {
   id: number;
   lead_no: number;
@@ -198,6 +206,7 @@ export interface Contact {
   updated_at: string;
   company_en: string;
   country: string | null;
+  channels: ContactChannel[];
 }
 export interface Opportunity {
   id: number;
