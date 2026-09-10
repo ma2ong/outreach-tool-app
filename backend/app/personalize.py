@@ -62,6 +62,8 @@ _HOOK_GLOSS_KO = {
 _HOOK_PITCH_RE = re.compile(r"^Saw (.+?) panels listed on your site\.$")
 _HOOK_WORK_RE = re.compile(
     r"^Saw the (.+?) work(?: you do(?: around (.+?))?)?( on your site)?\.$")
+_LEGACY_GENERIC_HOOK = "Saw that your company works with LED displays."
+_LEGACY_GENERIC_HOOK_KO = "귀사에서 LED 디스플레이 관련 업무를 하고 계신 것을 봤습니다."
 
 
 _NOT_A_PERSON = re.compile(
@@ -158,8 +160,8 @@ def _generic_hook_ko() -> str:
 def natural_hook(lead: dict) -> str:
     """Make legacy generated hooks read like a human note without changing their facts."""
     hook = str(lead.get("hook") or "").strip() or _generic_hook()
-    if hook == _generic_hook():
-        return "I came across your company and noticed you work with LED displays."
+    if hook in {_generic_hook(), _LEGACY_GENERIC_HOOK}:
+        return _generic_hook()
 
     pitch = _HOOK_PITCH_RE.match(hook)
     if pitch:
@@ -185,6 +187,8 @@ def natural_hook(lead: dict) -> str:
 def _naturalize_korean_hook(line: str) -> str:
     """Turn the old observational ending into a more natural reason-for-contact line."""
     text = str(line or "").strip()
+    if text == _LEGACY_GENERIC_HOOK_KO:
+        return _generic_hook_ko()
     if text.endswith("봤습니다."):
         return text[:-len("봤습니다.")] + "보고 연락드렸습니다."
     return text
@@ -201,8 +205,8 @@ def hook_ko(lead: dict) -> str:
 
     from app.backfill_hooks import GENERIC_HOOK, GENERIC_HOOK_KO
 
-    if hook == GENERIC_HOOK:
-        return _naturalize_korean_hook(GENERIC_HOOK_KO)
+    if hook in {GENERIC_HOOK, _LEGACY_GENERIC_HOOK}:
+        return GENERIC_HOOK_KO
     pitch = _HOOK_PITCH_RE.match(hook)
     if pitch:
         pitches = pitch.group(1).replace(" and ", ", ")
@@ -255,7 +259,7 @@ def render(text: str | None, lead: dict) -> str:
         "hook": natural_hook(lead),
         "fit": _fit_line(lead),
         "fit_ko": _fit_line(lead, _FIT_LINES_KO),
-        "hook_ko": hook_ko(lead) or _naturalize_korean_hook(_generic_hook_ko()),
+        "hook_ko": hook_ko(lead) or _generic_hook_ko(),
     }
     dropped = False
 
