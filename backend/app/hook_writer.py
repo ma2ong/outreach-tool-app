@@ -157,13 +157,20 @@ def improve(conn, lead: dict, page_text: str, source_url: str) -> dict | None:
     except Exception:  # noqa: BLE001 — 模型的任何失败都只是「没有更好的开场白」
         return None
 
-    hook = str(data.get("hook") or "").strip()
+    # The prompt asks for natural wording, but normalize once more before storing so an
+    # occasional model fallback to the legacy "Saw..." pattern never leaks back into the
+    # database. Validation still checks the same underlying fact and source quote.
+    from app import personalize
+
+    raw_hook = str(data.get("hook") or "").strip()
+    hook = personalize.natural_hook({"hook": raw_hook}) if raw_hook else ""
     quote = str(data.get("quote") or "").strip()
     if rejected(hook, quote=quote) or not quoted_from(quote, page_text):
         return None
 
     hook_ko = str(data.get("hook_ko") or "").strip()
     if korean:
+        hook_ko = personalize._naturalize_korean_hook(hook_ko)
         # 韩语信用的是这一句。它不合规就整条作废——半句韩语比没有更糟。
         if rejected(hook_ko, korean=True, quote=quote):
             return None
