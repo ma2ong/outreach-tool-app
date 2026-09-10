@@ -59,12 +59,16 @@ def test_seed_loads_templates_and_sequences(tmp_path):
         assert offsets in ([0], [0, 14, 28]), f"{s['name']} 的节奏是 {offsets}"
     ko = next(s for s in seqs if "韩语·General" in s["name"])
     en = next(s for s in seqs if "英语·Rental" in s["name"])
-    assert "안녕하세요" in ko["steps"][0]["body"]
+    # Raw sequence copy delegates the whole first line to the country-aware renderer.
+    assert "{greeting}" in ko["steps"][0]["body"]
+    assert "{contact}님" not in ko["steps"][0]["body"]
     assert "LED" in ko["steps"][0]["subject"]
     # The Korean copy is natural business Korean and renders safely with no contact name.
     from app.personalize import render
     for step in ko["steps"]:
-        rendered = render(step["body"], {"company_en": "Ara System", "contact_name": None})
+        rendered = render(step["body"], {"company_en": "Ara System",
+                                         "country": "South Korea", "contact_name": None})
+        assert rendered.startswith("안녕하세요.")
         assert "{contact}" not in rendered and ", 님" not in rendered
         assert "Kakaotalk" in rendered and "WhatsApp" not in rendered
     # Neither language carries an opt-out paragraph; suppression comes from the reply.
@@ -87,8 +91,8 @@ def test_seeded_greeting_never_says_hi_there(tmp_path):
     from app.personalize import render
     from app import seeds
     body = next(b for n, l, s_, b in seeds.EMAIL_TEMPLATES if l == "en")
-    named = render(body, {"company_en": "Acme", "contact_name": "Dave Miller"})
-    bare = render(body, {"company_en": "Acme", "contact_name": None})
+    named = render(body, {"company_en": "Acme", "country": "USA", "contact_name": "Dave Miller"})
+    bare = render(body, {"company_en": "Acme", "country": "USA", "contact_name": None})
     assert named.startswith("Hi Dave,")
     assert bare.startswith("Hi,")          # not "Hi there," and not "Hi ,"
     assert "there" not in bare.splitlines()[0]
