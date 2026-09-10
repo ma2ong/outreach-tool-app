@@ -1,17 +1,10 @@
-"""Ready-made templates and a follow-up sequence, loaded in one click."""
+"""Ready-made templates and the system cold-email sequences."""
 
 from app.outreach_defaults import EN_BODY, EN_SUBJECT, KO_BODY, KO_SIGNOFF, KO_SUBJECT, SIGNOFF
 
-# docs/84 R1: the manual panel offers the letters the sequence actually sends, generated
-# rather than copied. The openers that used to be written out here never sent a single
-# email and had drifted several revisions behind the sequence — a second string saying
-# the same thing is a second string that goes stale.
-#
-# The neutral segment, because a hand-picked batch spans customer types and 中性版 is the
-# letter written for not knowing which. English has one letter and Korean three: Allen
-# deleted the English neutral follow-ups outright (docs/82 R7), so they are not on offer
-# here either.
+
 def _cold_email_templates():
+    """Manual cold-email picker mirrors the General system sequence (docs/84, 127)."""
     from app import seed_sequences as seq
 
     for korean in (False, True):
@@ -23,11 +16,8 @@ def _cold_email_templates():
 EMAIL_TEMPLATES = list(_cold_email_templates())
 
 
-# docs/84 R1 again, for the other channel: one template per customer type, taken from the
-# family the DM queue actually sends. What used to be here was three shapes no send path
-# could reach, each stored twice because IG and WA needed a row apiece and the bodies were
-# byte-identical.
 def _dm_templates():
+    """One reachable starter DM per docs/127 customer segment."""
     from app import copy_segments, social_queue
 
     for segment in copy_segments.SEGMENTS:
@@ -38,19 +28,9 @@ def _dm_templates():
 DM_TEMPLATES = list(_dm_templates())
 
 
-# docs/82. Written in Allen's own shape, learned from 2,956 letters he sent himself
-# between 2022 and 2025 — not copied from them. His order every time: greet warmly, say
-# which factory is writing and who you are, put the range and its real numbers in front
-# of the reader, then invite. 안녕하세요~ 심천 LED 전광판 업체 맥스컬러입니다 … 관심하신
-# 제품 있으시면 연락주세요~
-#
-# What is deliberately absent: a series name or a cabinet dimension. An earlier pass
-# lifted "R3 시리즈, 500×500 / 500×1000mm" straight out of his June 2025 emails and he
-# stopped it — 你毕竟不熟悉我的产品线，所以不用具体到哪个产品之类的. A series can be
-# renamed or dropped and this file would not know. Every number below is a row in
-# `products` with agent_approved=1.
-#
-# docs/83 keeps company names out of subjects and puts the useful context in the body.
+# Optional material-request templates remain separate from first-touch segmentation.
+# Outdoor here is a product/application fact inside a comparison sheet, not a customer
+# family or routing decision.
 ALLEN_STYLE_TEMPLATES = [
     ("资料 · 产品线对比（英语）", "en",
      "LED range comparison",
@@ -140,9 +120,6 @@ ALLEN_STYLE_DM = [
 def _bundled_templates():
     for name, lang, subject, body in EMAIL_TEMPLATES + ALLEN_STYLE_TEMPLATES:
         yield name, "email", subject, body, lang
-    # Facebook was offered in the panel with nothing behind it — picking it showed
-    # 「暂无模板」. One body per row per channel because the panel filters by channel;
-    # the text is written once above.
     for name, lang, body in DM_TEMPLATES + ALLEN_STYLE_DM:
         for channel, suffix in (("whatsapp", "WA"), ("instagram", "IG"),
                                 ("facebook", "FB")):
@@ -150,7 +127,7 @@ def _bundled_templates():
 
 
 def seed_templates(conn) -> int:
-    """Add missing starter templates, keyed by their system name and channel."""
+    """Add missing starter templates, keyed by system name and channel."""
     from app import repository
     existing = {(t.name, t.channel) for t in repository.list_templates(conn)}
     added = 0
@@ -162,21 +139,20 @@ def seed_templates(conn) -> int:
     return added
 
 
-# Names this file used to ship under. They are deleted rather than renamed: the copy
-# behind them is generated now, so there is nothing in the old row worth carrying over,
-# and a rename would have to guess which of two old rows becomes which new one. Anything
-# Allen saved himself is not in this set and is never touched (docs/84 R3).
+# Exact names of system-owned rows retired by earlier copy migrations plus the Outdoor
+# DM family retired by docs/127. User-created templates are never matched by this list.
 RETIRED_TEMPLATES = tuple(
     [f"{n}（{lang}）" for lang in ("英语", "韩语")
      for n in ("首次触达", "跟进2：案例+提问", "跟进3：最后一封",
                "工厂直供介绍", "规格书索取")]
     + [f"DM {n}（{lang}） · {suffix}" for lang in ("英语", "韩语")
        for n in ("首次触达", "跟进", "工厂直供") for suffix in ("WA", "IG")]
+    + [f"私信 · 户外为主（英语） · {suffix}" for suffix in ("WA", "IG", "FB")]
 )
 
 
 def drop_retired_templates(conn) -> int:
-    """Remove the rows this file no longer ships. Allen's own templates are safe."""
+    """Remove only named system rows that the repo no longer ships."""
     cur = conn.execute(
         "DELETE FROM templates WHERE name IN (%s)"
         % ",".join("?" * len(RETIRED_TEMPLATES)), RETIRED_TEMPLATES)
@@ -184,11 +160,10 @@ def drop_retired_templates(conn) -> int:
 
 
 def refresh_bundled_templates(conn) -> int:
-    """Refresh only the named system templates; preserve every unknown row."""
+    """Refresh named system templates while preserving every unknown/custom row."""
     from app import repository
 
     drop_retired_templates(conn)
-
     refreshed = 0
     for name, channel, subject, body, lang in _bundled_templates():
         cur = conn.execute(
@@ -203,16 +178,9 @@ def refresh_bundled_templates(conn) -> int:
 
 
 def seed_sequences(conn) -> list[int]:
-    """Load the cold-email sequences — every customer type, both languages.
-
-    There used to be two built here as well, from a copy of the templates above, and they
-    were a fourth place holding the same letters (docs/84 R1). `seed_all` owns them now;
-    this stays because "一键载入" calls it by name.
-    """
+    """Load/refresh the three-segment cold-email sequences in both languages."""
     from app import seed_sequences as seq
 
     before = {r[0] for r in conn.execute("SELECT id FROM sequences")}
     ids = seq.seed_all(conn).values()
-    # Only what this call created: "一键载入" reports what it added, and seed_all
-    # rewrites the steps of the ones already there every time by design.
     return sorted(i for i in ids if i not in before)

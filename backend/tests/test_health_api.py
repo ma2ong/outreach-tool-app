@@ -41,18 +41,18 @@ def test_fix_endpoint_suppresses(tmp_path):
 def test_seed_loads_templates_and_sequences(tmp_path):
     client, _ = _client(tmp_path)
     r = client.post("/api/seeds/load").json()
-    assert r["templates"] > 0 and len(r["sequence_ids"]) == 8  # 4 types x 2 langs
+    assert r["templates"] > 0 and len(r["sequence_ids"]) == 6  # 3 types x 2 langs
     email_tpls = client.get("/api/templates?channel=email").json()
     assert any("冷邮件 · 中性版" in t["name"] for t in email_tpls)
     # Korea gets Korean, every other market gets English — and nothing else ships.
     assert {t["lang"] for t in email_tpls} == {"en", "ko"}
     wa = client.get("/api/templates?channel=whatsapp").json()
-    # DM 规矩：不提公司名。The restored 08-31 copy says what we are rather than where
-    # we are — "we manufacture LED panels…" — so the check is on the rule itself.
+    # DM 规矩：不提公司名。The copy says what we supply rather than pretending to know
+    # more about the recipient than the evidence supports.
     assert wa and "Maxcolor" not in wa[0]["body"]
-    assert "manufactur" in wa[0]["body"] or "make" in wa[0]["body"]
+    assert "supply" in wa[0]["body"] or "work with" in wa[0]["body"]
     seqs = client.get("/api/sequences").json()
-    assert len(seqs) == 8  # 4 customer types x 2 languages, and nothing else ships
+    assert len(seqs) == 6  # 3 customer types x 2 languages, and nothing else ships
     for s in seqs:
         offsets = [st["day_offset"] for st in s["steps"]]
         # One letter, or three a fortnight apart — the frequency rule (docs/75 R1) caps
@@ -102,4 +102,4 @@ def test_seed_is_idempotent(tmp_path):
     second = client.post("/api/seeds/load").json()
     assert second["templates"] == 0 and second["sequence_ids"] == []
     assert len(client.get("/api/templates").json()) == first["templates"]
-    assert len(client.get("/api/sequences").json()) == 8
+    assert len(client.get("/api/sequences").json()) == 6

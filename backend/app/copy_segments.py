@@ -1,14 +1,13 @@
-"""Which kind of customer a company is, so the letter can be written to them (docs/76).
+"""Choose the outbound-copy family for one company (docs/127).
 
-This reads fields the book already has — Allen's own tags, `target_fit`, the business
-line — and never invents a new classifier. Change a customer's type in the lead book and
-the next letter changes with it, which is the point: the segment is his judgement, stored
-where he already keeps it.
+Specialist copy is useful only when the evidence is one-sided. Rental and Install are
+therefore positive classifications, while General is the deliberate answer for mixed,
+uncertain, reseller, outdoor-only, or otherwise unresolved companies.
 
-`general` is not a leftover bin. It is the second-largest segment, and it exists because
-guessing wrongly is worse than writing neutrally: a letter that opens by telling a signage
-company how their rental business works has already lost. docs/45 applies to copy as much
-as to CRM fields — not knowing what they do means not pretending to.
+Evidence precedence stays conservative: Allen's explicit customer-type tags first,
+then `target_fit`, then words from the company's own business/hook/brief fields. At one
+evidence level we collect the whole answer before deciding; seeing "rental" first in a
+string must not hide "installation" later in the same string.
 """
 from __future__ import annotations
 
@@ -16,78 +15,91 @@ import re
 
 from app import customer_types as ct
 
-SEGMENTS = ("rental", "install", "outdoor", "general")
+SEGMENTS = ("rental", "install", "general")
 
 LABEL = {
-    "rental": "活动租赁", "install": "固定安装", "outdoor": "户外为主",
+    "rental": "活动租赁",
+    "install": "固定安装",
     "general": "中性版",
 }
 
-# Allen's tags come first: they are the only signal he set by hand.
-#
-# 透明屏 (3 companies) and 代理商/批发商 (20) had segments of their own until Allen folded
-# them into the neutral letter: "室内为主，代理批发也都归类到中性版". 23 companies do not
-# pay for a version of the copy that has to be rewritten in two languages every time he
-# changes his mind about the pitch. They are absent here rather than mapped to "general"
-# so the fall-through does the work in one place.
-# Three types now (docs/60 R2), so three entries. 系统集成商 and 广告商 were folded into
-# 工程商 when Allen cut the list, and his tag wins over everything below it — so those 41
-# advertisers now get the fixed-install letter, which is what he chose: 户外广告牌多数是
-# 固定安装工程. `outdoor` is still reachable, but only for companies he never tagged, via
-# FROM_FIT and their own site words.
 FROM_TYPE = {
     "租赁商": "rental",
     "工程商": "install",
     "批发商": "general",
 }
 
-# `target_fit` is the classifier's, and only consulted when Allen set no type.
-FROM_FIT = (
-    ("租赁", "rental"),
-    ("集成", "install"), ("AV", "install"),
-    ("标识", "outdoor"), ("广告牌", "outdoor"),
-)
+_RENTAL_FIT_WORDS = re.compile(r"租赁|rental|staging|event production|렌탈|무대", re.I)
+_INSTALL_FIT_WORDS = re.compile(
+    r"集成|\bAV\b|安装|工程|integrat|install|시공|설치", re.I)
 
-_OUTDOOR_WORDS = re.compile(
-    r"billboard|out-?of-?home|\bDOOH\b|facade|fa[çc]ade|stadium|highway|roadside"
-    r"|户外|广告牌|楼体|led 옥외|옥외", re.I)
 _RENTAL_WORDS = re.compile(
-    r"\brental\b|\bstaging\b|concert|festival|touring|live event|舞台|演唱会|租赁"
-    r"|렌탈|무대", re.I)
+    r"\brental\b|\bstaging\b|concert|festival|touring|live event|event production"
+    r"|舞台|演唱会|租赁|렌탈|무대", re.I)
 _INSTALL_WORDS = re.compile(
-    r"\bintegrat|\binstallation\b|\bfixed install|systems? integrator|시공|설치", re.I)
+    r"\bintegrat|\binstall(?:ation|er|ing|s|ed)?\b|\bfixed[- ]?install"
+    r"|\bpermanent\s+(?:led|display|av|installation)\b|systems? integrator"
+    r"|系统集成|固定安装|工程安装|시공|설치", re.I)
+
+
+def _specialist(rental: bool, install: bool) -> str | None:
+    """Return a specialist only when exactly one side is supported."""
+    if rental == install:  # both true or both false
+        return None
+    return "rental" if rental else "install"
+
+
+def _from_manual_tags(raw_tags) -> str | None:
+    """Manual customer types are the strongest evidence.
+
+    A General/reseller type is an explicit reason not to pretend we know a specialist
+    workflow. Likewise, tags that name both Rental and Install are mixed by definition.
+    """
+    found: set[str] = set()
+    for tag in ct.customer_types(raw_tags):
+        segment = FROM_TYPE.get(ct.canonical_type(tag) or "")
+        if segment:
+            found.add(segment)
+    if not found:
+        return None
+    if "general" in found or len(found) != 1:
+        return "general"
+    return next(iter(found))
+
+
+def _from_text(text: str, rental_re: re.Pattern, install_re: re.Pattern) -> str | None:
+    return _specialist(bool(rental_re.search(text)), bool(install_re.search(text)))
 
 
 def segment_of(lead: dict) -> str:
-    """One of SEGMENTS. Allen's tag wins; then the classifier's fit; then the words the
-    company uses about itself; then `general`."""
-    # Through `canonical_type`, not the raw tag: the book was migrated to the three types
-    # but the old vocabulary can still arrive on an import, and a row that says
-    # 系统集成商 must reach the same letter as one that says 工程商 rather than falling
-    # quietly through to the neutral one.
-    for tag in ct.customer_types(lead.get("tags")):
-        segment = FROM_TYPE.get(ct.canonical_type(tag) or "")
-        if segment:
-            return segment
+    """Return exactly one of Rental / Install / General (docs/127 R1).
+
+    Outdoor/signage/billboard evidence is intentionally absent here. It can describe a
+    project, but it does not say whether the customer rents systems, installs them, does
+    both, or simply operates one.
+    """
+    manual = _from_manual_tags(lead.get("tags"))
+    if manual:
+        return manual
 
     fit = str(lead.get("target_fit") or "")
-    for needle, segment in FROM_FIT:
-        if needle in fit:
-            return segment
+    from_fit = _from_text(fit, _RENTAL_FIT_WORDS, _INSTALL_FIT_WORDS)
+    if from_fit:
+        return from_fit
+    # Both Rental and Install at this level is knowingly mixed, not "no evidence". Do
+    # not fall through to weaker website text and let it break the tie by accident.
+    if _RENTAL_FIT_WORDS.search(fit) and _INSTALL_FIT_WORDS.search(fit):
+        return "general"
 
-    # Their own description, last: it is the least reliable and the easiest to misread.
     text = " ".join(str(lead.get(f) or "") for f in ("business", "hook", "brief"))
-    if _RENTAL_WORDS.search(text):
-        return "rental"
-    if _INSTALL_WORDS.search(text):
-        return "install"
-    if _OUTDOOR_WORDS.search(text):
-        return "outdoor"
+    from_company = _from_text(text, _RENTAL_WORDS, _INSTALL_WORDS)
+    if from_company:
+        return from_company
     return "general"
 
 
 def counts(conn) -> dict[str, int]:
-    """How the book divides up — used by the seeder's preview and the daily report."""
+    """How the book divides up — used by the seeder preview and daily report."""
     out = {s: 0 for s in SEGMENTS}
     for row in conn.execute(
             "SELECT tags, target_fit, business, hook, brief FROM leads"):
