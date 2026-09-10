@@ -71,8 +71,8 @@ if (-not (Wait-Port8000 $false 30)) {
 Start-ScheduledTask -TaskName $taskName
 # 120s, not 60: on 2026-09-09 the service bound the port a moment after the 60s window
 # closed, so a healthy deployment reported 'Service failed to start' and skipped its own
-# acceptance step. Waiting longer costs nothing when the service is up — the loop returns
-# as soon as the port is taken — and a service that is genuinely dead is still caught.
+# acceptance step. Waiting longer costs nothing when the service is up: the loop returns
+# as soon as the port is taken, and a service that is genuinely dead is still caught.
 if (-not (Wait-Port8000 $true 120)) {
     Write-Host 'Service did not bind within 60s. Last lines of the server log:' -ForegroundColor Yellow
     $log = Join-Path $repo ("backend\logs\server-{0:yyyy-MM-dd}.log" -f (Get-Date))

@@ -45,11 +45,17 @@ def test_an_imported_customer_is_treated_as_already_contacted(conn):
 
 
 def test_an_imported_customer_does_not_land_in_todays_cold_queue(conn):
-    """The whole point, stated as the outcome rather than the mechanism."""
+    """The whole point, stated as the outcome rather than the mechanism.
+
+    The import date has to be the real today, not the frozen TODAY the other tests use:
+    the cold queue re-opens 14 days after the last message (recontact.COOLDOWN_DAYS), so
+    a fixed date turns this into "imported a fortnight ago", which is re-approachable on
+    purpose. Pinning it made the test start failing on 2026-09-09 with nothing broken."""
     from app import outreach as email_outreach
 
     import_customers.apply(conn, [
-        {"company_en": "Old Friend Displays", "email": "buyer@oldfriend.com"}], today=TODAY)
+        {"company_en": "Old Friend Displays", "email": "buyer@oldfriend.com"}],
+        today=dt.date.today())
     no = conn.execute("SELECT no FROM leads WHERE company_en='Old Friend Displays'").fetchone()["no"]
     assert email_outreach.eligible_leads(conn, [no], "email") == []
 
