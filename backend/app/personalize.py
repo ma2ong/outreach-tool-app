@@ -3,10 +3,15 @@
 Only known tokens are replaced. Customer-specific fit copy follows the same closed
 Rental / Install / General vocabulary used by outbound routing; legacy tags are
 canonicalised in app.customer_types before they reach this module.
+
+Greeting policy is centralized here so email and social use exactly the same rule:
+Korean customers are addressed by a verified business title only, never by name; other
+markets use a verified first name when available. Hooks are also normalized at render
+time so old stored "Saw ..." openers do not keep leaking template-like language.
 """
 import re
 
-_TOKEN_RE = re.compile(r"\{(name|company|contact|country|city|hook_ko|hook|fit_ko|fit)\}")
+_TOKEN_RE = re.compile(r"\{(name|company|contact|greeting|country|city|hook_ko|hook|fit_ko|fit)\}")
 _GAP_RE = re.compile(r"[^\S\n]{2,}")
 _BLANK_RUN_RE = re.compile(r"\n{3,}")
 _ORPHAN_PUNCT_RE = re.compile(r"[^\S\n]+([,.!?;:])")
@@ -90,51 +95,6 @@ def looks_like_a_person(value: str) -> bool:
     return True
 
 
-def hook_ko(lead: dict) -> str:
-    """Return a Korean version of a recognised generated hook, else an empty string."""
-    stored = (lead.get("hook_ko") or "").strip()
-    if stored:
-        return stored
-    hook = (lead.get("hook") or "").strip()
-    if not hook:
-        return ""
-
-    from app.backfill_hooks import GENERIC_HOOK, GENERIC_HOOK_KO
-
-    if hook == GENERIC_HOOK:
-        return GENERIC_HOOK_KO
-    pitch = _HOOK_PITCH_RE.match(hook)
-    if pitch:
-        pitches = pitch.group(1).replace(" and ", ", ")
-        return f"홈페이지에서 {pitches} 패널 라인업을 봤습니다."
-
-    work = _HOOK_WORK_RE.match(hook)
-    if not work:
-        return ""
-    terms = [t.strip() for t in re.split(r",| and ", work.group(1)) if t.strip()]
-    korean = [_HOOK_GLOSS_KO.get(term) for term in terms]
-    if not korean or any(k is None for k in korean):
-        return ""
-    where = work.group(2)
-    joined = " · ".join(korean)
-    if where:
-        return f"{where} 지역에서 하시는 {joined} 작업을 봤습니다."
-    if work.group(3):
-        return f"홈페이지에서 {joined} 작업을 봤습니다."
-    return f"{joined} 작업을 하시는 걸 봤습니다."
-
-
-def _fit_line(lead: dict, table: dict | None = None) -> str:
-    """Return one fit line from the canonical three-type customer routing."""
-    from app.customer_types import customer_types
-
-    table = table if table is not None else _FIT_LINES
-    types = customer_types(lead.get("tags"))
-    if not types:
-        return ""
-    return table.get(types[0], "")
-
-
 _KO_TITLES = (
     "대표이사", "대표", "사장", "회장", "부사장", "전무", "상무", "이사",
     "본부장", "부장", "차장", "과장", "대리", "팀장", "실장", "소장", "원장",
@@ -155,6 +115,36 @@ def korean_title(lead: dict) -> str:
     return ""
 
 
+_KOREAN_COUNTRIES = {
+    "south korea", "korea", "republic of korea", "korea, republic of", "korea south",
+    "kr", "kor", "대한민국", "한국", "韩国", "韓國",
+}
+
+
+def is_korean_customer(lead: dict) -> bool:
+    """Country is the authority for Korean address style; never infer it from a name."""
+    country = re.sub(r"\s+", " ", str(lead.get("country") or "")).strip().casefold()
+    return country in _KOREAN_COUNTRIES
+
+
+def _safe_contact(lead: dict) -> str:
+    contact = str(lead.get("contact_name") or "").strip()
+    return contact if contact and looks_like_a_person(contact) else ""
+
+
+def greeting(lead: dict) -> str:
+    """Return the complete first-line greeting for every outbound channel.
+
+    Korea: known title -> 안녕하세요, 부장님. / unknown title -> 안녕하세요.
+    Other markets: known person -> Hi John, / unknown person -> Hi,
+    """
+    if is_korean_customer(lead):
+        title = korean_title(lead)
+        return f"안녕하세요, {title}님." if title else "안녕하세요."
+    contact = _safe_contact(lead)
+    return f"Hi {contact.split()[0]}," if contact else "Hi,"
+
+
 def _generic_hook() -> str:
     from app.backfill_hooks import GENERIC_HOOK
     return GENERIC_HOOK
@@ -165,26 +155,107 @@ def _generic_hook_ko() -> str:
     return GENERIC_HOOK_KO
 
 
+def natural_hook(lead: dict) -> str:
+    """Make legacy generated hooks read like a human note without changing their facts."""
+    hook = str(lead.get("hook") or "").strip() or _generic_hook()
+    if hook == _generic_hook():
+        return "I came across your company and noticed you work with LED displays."
+
+    pitch = _HOOK_PITCH_RE.match(hook)
+    if pitch:
+        pitches = pitch.group(1)
+        return f"I noticed {pitches} panels on your website."
+
+    work = _HOOK_WORK_RE.match(hook)
+    if work:
+        what, where, on_site = work.group(1), work.group(2), work.group(3)
+        if where:
+            return f"I came across your {what} work around {where}."
+        if on_site:
+            return f"I was looking through your website and noticed your {what} work."
+        return f"I came across your {what} work."
+
+    # Source-specific hooks written by the verified hook writer used to start with the
+    # same canned "Saw ..." shape. Keep every fact after that verb, only soften the lead.
+    if hook.startswith("Saw "):
+        return "I noticed " + hook[4:]
+    return hook
+
+
+def _naturalize_korean_hook(line: str) -> str:
+    """Turn the old observational ending into a more natural reason-for-contact line."""
+    text = str(line or "").strip()
+    if text.endswith("봤습니다."):
+        return text[:-len("봤습니다.")] + "보고 연락드렸습니다."
+    return text
+
+
+def hook_ko(lead: dict) -> str:
+    """Return a natural Korean version of a verified/generated hook, else empty."""
+    stored = (lead.get("hook_ko") or "").strip()
+    if stored:
+        return _naturalize_korean_hook(stored)
+    hook = (lead.get("hook") or "").strip()
+    if not hook:
+        return ""
+
+    from app.backfill_hooks import GENERIC_HOOK, GENERIC_HOOK_KO
+
+    if hook == GENERIC_HOOK:
+        return _naturalize_korean_hook(GENERIC_HOOK_KO)
+    pitch = _HOOK_PITCH_RE.match(hook)
+    if pitch:
+        pitches = pitch.group(1).replace(" and ", ", ")
+        return f"홈페이지에서 {pitches} 패널 라인업을 보고 연락드렸습니다."
+
+    work = _HOOK_WORK_RE.match(hook)
+    if not work:
+        return ""
+    terms = [t.strip() for t in re.split(r",| and ", work.group(1)) if t.strip()]
+    korean = [_HOOK_GLOSS_KO.get(term) for term in terms]
+    if not korean or any(k is None for k in korean):
+        return ""
+    where = work.group(2)
+    joined = " · ".join(korean)
+    if where:
+        return f"{where} 지역에서 하시는 {joined} 작업을 보고 연락드렸습니다."
+    if work.group(3):
+        return f"홈페이지에서 {joined} 작업을 보고 연락드렸습니다."
+    return f"{joined} 작업을 하시는 걸 보고 연락드렸습니다."
+
+
+def _fit_line(lead: dict, table: dict | None = None) -> str:
+    """Return one fit line from the canonical three-type customer routing."""
+    from app.customer_types import customer_types
+
+    table = table if table is not None else _FIT_LINES
+    types = customer_types(lead.get("tags"))
+    if not types:
+        return ""
+    return table.get(types[0], "")
+
+
 def render(text: str | None, lead: dict) -> str:
     if not text:
         return ""
     company = lead.get("company_en") or ""
-    contact = (lead.get("contact_name") or "").strip()
-    if contact and not looks_like_a_person(contact):
-        contact = ""
+    contact = _safe_contact(lead)
 
+    # Keep {contact} backwards compatible for older/manual templates. New outbound copy
+    # uses {greeting}, which is the only token that applies the country-aware address rule.
     ko_address = "{contact}님" in text
     values = {
         "name": company,
         "company": company,
         "contact": (korean_title(lead) if ko_address
                     else (contact.split()[0] if contact else "")),
+        "greeting": greeting(lead),
         "country": lead.get("country") or "",
         "city": lead.get("city") or "",
-        "hook": (lead.get("hook") or "").strip() or _generic_hook(),
+        "hook": natural_hook(lead),
         "fit": _fit_line(lead),
         "fit_ko": _fit_line(lead, _FIT_LINES_KO),
-        "hook_ko": hook_ko(lead) or _generic_hook_ko(),
+        "hook_ko": hook_ko(lead) or _naturalize_korean_hook(_generic_hook_ko()),
     }
     dropped = False
 
