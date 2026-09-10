@@ -108,7 +108,7 @@ def test_render_inserts_the_hook_when_there_is_one():
     lead = {"company_en": "Acme", "contact_name": "Carlos Ruiz",
             "hook": "Saw P3.9 panels listed on your site."}
     assert personalize.render("Hi {contact}, {hook} We build LED panels.", lead) == \
-        "Hi Carlos, Saw P3.9 panels listed on your site. We build LED panels."
+        "Hi Carlos, I noticed P3.9 panels on your website. We build LED panels."
 
 
 def test_the_brief_is_not_a_sendable_token():
