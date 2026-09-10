@@ -42,25 +42,25 @@ and front/rear service.
 If you have a project coming up, send me the pitch and cabinet size you normally use.
 I'll send the closest spec sheet with weight and power per cabinet.
 """),
-    "install": ("Fixed-install LED: P0.6-P10, front/rear service", """Hi {contact},
+    "install": ("Fixed-install LED: P0.7-P10, front/rear service", """Hi {contact},
 
 {hook}
 
 This is Allen from an LED display manufacturer in Shenzhen.
 
-For fixed-install projects, we cover P0.6-P4 indoor and P2.5-P10 outdoor, with front or
+For fixed-install projects, we cover P0.7-P4 indoor and P2.5-P10 outdoor, with front or
 rear service options.
 
 If you're specifying a project, send me the pitch and screen size. I'll send the matching
 spec sheet with cabinet weight and power.
 """),
-    "general": ("LED display range: P0.6-P10", """Hi {contact},
+    "general": ("LED display range: P0.7-P10", """Hi {contact},
 
 {hook}
 
 This is Allen from an LED display manufacturer in Shenzhen.
 
-We cover fine-pitch, commercial indoor, rental and outdoor fixed LED from P0.6 to P10.
+We cover fine-pitch, commercial indoor, rental and outdoor fixed LED from P0.7 to P10.
 
 If LED is relevant to your work, send me the application, pitch or screen size. I'll point
 you to the most relevant spec instead of sending a full catalogue.
@@ -91,25 +91,25 @@ KO_OPENER = {
 주로 쓰시는 피치와 캐비닛 사이즈만 알려주시면 가장 가까운 사양서로 보내드리겠습니다.
 무게와 소비전력도 같이 정리해 드립니다.
 """),
-    "install": ("고정 설치 LED: 실내 P0.6-P4 / 실외 P2.5-P10", """안녕하세요, {contact}님.
+    "install": ("고정 설치 LED: 실내 P0.7-P4 / 실외 P2.5-P10", """안녕하세요, {contact}님.
 
 {hook_ko}
 
 심천 LED 디스플레이 제조업체의 Allen입니다.
 
-고정 설치용은 실내 P0.6-P4, 실외 P2.5-P10까지 대응하며 전면·후면 유지보수 사양을
+고정 설치용은 실내 P0.7-P4, 실외 P2.5-P10까지 대응하며 전면·후면 유지보수 사양을
 선택할 수 있습니다.
 
 검토 중인 프로젝트가 있으면 피치와 화면 크기만 알려주세요. 도면 검토하기 쉽게 캐비닛
 무게와 소비전력까지 포함한 사양서로 보내드리겠습니다.
 """),
-    "general": ("LED 디스플레이: P0.6-P10", """안녕하세요, {contact}님.
+    "general": ("LED 디스플레이: P0.7-P10", """안녕하세요, {contact}님.
 
 {hook_ko}
 
 심천 LED 디스플레이 제조업체의 Allen입니다.
 
-파인피치, 실내 상업용, 렌탈, 실외 고정형까지 P0.6-P10 범위로 대응하고 있습니다.
+파인피치, 실내 상업용, 렌탈, 실외 고정형까지 P0.7-P10 범위로 대응하고 있습니다.
 
 사용하시는 용도나 피치, 화면 크기 중 하나만 알려주시면 전체 카탈로그 대신 맞는 사양만
 골라 보내드리겠습니다.
@@ -129,7 +129,7 @@ KO_SECOND = {
 # work. Keep this useful and easy to file rather than turning it into a goodbye message.
 EN_LAST = """Hi {contact},
 
-One last reference for later: fine pitch P0.6-P1.8, indoor P2-P4, rental P2.6-P4.8, and
+One last reference for later: fine pitch P0.7-P1.8, indoor P2-P4, rental P2.6-P4.8, and
 outdoor fixed P2.5-P10.
 
 Whenever a project comes up, send me the pitch and size and I can match the spec sheet.
@@ -137,7 +137,7 @@ Whenever a project comes up, send me the pitch and size and I can match the spec
 
 KO_LAST = """안녕하세요, {contact}님.
 
-나중에 참고하시기 쉽게 범위만 간단히 남깁니다. 파인피치 P0.6-P1.8, 실내 P2-P4,
+나중에 참고하시기 쉽게 범위만 간단히 남깁니다. 파인피치 P0.7-P1.8, 실내 P2-P4,
 렌탈 P2.6-P4.8, 실외 고정형 P2.5-P10까지 대응합니다.
 
 프로젝트 생기시면 피치와 화면 크기만 보내주세요. 맞는 사양으로 바로 정리해 드리겠습니다.
