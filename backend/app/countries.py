@@ -91,6 +91,23 @@ _ALIASES = {
     "cr": "Costa Rica", "costa rica": "Costa Rica",
     "pa": "Panama", "panama": "Panama",
     "do": "Dominican Republic", "dominican republic": "Dominican Republic",
+
+    # 他手工维护的那张客户资料表用中文写国名（docs/118 R7）。写在这里而不是写在导入器
+    # 里，是因为这张表还会再导，而第四种拼法只要出现一次就再也收不回来。
+    "澳大利亚": "Australia", "新加坡": "Singapore", "马来西亚": "Malaysia",
+    "菲律宾": "Philippines", "泰国": "Thailand", "印度": "India", "印度尼西亚": "Indonesia",
+    "越南": "Vietnam", "伊拉克": "Iraq", "以色列": "Israel", "沙特阿拉伯": "Saudi Arabia",
+    "阿联酋": "UAE", "迪拜": "UAE",  # 迪拜是城市，但表里它出现在国家栏
+    "法国": "France", "意大利": "Italy", "西班牙": "Spain", "德国": "Germany",
+    "匈牙利": "Hungary", "波兰": "Poland", "荷兰": "Netherlands", "葡萄牙": "Portugal",
+    "俄罗斯": "Russia", "乌克兰": "Ukraine", "土耳其": "Turkey", "格鲁吉亚": "Georgia",
+    "巴拿马": "Panama", "危地马拉": "Guatemala", "厄瓜多尔": "Ecuador", "玻利维亚": "Bolivia",
+    "乌拉圭": "Uruguay", "巴拉圭": "Paraguay", "哥斯达黎加": "Costa Rica",
+    "多米尼加": "Dominican Republic", "委内瑞拉": "Venezuela",
+    "南非": "South Africa", "埃及": "Egypt", "尼日利亚": "Nigeria", "肯尼亚": "Kenya",
+    "加拿大": "Canada", "新西兰": "New Zealand", "瑞典": "Sweden", "挪威": "Norway",
+    "丹麦": "Denmark", "芬兰": "Finland", "爱尔兰": "Ireland", "奥地利": "Austria",
+    "比利时": "Belgium", "希腊": "Greece", "哈萨克斯坦": "Kazakhstan",
 }
 
 
