@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import urllib.parse
+from collections.abc import Sequence
 from pathlib import Path
 
 from app import harvest
@@ -89,21 +91,44 @@ def _subprocess_run(argv: list[str], timeout: int) -> str:
     return done.stdout
 
 
-def harvest_with_browser(url: str, limit: int = 40, run=None) -> list[str]:
-    """Return distinct company domains listed on `url`, same shape as `harvest_domains`.
+# The one field each task may hand back (docs/124 R1, docs/126 R2). A task that reads
+# prose returns names because the companies it finds have no link to return; a name is
+# then spent as a search query and never stored, which is what keeps R1 intact.
+TASK_FIELD = {"directory": "domain", "search": "domain", "prose": "name"}
+
+MAX_NAME = 80
+# A name that carries a dot, an @ or a scheme is a domain wearing a name's clothes.
+# docs/126 R2 works only if the two fields cannot be swapped by the model.
+_NOT_A_NAME = re.compile(r"https?://|@|\.[a-z]{2,}(?:$|[/\s])", re.I)
+
+
+def read_with_browser(url: str, *, task: str = "directory", query: str = "",
+                      limit: int = 40, allow: Sequence[str] | None = None,
+                      run=None) -> list[str]:
+    """Read one page with a real browser and return domains, or names for `prose`.
 
     Whatever goes wrong out there — a captcha the browser cannot pass, a step budget
     spent on the wrong tab, Chrome dying — comes back as a short list or an empty one.
     Getting fewer than the page holds is acceptable (docs/124 R6); the caller reviews
     what came back before anything is imported.
+
+    `allow` is the browser's domain allowlist. A declared channel passes its own
+    (docs/126 R3): `search.naver.com` alone would block the `blog.naver.com` posts that
+    channel exists to open, and widening a host to its registrable domain by guessing
+    is what docs/124 R3 refused to do. A bare page passes nothing and gets its own host.
     """
+    if task not in TASK_FIELD:
+        raise ValueError(f"unknown browser task: {task}")
     reason = unavailable()
     if reason:
         raise Unavailable(reason)
-    argv = [str(VENV_PYTHON), str(RUNNER), "--url", url,
+    argv = [str(VENV_PYTHON), str(RUNNER), "--url", url, "--task", task,
             "--max-steps", str(MAX_STEPS), "--limit", str(limit),
             "--profile-dir", str(PROFILE_DIR)]
-    for domain in allowed_domains_for(url):
+    if query:
+        argv += ["--query", query]
+    # Never from the task text: an allowlist a prompt can name is not an allowlist.
+    for domain in (list(allow) if allow else allowed_domains_for(url)):
         argv += ["--allow", domain]
     try:
         raw = (run or _subprocess_run)(argv, RUN_TIMEOUT)
@@ -113,17 +138,31 @@ def harvest_with_browser(url: str, limit: int = 40, run=None) -> list[str]:
         companies = json.loads(raw).get("companies") or []
     except (ValueError, AttributeError):
         return []
+    field = TASK_FIELD[task]
     self_host = harvest.host_of(url)
     out: list[str] = []
     seen: set[str] = set()
     for company in companies:
         # docs/124 R1: one field crosses this line. Everything else the model said
         # about this company stays on the other side of the subprocess.
-        host = _host_of(company.get("domain") if isinstance(company, dict) else "")
-        if host in seen or not harvest.is_prospect_host(host, self_host):
+        value = company.get(field) if isinstance(company, dict) else None
+        item = _clean_name(value) if field == "name" else _host_of(value or "")
+        if not item or item.lower() in seen:
             continue
-        seen.add(host)
-        out.append(host)
+        if field == "domain" and not harvest.is_prospect_host(item, self_host):
+            continue
+        seen.add(item.lower())
+        out.append(item)
         if len(out) >= max(1, limit):
             break
     return out
+
+
+def _clean_name(value) -> str:
+    name = " ".join(str(value or "").split())[:MAX_NAME]
+    return "" if not name or _NOT_A_NAME.search(name) else name
+
+
+def harvest_with_browser(url: str, limit: int = 40, run=None) -> list[str]:
+    """The docs/124 entry point: company domains off one directory page."""
+    return read_with_browser(url, task="directory", limit=limit, run=run)

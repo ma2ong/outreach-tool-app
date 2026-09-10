@@ -27,7 +27,18 @@ sys.stdout = sys.stderr
 KEY_ENV = "OUTREACH_BU_KEY"
 INNER_TIMEOUT = 240            # below browser_harvest.RUN_TIMEOUT, so we stop ourselves
 
-TASK = """Open {url}
+_RULES = """
+- Never log in, never submit a form other than the page's own search box, and never
+  send a message to anyone.
+- Report only what is written on the page. If you cannot find a field, omit the company
+  rather than working the value out from something else.
+"""
+
+# One task per way of reading a page (docs/126 R1). They differ in what they ask for,
+# and `browser_harvest` decides which field it will accept back from each.
+TASKS = {
+    # docs/124: a listing whose companies live inside JavaScript.
+    "directory": """Open {url}
 
 This page lists companies — distributors, partners, resellers or exhibitors.
 Collect the WEBSITE DOMAIN of every company listed. Expand, scroll or page through the
@@ -36,11 +47,41 @@ listing as needed to reach the rest of the list.
 Rules:
 - Only report a domain you actually saw on the page as that company's own website link.
 - If a company has no website link shown, skip it. Do not derive a domain from a logo
-  filename, an email address, or the company's name.
-- Never log in, never submit a form, never send a message.
-
+  filename, an email address, or the company's name.""" + _RULES + """
 Return only JSON: {{"companies": [{{"domain": "example.com"}}]}}
-"""
+""",
+    # A search engine that will not answer a plain HTTP fetch: Google returns a CAPTCHA
+    # page and Bing returns its shell without the results (docs/126 evidence table).
+    "search": """Open {url}
+
+These are search results for: {query}
+
+Collect the WEBSITE DOMAIN of every company that appears as a result. Use the next page
+of results if you need more. Dismiss a cookie or consent banner if one blocks the page.
+
+Rules:
+- Only report a domain that appears on this page as a result's own link.
+- Skip ads, the search engine's own pages, directories, marketplaces and social networks.
+- Do not invent a domain from a company's name.""" + _RULES + """
+Return only JSON: {{"companies": [{{"domain": "example.com"}}]}}
+""",
+    # Korean blogs name companies in prose with no link at all — the case that forced
+    # docs/126 R2. Names only; the caller turns each one back into a search.
+    "prose": """Open {url}
+
+These are blog posts about: {query}
+
+Open the posts and collect the NAME of every company mentioned as a supplier,
+installer, distributor, reseller or manufacturer.
+
+Rules:
+- Report the company name exactly as it is written on the page, in its own language.
+- Name only. Do not report a website, an email address or a phone number, and do not
+  guess a company's website from its name.
+- Skip the blog author unless the post is a company's own blog.""" + _RULES + """
+Return only JSON: {{"companies": [{{"name": "회사 이름"}}]}}
+""",
+}
 
 
 def _extract(text: str) -> list[dict]:
@@ -68,7 +109,8 @@ async def _harvest(args) -> list[dict]:
     profile = BrowserProfile(
         headless=False, channel="chrome", user_data_dir=args.profile_dir,
         allowed_domains=args.allow or [])
-    agent = Agent(task=TASK.format(url=args.url), llm=llm, browser_profile=profile,
+    task = TASKS[args.task].format(url=args.url, query=args.query)
+    agent = Agent(task=task, llm=llm, browser_profile=profile,
                   use_vision=False, step_timeout=90)
     try:
         history = await asyncio.wait_for(agent.run(max_steps=args.max_steps),
@@ -93,6 +135,8 @@ def main() -> None:
     parser.add_argument("--max-steps", type=int, default=12)
     parser.add_argument("--limit", type=int, default=40)
     parser.add_argument("--profile-dir", required=True)
+    parser.add_argument("--task", choices=sorted(TASKS), default="directory")
+    parser.add_argument("--query", default="")
     args = parser.parse_args()
     try:
         companies = asyncio.run(_harvest(args))

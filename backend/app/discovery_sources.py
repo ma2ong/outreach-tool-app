@@ -41,6 +41,13 @@ class Source:
     # Platform wants Korean real-name verification — while the page channel already
     # covers the same market.
     optional: bool = False
+    # How this channel is read (docs/126 R1): http is a plain fetch, browser is
+    # browser-use driving a real Chrome. Declared rather than inferred, so the API can
+    # refuse a reader a channel does not have.
+    engines: tuple[str, ...] = ("http",)
+    # False when reading this channel opens a window on Allen's screen. docs/126 R5:
+    # a scheduler must not be able to reach it, so `gather` skips it unless named.
+    unattended: bool = True
 
     def available(self) -> bool:
         return not self.unavailable()
@@ -205,6 +212,113 @@ def duckduckgo_search(query: str, limit: int = 20) -> list[Candidate]:
             for row in search_domains(query, limit)]
 
 
+# --------------------------------------------------------------- browser channels
+
+def _browser_unavailable() -> str:
+    from app import browser_harvest
+
+    return browser_harvest.unavailable()
+
+
+def _browser_search(name: str, url: str, allow: tuple[str, ...],
+                    country: str | None = None) -> Callable[[str, int], list[Candidate]]:
+    """A search engine read by a real browser, for the ones a plain fetch cannot open.
+
+    Measured 2026-09-10: Google answers `jina.fetch` with 704 bytes of
+    "This page maybe requiring CAPTCHA", and Bing returns its shell twice running with
+    the result links missing. Neither is a channel until a browser opens it.
+    """
+    def fetch(query: str, limit: int = 20) -> list[Candidate]:
+        from app import browser_harvest
+
+        target = url.format(q=urllib.parse.quote(query))
+        hosts = browser_harvest.read_with_browser(
+            target, task="search", query=query, limit=limit, allow=allow)
+        return [{"domain": host, "website": host, "source": name,
+                 **({"country": country} if country else {})}
+                for host in hosts if is_company_site(f"http://{host}")]
+    return fetch
+
+
+# How many names one blog run may spend on lookups. Each is a fetch of its own, and a
+# blog page that mentions forty companies is mentioning them, not listing them.
+_MAX_PROSE_NAMES = 12
+
+
+def _compact(text: str) -> str:
+    return re.sub(r"[\s\-_.·,()（）주식회사㈜]+", "", str(text or "")).lower()
+
+
+def _site_says_its_name(host: str, name: str, fetch=None) -> bool:
+    """Does this site call itself that? The half of docs/126 R2 that search cannot do.
+
+    Measured 2026-09-10, and the reason this function exists: searching Naver for
+    진영LED전광판 returns bandyled.com — a real Korean LED company, but a different one —
+    and searching for a name invented on the spot
+    (이런회사는없습니다주식회사12345) returns etoland.co.kr. A search engine always
+    answers something, so "the name found nothing" is not a filter that exists.
+
+    A company's own site says its own name, in whatever script it uses. That is the
+    second source, and it is the only one that actually separates these cases.
+    """
+    from app.jina import fetch as jina_fetch
+
+    try:
+        text = (fetch or jina_fetch)(f"https://{host}", timeout=30)
+    except Exception:  # noqa: BLE001 — unreachable site is an unconfirmed name
+        return False
+    return _compact(name) in _compact(text)
+
+
+def _domain_for_name(name: str, search=None, fetch=None) -> str:
+    """Turn a company name the model read out of prose into a domain, or into nothing.
+
+    docs/126 R2: the name is spent as a query and never stored. What comes back is
+    only kept when the site it points at says that name itself — otherwise the model's
+    reading of the blog goes in the bin, which is the outcome docs/124 R1 wants for
+    anything a second source will not confirm.
+    """
+    try:
+        rows = (search or naver_page_search)(name, 3)
+    except Exception:  # noqa: BLE001 — one name, not the channel
+        return ""
+    for row in rows:
+        host = row.get("domain") or ""
+        if host and is_company_site(f"http://{host}") and _site_says_its_name(host, name, fetch):
+            return host
+    return ""
+
+
+def naver_blog_browser(query: str, limit: int = 20) -> list[Candidate]:
+    """Korean blogs, where the company is named in the prose and never linked.
+
+    Measured 2026-09-10 on `LED 전광판 유통업체`: the blog results carry 73KB of text and
+    exactly zero new company links — three domains already found by the web channel and
+    one openstreetmap.org. Inside that text sits 진영LED전광판, a real company with no
+    link anywhere on the page. Reading the links is not a thin version of this channel;
+    it is a total miss.
+    """
+    from app import browser_harvest
+
+    url = ("https://search.naver.com/search.naver?where=blog&query="
+           + urllib.parse.quote(query))
+    names = browser_harvest.read_with_browser(
+        url, task="prose", query=query, limit=_MAX_PROSE_NAMES,
+        allow=("*.naver.com",))
+    out: list[Candidate] = []
+    seen: set[str] = set()
+    for name in names[:_MAX_PROSE_NAMES]:
+        host = _domain_for_name(name)
+        if not host or host in seen:
+            continue
+        seen.add(host)
+        out.append({"domain": host, "website": host,
+                    "country": "South Korea", "source": "naver-blog"})
+        if len(out) >= limit:
+            break
+    return out
+
+
 # --------------------------------------------------------------- registry
 
 SOURCES: dict[str, Source] = {
@@ -221,6 +335,25 @@ SOURCES: dict[str, Source] = {
     "naver-local": Source(
         name="naver-local", label="Naver API 本地商户", kind="api",
         fetch=naver_local, unavailable=_naver_unavailable, optional=True),
+    # The three below open a Chrome window, so none of them is unattended (docs/126 R5)
+    # and all three are optional: an unconfigured browser route must not be reported as
+    # a channel that broke today.
+    "google": Source(
+        name="google", label="Google 搜索（浏览器）", kind="browser",
+        fetch=_browser_search("google", "https://www.google.com/search?q={q}",
+                              ("*.google.com",)),
+        unavailable=_browser_unavailable, optional=True,
+        engines=("browser",), unattended=False),
+    "bing": Source(
+        name="bing", label="Bing 搜索（浏览器）", kind="browser",
+        fetch=_browser_search("bing", "https://www.bing.com/search?q={q}",
+                              ("*.bing.com",)),
+        unavailable=_browser_unavailable, optional=True,
+        engines=("browser",), unattended=False),
+    "naver-blog": Source(
+        name="naver-blog", label="Naver 博客（浏览器读正文）", kind="browser",
+        fetch=naver_blog_browser, unavailable=_browser_unavailable, optional=True,
+        engines=("browser",), unattended=False),
 }
 
 
@@ -232,7 +365,8 @@ def status() -> list[dict]:
     """What each channel can do right now, for the report and the channels page."""
     return [{"name": s.name, "label": s.label, "kind": s.kind,
              "available": s.available(), "reason": s.unavailable(),
-             "optional": s.optional}
+             "optional": s.optional, "engines": list(s.engines),
+             "unattended": s.unattended}
             for s in SOURCES.values()]
 
 
@@ -248,6 +382,11 @@ def gather(queries: list[str], limit_per_query: int = 20,
     per_source: list[dict] = []
     for source in SOURCES.values():
         if only and source.name not in only:
+            continue
+        # docs/126 R5. `gather` is the unattended path — the Agent's nightly prospecting
+        # ends up here — and a channel that opens a Chrome window must never be reached
+        # by a timer. Naming it explicitly in `only` is Allen pressing the button.
+        if not source.unattended and not only:
             continue
         if not source.available():
             per_source.append({"name": source.name, "status": "未启用",
