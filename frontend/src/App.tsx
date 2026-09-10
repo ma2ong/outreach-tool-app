@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchLead, fetchLeads, fetchLeadsPage, fetchStats, markReplied, fetchSequences, enrollLeads, startVerify, fetchVerifyJob, startClassify, fetchClassifyJob, fetchDuplicates, mergeDuplicates, fetchInboxPending, quickAddLead, fetchAuthStatus, login, fetchActivityStats, bulkDeleteLeads, mergeLeads } from "./api";
+import { fetchLead, fetchLeads, fetchLeadsPage, fetchStats, markReplied, fetchSequences, enrollLeads, startVerify, fetchVerifyJob, startClassify, fetchClassifyJob, fetchDuplicates, mergeDuplicates, fetchInboxPending, quickAddLead, fetchAuthStatus, login, fetchActivityStats, bulkDeleteLeads, busyTail, mergeLeads } from "./api";
 import type { ActivityStats, Lead, Stats, Sequence } from "./types";
 import { Dashboard } from "./components/Dashboard";
 import { LeadsTable } from "./components/LeadsTable";
@@ -519,7 +519,7 @@ export function App() {
                         <button className="btn btn-sm btn-danger" onClick={async () => {
                           try {
                             const r = await bulkDeleteLeads([...selected]);
-                            setBulkMsg(`已删除 ${r.deleted} 家`);
+                            setBulkMsg(`已删除 ${r.deleted} 家` + busyTail(r.failed));
                             setSelected(new Set()); setConfirmBulkDelete(false); reload();
                           } catch (e) { setBulkMsg("删除失败：" + String(e)); }
                         }}>确认删除</button>

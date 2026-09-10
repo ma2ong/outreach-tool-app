@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { cardToggle } from "./Expandable";
-import { scanHealth, fixHealth, fetchCleanable, bulkDeleteLeads, type HealthLead } from "../api";
+import { scanHealth, fixHealth, fetchCleanable, bulkDeleteLeads, busyTail, type HealthLead } from "../api";
 
 const ISSUE_META: Record<string, { title: string; hint: string; fixable: boolean; fixLabel?: string; blockDefault?: boolean }> = {
   peer: { title: "同行 / 供应商", hint: "中国·港台 LED 厂（+86 电话或 .cn 域名）——发给他们纯浪费额度", fixable: true, fixLabel: "标为不再联系", blockDefault: true },
@@ -57,7 +57,8 @@ export function HealthPanel({ onFixed, onOpenLead }: { onFixed: () => void; onOp
     try {
       const r = await bulkDeleteLeads([...picked], blockToo);
       setMsg(`已删除 ${r.deleted} 条`
-        + (r.blocked_domains.length ? `，${r.blocked_domains.length} 个域名已加入永不再收录` : ""));
+        + (r.blocked_domains.length ? `，${r.blocked_domains.length} 个域名已加入永不再收录` : "")
+        + busyTail(r.failed));
       await scan(); onFixed();
     } catch (e) { setMsg("删除失败：" + String(e)); }
     finally { setBusy(false); }
@@ -80,7 +81,7 @@ export function HealthPanel({ onFixed, onOpenLead }: { onFixed: () => void; onOp
     setBusy(true);
     try {
       const r = await bulkDeleteLeads(smart.map((l) => l.no), false);
-      setMsg(`智能清理完成：删除 ${r.deleted} 条`);
+      setMsg(`智能清理完成：删除 ${r.deleted} 条` + busyTail(r.failed));
       setSmart(null); await scan(); onFixed();
     } catch (e) { setMsg("清理失败：" + String(e)); }
     finally { setBusy(false); }

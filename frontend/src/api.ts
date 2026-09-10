@@ -652,12 +652,18 @@ export async function fetchCleanable(): Promise<{ leads: HealthLead[]; count: nu
   return r.json();
 }
 
-export async function bulkDeleteLeads(nos: number[], block = false): Promise<{ deleted: number; blocked_domains: string[] }> {
+export async function bulkDeleteLeads(nos: number[], block = false): Promise<{ deleted: number; blocked_domains: string[]; failed: number[] }> {
   const r = await fetch("/api/leads/bulk_delete", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nos, block }),
   });
   if (!r.ok) throw new Error(`bulk delete ${r.status}`);
   return r.json();
+}
+
+// 批量删除可能只成功一半：后台任务占着写锁时，那几条会被跳过（docs/120 R2）。三个调用点
+// 说同一句话，而且这句话要给出下一步——重点在「再点一次就行」，不在「失败」。
+export function busyTail(failed: number[]): string {
+  return failed.length ? `；${failed.length} 家因数据库正忙没删掉，稍后再点一次删除即可` : "";
 }
 
 export async function fixHealth(issues: string[]): Promise<Record<string, number>> {

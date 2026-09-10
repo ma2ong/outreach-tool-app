@@ -1,3 +1,5 @@
+import pytest
+
 import app.main as main
 from app.db import connect, init_schema
 from fastapi.testclient import TestClient
@@ -152,7 +154,7 @@ def test_bulk_delete(tmp_path):
     client = _client(tmp_path)
     r = client.post("/api/leads/bulk_delete", json={"nos": [1, 999]})
     # a stale id in the batch is skipped, not an error
-    assert r.json() == {"deleted": 1, "blocked_domains": []}
+    assert r.json() == {"deleted": 1, "blocked_domains": [], "failed": []}
     assert [l["no"] for l in client.get("/api/leads").json()] == [2]
 
 
@@ -161,6 +163,59 @@ def test_bulk_delete_can_block_the_domains(tmp_path):
     r = client.post("/api/leads/bulk_delete", json={"nos": [1], "block": True})
     assert r.json()["blocked_domains"] == ["a.com"]
     assert [b["domain"] for b in client.get("/api/blocklist").json()] == ["a.com"]
+
+
+def _lock_on(monkeypatch, locked_no: int):
+    """The background verifier holding the write lock, as `delete_lead` experiences it."""
+    import sqlite3
+
+    from app.api import leads as leads_api
+    real = leads_api.repo.delete_lead
+
+    def flaky(conn, no):
+        if no == locked_no:
+            raise sqlite3.OperationalError("database is locked")
+        return real(conn, no)
+
+    monkeypatch.setattr(leads_api.repo, "delete_lead", flaky)
+
+
+def test_a_locked_row_does_not_fail_the_whole_batch(tmp_path, monkeypatch):
+    """docs/120: the batch used to 500 after committing the rows before the locked one,
+    so the screen said 删除失败 about a batch that was half gone."""
+    client = _client(tmp_path)
+    _lock_on(monkeypatch, 1)
+    r = client.post("/api/leads/bulk_delete", json={"nos": [1, 2]})
+    assert r.status_code == 200
+    assert r.json() == {"deleted": 1, "blocked_domains": [], "failed": [1]}
+    assert [l["no"] for l in client.get("/api/leads").json()] == [1]
+
+
+def test_a_row_that_was_not_deleted_is_not_blocked_either(tmp_path, monkeypatch):
+    """docs/120 R3: blacklisting a domain whose lead is still in the book would quietly
+    stop the next harvest from collecting a company he never managed to delete."""
+    client = _client(tmp_path)
+    _lock_on(monkeypatch, 1)
+    r = client.post("/api/leads/bulk_delete", json={"nos": [1, 2], "block": True})
+    assert r.json()["failed"] == [1]
+    assert r.json()["blocked_domains"] == ["b.com"]
+    assert [b["domain"] for b in client.get("/api/blocklist").json()] == ["b.com"]
+
+
+def test_an_error_that_is_not_the_lock_still_surfaces(tmp_path, monkeypatch):
+    """A foreign key or a typo is a bug. Filing it as "this one did not delete" is how a
+    bug stays hidden."""
+    import sqlite3
+
+    from app.api import leads as leads_api
+
+    def broken(conn, no):
+        raise sqlite3.OperationalError("no such column: nope")
+
+    monkeypatch.setattr(leads_api.repo, "delete_lead", broken)
+    client = _client(tmp_path)
+    with pytest.raises(sqlite3.OperationalError):
+        client.post("/api/leads/bulk_delete", json={"nos": [1]})
 
 
 def _merge_client(tmp_path):
