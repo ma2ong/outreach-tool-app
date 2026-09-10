@@ -60,7 +60,8 @@ spec sheet with cabinet weight and power.
 
 This is Allen from an LED display manufacturer in Shenzhen.
 
-We cover fine-pitch, commercial indoor, rental and outdoor fixed LED from P0.6 to P10.
+We cover fine pitch P0.6-P1.8, indoor P2-P4, rental P2.6-P4.8 and outdoor fixed
+P2.5-P10.
 
 If LED is relevant to your work, send me the application, pitch or screen size. I'll point
 you to the most relevant spec instead of sending a full catalogue.
@@ -109,7 +110,8 @@ KO_OPENER = {
 
 심천 LED 디스플레이 제조업체의 Allen입니다.
 
-파인피치, 실내 상업용, 렌탈, 실외 고정형까지 P0.6-P10 범위로 대응하고 있습니다.
+파인피치 P0.6-P1.8, 실내 P2-P4, 렌탈 P2.6-P4.8, 실외 고정형 P2.5-P10까지
+대응하고 있습니다.
 
 사용하시는 용도나 피치, 화면 크기 중 하나만 알려주시면 전체 카탈로그 대신 맞는 사양만
 골라 보내드리겠습니다.
