@@ -36,7 +36,7 @@ def test_an_empty_line_does_not_leave_a_hole_in_the_letter():
     out = personalize.render(body, {"company_en": "X", "contact_name": "",
                                     "hook": "Saw the work.", "tags": ""})
     assert "\n\n\n" not in out
-    assert "Saw the work.\n\nWe build panels." in out
+    assert "I noticed the work.\n\nWe build panels." in out
 
 
 def test_a_korean_greeting_with_no_name_drops_the_honorific_too():
