@@ -5,9 +5,9 @@ copy is used only for a clear Rental or Install company; mixed and uncertain com
 get General. Outdoor remains a project/application fact and has no copy family.
 
 The copy itself follows one compact sales shape: use the lead's real hook when present,
-state one relevant LED capability, then ask one low-friction question. This is a design-
-time copy contract, not a new send gate; existing Message Guard and send controls remain
-unchanged.
+state one relevant LED capability with one grounded pitch clue, then ask one low-friction
+question. This is a design-time copy contract, not a new send gate; existing Message
+Guard and send controls remain unchanged.
 
 Run:  python -m app.seed_sequences            # preview
       python -m app.seed_sequences --apply
@@ -26,15 +26,15 @@ KO_SIGN = """Allen Ma · Shenzhen Maxcolor Visual
 Kakaotalk / WeChat +86 13570871001"""
 
 # No company-name token in subject/body. The hook is the specific evidence when one is
-# available; an empty hook is allowed by the current first-touch policy. Product claims
-# stay deliberately broad here so the letter does not turn into a catalogue assembled
-# from assumptions about a prospect we have never spoken with.
+# available; an empty hook is allowed by the current first-touch policy. Each opener has
+# one concrete pitch clue from the approved product range — enough to sell something
+# real without turning the email into a catalogue.
 EN_OPENER = {
     "rental": ("LED panels for rental and staging", """Hi {contact},
 
 {hook}
 
-I'm Allen in Shenzhen. We supply LED display panels for rental and staging work.
+I'm Allen in Shenzhen. We supply P2.6-P4.8 LED panels for rental and staging work.
 
 What pitch do you use most often in your rental inventory?
 """),
@@ -42,7 +42,7 @@ What pitch do you use most often in your rental inventory?
 
 {hook}
 
-I'm Allen in Shenzhen. We supply LED display panels for AV integrators and fixed-install projects.
+I'm Allen in Shenzhen. We supply P2-P4 LED panels for AV integrators and fixed-install projects.
 
 What pitch are you working around on your next LED project?
 """),
@@ -50,7 +50,7 @@ What pitch are you working around on your next LED project?
 
 {hook}
 
-I'm Allen in Shenzhen. We supply LED display panels to rental companies and AV installers.
+I'm Allen in Shenzhen. We supply P2-P4 commercial LED panels and work with rental companies and AV installers.
 
 Do you mainly handle rental work, fixed install, or both?
 """),
@@ -70,7 +70,7 @@ KO_OPENER = {
 
 {hook_ko}
 
-심천에서 LED 디스플레이 해외영업을 하고 있는 Allen입니다. 렌탈·무대용 LED 패널을 공급하고 있습니다.
+심천에서 LED 디스플레이 해외영업을 하고 있는 Allen입니다. P2.6-P4.8 렌탈·무대용 LED 패널을 공급하고 있습니다.
 
 렌탈 장비에서 가장 많이 쓰시는 피치는 어떤 규격인가요?
 """),
@@ -78,7 +78,7 @@ KO_OPENER = {
 
 {hook_ko}
 
-심천에서 LED 디스플레이 해외영업을 하고 있는 Allen입니다. AV 시공·고정 설치 프로젝트용 LED 패널을 공급하고 있습니다.
+심천에서 LED 디스플레이 해외영업을 하고 있는 Allen입니다. P2-P4 LED 패널을 AV 시공·고정 설치 프로젝트에 공급하고 있습니다.
 
 다음 프로젝트에서 검토 중인 피치는 어떤 규격인가요?
 """),
@@ -86,7 +86,7 @@ KO_OPENER = {
 
 {hook_ko}
 
-심천에서 LED 디스플레이 해외영업을 하고 있는 Allen입니다. 렌탈 업체와 AV 시공업체에 LED 패널을 공급하고 있습니다.
+심천에서 LED 디스플레이 해외영업을 하고 있는 Allen입니다. P2-P4 상업용 LED 패널을 포함해 렌탈 업체와 AV 시공업체에 공급하고 있습니다.
 
 주로 렌탈, 고정 설치, 아니면 둘 다 하시나요?
 """),
