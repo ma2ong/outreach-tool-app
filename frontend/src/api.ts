@@ -233,14 +233,18 @@ export async function fetchCustomerTypes(): Promise<{ options: string[]; known: 
 
 export async function startPageDiscover(
   url: string, limit = 40, screen: ScreenOpts = {},
-  show?: string, year?: number,
+  show?: string, year?: number, engine: "jina" | "browser" = "jina",
 ): Promise<{ job_id: string }> {
   const r = await fetch("/api/discover/page", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, limit, ...screen, show: show || null, year: year || null }),
+    body: JSON.stringify({ url, limit, ...screen, show: show || null, year: year || null, engine }),
   });
-  if (!r.ok) throw new Error(`discover ${r.status}`);
+  // 浏览器引擎没装时后端回的是「缺什么」，不是一个状态码。docs/124 R5
+  if (!r.ok) {
+    const detail = await r.json().then((b) => b?.detail).catch(() => null);
+    throw new Error(detail || `discover ${r.status}`);
+  }
   return r.json();
 }
 
@@ -660,7 +664,7 @@ export async function bulkDeleteLeads(nos: number[], block = false): Promise<{ d
   return r.json();
 }
 
-// 批量删除可能只成功一半：后台任务占着写锁时，那几条会被跳过（docs/120 R2）。三个调用点
+// 批量删除可能只成功一半：后台任务占着写锁时，那几条会被跳过（docs/124 R2）。三个调用点
 // 说同一句话，而且这句话要给出下一步——重点在「再点一次就行」，不在「失败」。
 export function busyTail(failed: number[]): string {
   return failed.length ? `；${failed.length} 家因数据库正忙没删掉，稍后再点一次删除即可` : "";

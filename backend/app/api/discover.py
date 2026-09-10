@@ -24,6 +24,10 @@ class DiscoverRequest(BaseModel):
 class PageDiscoverRequest(BaseModel):
     url: str
     limit: int = 40
+    # jina reads the HTML; browser drives a real Chrome for listings that keep their
+    # companies inside JavaScript (docs/124). Never defaulted to browser: it opens a
+    # visible window and costs a model call per step.
+    engine: str = "jina"
     exclude_countries: list[str] = []
     exclude_peers: bool = True
 
@@ -76,11 +80,20 @@ def _run(job_id: str, queries: list[str], limit: int, req: "DiscoverRequest"):
         conn.close()
 
 
+def _harvest_fn_for(engine: str):
+    """The browser route bypasses HARVEST_FN: they are two different readers of one page."""
+    if engine != "browser":
+        return HARVEST_FN
+    from app import browser_harvest
+
+    return lambda url, limit: browser_harvest.harvest_with_browser(url, limit)
+
+
 def _run_page(job_id: str, url: str, limit: int, req: "PageDiscoverRequest"):
     conn = connect(DB_PATH)
     try:
         cands = discovery.run_page_discovery(
-            conn, url, limit, harvest_fn=HARVEST_FN, enrich_fn=ENRICH_FN,
+            conn, url, limit, harvest_fn=_harvest_fn_for(req.engine), enrich_fn=ENRICH_FN,
             on_progress=lambda done, total: jobs.update(job_id, done),
             exclude_countries=req.exclude_countries, exclude_peers=req.exclude_peers)
         jobs.finish(job_id, {"candidates": cands})
@@ -104,6 +117,16 @@ def discover(req: DiscoverRequest, background: BackgroundTasks):
 def discover_page(req: PageDiscoverRequest, background: BackgroundTasks):
     if not req.url.strip().lower().startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="url must start with http:// or https://")
+    if req.engine not in ("jina", "browser"):
+        raise HTTPException(status_code=400, detail="engine must be jina or browser")
+    if req.engine == "browser":
+        from app import browser_harvest
+
+        # Refuse before the job exists: an unconfigured engine is something to tell
+        # Allen now, not a job that finishes with nothing in it (docs/124 R5).
+        reason = browser_harvest.unavailable()
+        if reason:
+            raise HTTPException(status_code=400, detail=reason)
     job_id = jobs.create(total=req.limit)
     background.add_task(_run_page, job_id, req.url.strip(), req.limit, req)
     return {"job_id": job_id}

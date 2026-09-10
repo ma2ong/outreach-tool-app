@@ -36,19 +36,24 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
   const [excludePeers, setExcludePeers] = useState(true);
   const [excluded, setExcluded] = useState<Set<string>>(new Set(["India", "Pakistan"]));
   const [showExcluded, setShowExcluded] = useState(false);
+  // 一个名录页抓出 0 家，几乎总是因为公司名单在 JS 里（docs/124）。这时候才提议开浏览器：
+  // 它会弹出一个真的 Chrome 窗口，所以由他按，不由系统替他按。
+  const [browserOffer, setBrowserOffer] = useState(false);
 
   const queryLines = query.split("\n").map((l) => l.trim()).filter(Boolean);
 
-  async function run() {
+  async function run(engine: "jina" | "browser" = "jina") {
     if (mode === "page" && !url.trim()) { setMsg("请粘贴名录/经销商页 URL"); return; }
     if (mode === "search" && queryLines.length === 0) { setMsg("请至少填一行搜索关键词"); return; }
-    setBusy(true); setMsg(mode === "page" ? "抓取名录中…" : "搜索深挖中…"); setCands([]); setPicked(new Set());
+    setBusy(true); setCands([]); setPicked(new Set()); setBrowserOffer(false);
+    setMsg(engine === "browser" ? "浏览器读取中…（屏幕上会弹出一个 Chrome 窗口，读完自动关）"
+      : mode === "page" ? "抓取名录中…" : "搜索深挖中…");
     try {
       // 每行一条搜索；选了国家自动拼进关键词，结果按域名合并去重
       const composed = queryLines.map((l) => (country.trim() ? `${l} ${country.trim()}` : l));
       const screen = { exclude_countries: [...excluded], exclude_peers: excludePeers };
       const { job_id } = mode === "page"
-        ? await startPageDiscover(url.trim(), 40, screen)
+        ? await startPageDiscover(url.trim(), 40, screen, undefined, undefined, engine)
         : await startDiscover(composed, 10, screen);
       const poll = setInterval(async () => {
         const j = await fetchDiscoverJob(job_id);
@@ -67,7 +72,12 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
                 && (c.email || c.phone || c.instagram) && (c.hook || c.brief))
               .map((c) => c.domain)));
             const cut = all.filter((c) => c.excluded).length;
-            setMsg(`找到 ${all.length} 个候选${cut ? `，其中 ${cut} 家已筛掉（同行/目录站/排除国家）` : ""}`);
+            if (mode === "page" && all.length === 0 && engine === "jina") {
+              setBrowserOffer(true);
+              setMsg("这一页没抓到公司——它的名单多半在 JavaScript 里，源码上读不到。");
+            } else {
+              setMsg(`找到 ${all.length} 个候选${cut ? `，其中 ${cut} 家已筛掉（同行/目录站/排除国家）` : ""}`);
+            }
           } else if (j.result && "error" in j.result) {
             setMsg("失败：" + j.result.error);
           }
@@ -152,7 +162,7 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
             <datalist id="market-list">
               {MARKETS.map((m) => <option key={m} value={m} />)}
             </datalist>
-            <button className="btn btn-primary" onClick={run} disabled={busy}>
+            <button className="btn btn-primary" onClick={() => run()} disabled={busy}>
               {busy ? "搜索中…" : `搜索深挖（${queryLines.length} 条）`}
             </button>
           </div>
@@ -166,8 +176,18 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
           <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
             <input className="input" style={{ flex: 1, minWidth: 260 }} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…  经销商页 / 参展商名录 URL" />
             <input className="input" style={{ width: 90 }} value={country} onChange={(e) => setCountry(e.target.value)} placeholder="国家" />
-            <button className="btn btn-primary" onClick={run} disabled={busy}>{busy ? "抓取中…" : "抓取名录"}</button>
+            <button className="btn btn-primary" onClick={() => run()} disabled={busy}>{busy ? "抓取中…" : "抓取名录"}</button>
           </div>
+          {browserOffer && (
+            <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+              <button className="btn btn-sm" onClick={() => run("browser")} disabled={busy}>
+                用浏览器读这一页
+              </button>
+              <span style={{ marginLeft: 8 }}>
+                会打开一个 Chrome 窗口，翻页读完再关，约一两分钟。只取公司域名，公司名和联系方式仍旧从各家官网读。
+              </span>
+            </div>
+          )}
         </>
       )}
       <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginBottom: 10 }}>

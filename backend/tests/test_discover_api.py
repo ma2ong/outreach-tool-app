@@ -236,3 +236,59 @@ def test_discover_page_rejects_bad_url(tmp_path):
 def test_discover_jobs_404(tmp_path):
     client, _ = _client(tmp_path)
     assert client.get("/api/discover/jobs/nope").status_code == 404
+
+
+# --------------------------------------------------------- 浏览器引擎 (docs/124)
+
+def test_the_browser_engine_is_refused_when_it_is_not_installed(tmp_path, monkeypatch):
+    """docs/124 R5: not installed and broken are different states."""
+    from app import browser_harvest
+    monkeypatch.setattr(browser_harvest, "unavailable",
+                        lambda: "没有安装浏览器采集环境（~/.outreach-tool/bu-venv）")
+    client, _ = _client(tmp_path)
+    r = client.post("/api/discover/page",
+                    json={"url": "https://www.absen.com/partners/", "engine": "browser"})
+    assert r.status_code == 400
+    assert "没有安装" in r.json()["detail"]
+
+
+def test_the_browser_engine_reads_the_page_with_a_browser(tmp_path, monkeypatch):
+    import app.api.discover as disc
+    from app import browser_harvest
+    jobs.clear()
+    client, _ = _client(tmp_path)
+    monkeypatch.setattr(browser_harvest, "unavailable", lambda: "")
+    monkeypatch.setattr(browser_harvest, "harvest_with_browser",
+                        lambda url, limit=40: ["psco.co.uk"])
+    # The injected jina harvester must not be what answers this request.
+    disc.HARVEST_FN = lambda url, limit: ["wrong-engine.com"]
+    r = client.post("/api/discover/page",
+                    json={"url": "https://www.absen.com/partners/", "engine": "browser"})
+    assert r.status_code == 200
+    job = client.get(f"/api/discover/jobs/{r.json()['job_id']}").json()
+    assert {c["domain"] for c in job["result"]["candidates"]} == {"psco.co.uk"}
+
+
+def test_the_default_engine_never_opens_a_browser(tmp_path, monkeypatch):
+    """docs/124 R4: a real Chrome window only opens when Allen asked for one."""
+    import app.api.discover as disc
+    from app import browser_harvest
+    jobs.clear()
+    client, _ = _client(tmp_path)
+
+    def boom(*args, **kwargs):
+        raise AssertionError("the default page harvest must not launch Chrome")
+
+    monkeypatch.setattr(browser_harvest, "harvest_with_browser", boom)
+    disc.HARVEST_FN = lambda url, limit: ["alpha.com"]
+    r = client.post("/api/discover/page", json={"url": "https://absen.com/where-to-buy"})
+    assert r.status_code == 200
+    job = client.get(f"/api/discover/jobs/{r.json()['job_id']}").json()
+    assert job["status"] == "done"
+
+
+def test_an_unknown_engine_is_rejected(tmp_path):
+    client, _ = _client(tmp_path)
+    r = client.post("/api/discover/page",
+                    json={"url": "https://absen.com/x", "engine": "curl"})
+    assert r.status_code == 400
