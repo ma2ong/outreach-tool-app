@@ -21,8 +21,8 @@ def _task(conn, lead_no: int, key: str, *, autonomy: str = "auto", dedupe: str):
 
 
 def _email_lead(conn, *, touches: int, tags: str = "租赁商"):
-    # Tagged, because the sequence a lead lands on is its customer type's (docs/76) and
-    # two English ones send a single letter with nothing to follow up.
+    # Tagged, because the sequence a lead lands on is its customer type's and
+    # two English segments send a single letter with nothing to follow up.
     conn.execute(
         "UPDATE leads SET email='buyer@alpha.com',email_status='valid',recheck_due=NULL,"
         "tags=? WHERE no=1", (tags,)
@@ -48,7 +48,7 @@ def test_one_prior_email_routes_to_second_approved_sequence_step(conn):
     assert result["step_order"] == 1
     assert enrollment["current_step"] == 1
     assert enrollment["status"] == "active"
-    assert "英语·活动租赁" in enrollment["name"]
+    assert "英语·Rental" in enrollment["name"]
 
 
 def test_two_prior_emails_route_to_final_step(conn):

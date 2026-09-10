@@ -52,22 +52,22 @@ def test_a_compliment_is_refused(conn, monkeypatch):
         == "Saw the rental work on your site."
 
 
-# R1 + R5 ─ 成功时把出处一起写下来
+# R1 + R5 ─ 成功时把出处一起写下来，并在落库前去掉旧的 Saw 模板味
 def test_a_verified_quote_is_stored_with_its_source(conn, monkeypatch):
     lead = _lead(conn)
     _answer(monkeypatch, {"hook": "Saw the scoreboard you installed at Estadio Nacional.",
                           "quote": "we supplied and installed the main scoreboard at Estadio Nacional",
                           "source_url": "https://vista.com/projects"})
     out = hook_writer.improve(conn, lead, PAGE, "https://vista.com/projects")
-    assert out and out["hook"].startswith("Saw the scoreboard")
+    assert out and out["hook"] == "I noticed the scoreboard you installed at Estadio Nacional."
     row = conn.execute("SELECT hook, hook_quote, hook_source_url, hook_at FROM leads WHERE no=10").fetchone()
-    assert row["hook"] == "Saw the scoreboard you installed at Estadio Nacional."
+    assert row["hook"] == "I noticed the scoreboard you installed at Estadio Nacional."
     assert "main scoreboard" in row["hook_quote"]
     assert row["hook_source_url"] == "https://vista.com/projects"
     assert row["hook_at"]
 
 
-# R3 ─ 韩语开场白由模型直接写，不再过词表
+# R3 ─ 韩语开场白由模型直接写，不再过词表；旧式 봤습니다 也在落库前自然化
 def test_a_korean_lead_gets_a_korean_hook_that_the_gloss_table_could_not_produce(conn, monkeypatch):
     lead = _lead(conn, no=11, country="South Korea")
     _answer(monkeypatch, {"hook": "Saw the indoor screen you built at Jamsil Arena.",
@@ -76,9 +76,10 @@ def test_a_korean_lead_gets_a_korean_hook_that_the_gloss_table_could_not_produce
                           "source_url": "https://vista.com/ko/projects"})
     assert hook_writer.improve(conn, lead, PAGE_KO, "https://vista.com/ko/projects")
     row = dict(conn.execute("SELECT * FROM leads WHERE no=11").fetchone())
-    assert row["hook_ko"] == "잠실 실내체육관 메인 스크린 시공 사례를 봤습니다."
+    assert row["hook"] == "I noticed the indoor screen you built at Jamsil Arena."
+    assert row["hook_ko"] == "잠실 실내체육관 메인 스크린 시공 사례를 보고 연락드렸습니다."
     # 词表通道对这句英文会返回空；存下来的韩语句子必须赢过它
-    assert personalize.hook_ko(row) == "잠실 실내체육관 메인 스크린 시공 사례를 봤습니다."
+    assert personalize.hook_ko(row) == "잠실 실내체육관 메인 스크린 시공 사례를 보고 연락드렸습니다."
 
 
 # R2 ─ 模型不可用不能让今天少发一封信
