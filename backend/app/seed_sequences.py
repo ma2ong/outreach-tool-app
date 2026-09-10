@@ -30,7 +30,7 @@ Kakaotalk / WeChat +86 13570871001"""
 # stock/cabinet fit, Install talks about specification/drawing input, and General asks for
 # whichever single clue is easiest for the prospect to give us.
 EN_OPENER = {
-    "rental": ("Rental LED: P2.6-P4.8 die-cast", """Hi {contact},
+    "rental": ("Rental LED: P2.6-P4.8 die-cast", """{greeting}
 
 {hook}
 
@@ -42,7 +42,7 @@ and front/rear service.
 If you have a project coming up, send me the pitch and cabinet size you normally use.
 I'll send the closest spec sheet with weight and power per cabinet.
 """),
-    "install": ("Fixed-install LED: P0.6-P10, front/rear service", """Hi {contact},
+    "install": ("Fixed-install LED: P0.6-P10, front/rear service", """{greeting}
 
 {hook}
 
@@ -54,7 +54,7 @@ rear service options.
 If you're specifying a project, send me the pitch and screen size. I'll send the matching
 spec sheet with cabinet weight and power.
 """),
-    "general": ("LED display range: P0.6-P10", """Hi {contact},
+    "general": ("LED display range: P0.6-P10", """{greeting}
 
 {hook}
 
@@ -80,7 +80,7 @@ EN_SECOND = {
 # --- Korean ------------------------------------------------------------------------
 
 KO_OPENER = {
-    "rental": ("렌탈 LED: P2.6-P4.8 다이캐스팅", """안녕하세요, {contact}님.
+    "rental": ("렌탈 LED: P2.6-P4.8 다이캐스팅", """{greeting}
 
 {hook_ko}
 
@@ -92,7 +92,7 @@ KO_OPENER = {
 주로 쓰시는 피치와 캐비닛 사이즈만 알려주시면 가장 가까운 사양서로 보내드리겠습니다.
 무게와 소비전력도 같이 정리해 드립니다.
 """),
-    "install": ("고정 설치 LED: 실내 P0.6-P4 / 실외 P2.5-P10", """안녕하세요, {contact}님.
+    "install": ("고정 설치 LED: 실내 P0.6-P4 / 실외 P2.5-P10", """{greeting}
 
 {hook_ko}
 
@@ -104,7 +104,7 @@ KO_OPENER = {
 검토 중인 프로젝트가 있으면 피치와 화면 크기만 알려주세요. 도면 검토하기 쉽게 캐비닛
 무게와 소비전력까지 포함한 사양서로 보내드리겠습니다.
 """),
-    "general": ("LED 디스플레이: P0.6-P10", """안녕하세요, {contact}님.
+    "general": ("LED 디스플레이: P0.6-P10", """{greeting}
 
 {hook_ko}
 
@@ -129,7 +129,7 @@ KO_SECOND = {
 
 # Shared final reference: by this point the segment-specific angle has already done its
 # work. Keep this useful and easy to file rather than turning it into a goodbye message.
-EN_LAST = """Hi {contact},
+EN_LAST = """{greeting}
 
 One last reference for later: fine pitch P0.6-P1.8, indoor P2-P4, rental P2.6-P4.8, and
 outdoor fixed P2.5-P10.
@@ -137,7 +137,7 @@ outdoor fixed P2.5-P10.
 Whenever a project comes up, send me the pitch and size and I can match the spec sheet.
 """
 
-KO_LAST = """안녕하세요, {contact}님.
+KO_LAST = """{greeting}
 
 나중에 참고하시기 쉽게 범위만 간단히 남깁니다. 파인피치 P0.6-P1.8, 실내 P2-P4,
 렌탈 P2.6-P4.8, 실외 고정형 P2.5-P10까지 대응합니다.
@@ -161,10 +161,9 @@ def name_for(segment: str, korean: bool) -> str:
 def steps_for(segment: str, korean: bool) -> list[tuple]:
     if korean:
         opener, second, last, sign = KO_OPENER, KO_SECOND, KO_LAST, KO_SIGN
-        greeting = "안녕하세요, {contact}님.\n\n"
     else:
         opener, second, last, sign = EN_OPENER, EN_SECOND, EN_LAST, EN_SIGN
-        greeting = "Hi {contact},\n\n"
+    greeting = "{greeting}\n\n"
     subject, body = opener[segment]
     steps = [(0, OFFSETS[0], subject, body + "\n" + sign)]
     if (segment, korean) in SINGLE_TOUCH:
