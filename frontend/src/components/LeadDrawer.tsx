@@ -686,10 +686,23 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
           </div>
         )}
         {(draft.no_cold_outreach || presetMsg) && (
-          <div className="note-item" style={{ marginBottom: 10, borderLeft: "3px solid var(--green)" }}>
-            {draft.no_cold_outreach
-              ? "已停冷发：不再自动发冷开发信和冷私信；跟进任务、报价、手动发信、回信都照常。"
-              : presetMsg}
+          <div className="note-item" style={{ marginBottom: 10, borderLeft: "3px solid var(--green)",
+                                              display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              {draft.no_cold_outreach
+                ? "已停冷发：不再自动发冷开发信和冷私信；跟进任务、报价、手动发信、回信都照常。"
+                : presetMsg}
+            </div>
+            {/* 一个只能打开、不能关掉的开关，等于让人不敢按第一下 */}
+            {draft.no_cold_outreach && (
+              <button className="btn btn-sm" title="重新让这家进入自动冷发队列"
+                onClick={async () => {
+                  try {
+                    const fresh = await updateLead(lead.no, { no_cold_outreach: false });
+                    setDraft(fresh); onChange(fresh); setPresetMsg("");
+                  } catch (e) { setErr("恢复冷发失败：" + String(e)); }
+                }}>恢复冷发</button>
+            )}
           </div>
         )}
         {memoryItems.length === 0 ? <div className="muted">还没有记忆；Agent 每次收到回复会自己补充。</div> :

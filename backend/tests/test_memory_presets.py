@@ -121,3 +121,11 @@ def test_the_stopped_ones_can_be_filtered_out_of_the_book(conn):
     memory_presets.apply(conn, 1, "in_touch")
     found = repo.list_leads(conn, status="no_cold")
     assert [l.no for l in found] == [1]
+
+
+def test_the_flag_can_be_turned_back_off(conn):
+    """A switch that only goes one way is a switch nobody dares press the first time."""
+    memory_presets.apply(conn, 1, "in_touch")
+    repo.update_lead(conn, 1, {"no_cold_outreach": False})
+    assert repo.get_lead(conn, 1).no_cold_outreach is False
+    assert cold(conn, 1) is True
