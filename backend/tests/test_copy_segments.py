@@ -1,10 +1,8 @@
-"""Which letter a company gets (docs/76).
+"""Outbound-copy routing: Rental / Install / General only (docs/127).
 
-The order of evidence is the whole design: Allen's own tag beats the classifier's
-`target_fit`, which beats the words the company uses about itself. Each step down is
-less reliable, and the last step down is to `general` — a neutral letter — rather than
-to a guess. A signage company told how their rental business works has already lost the
-reader, so not knowing is worth saying nothing about.
+Specialised copy requires clear evidence.  Outdoor/indoor is a project attribute, not a
+customer type; mixed or uncertain accounts must stay General rather than being guessed
+into one side.
 """
 import pytest
 
@@ -13,74 +11,82 @@ from app import copy_segments as cs
 
 @pytest.mark.parametrize("tag,segment", [
     ("租赁商", "rental"),
+    ("租赁客户", "rental"),
     ("工程商", "install"),
+    ("系统集成商", "install"),
     ("批发商", "general"),
+    ("代理商", "general"),
 ])
-def test_allens_own_tag_decides(tag, segment):
+def test_explicit_customer_type_tags_route_copy(tag, segment):
     assert cs.segment_of({"tags": tag}) == segment
 
 
-def test_a_tag_set_by_hand_beats_everything_the_machine_inferred():
-    lead = {"tags": "租赁商", "target_fit": "AV集成商 (85)",
-            "business": "outdoor billboard operator"}
-    assert cs.segment_of(lead) == "rental"
+def test_explicit_rental_or_install_tag_beats_weaker_business_text():
+    assert cs.segment_of({
+        "tags": "租赁商",
+        "target_fit": "AV集成商 (85)",
+        "business": "fixed installation contractor",
+    }) == "rental"
 
 
-def test_the_machine_tags_in_the_same_column_are_not_customer_types():
-    """`icp:signage` is the classifier talking to itself; it must not be read as a type
-    Allen chose."""
+def test_mixed_rental_and_install_tags_use_general():
+    assert cs.segment_of({"tags": "租赁商、工程商"}) == "general"
+
+
+def test_machine_tags_do_not_become_customer_type_copy():
     assert cs.segment_of({"tags": "icp:signage"}) == "general"
 
 
-def test_target_fit_is_used_when_no_type_was_set():
-    assert cs.segment_of({"target_fit": "租赁公司 (90)"}) == "rental"
-    assert cs.segment_of({"target_fit": "AV集成商 (85)"}) == "install"
-    assert cs.segment_of({"target_fit": "标识/广告牌 (70)"}) == "outdoor"
+@pytest.mark.parametrize("fit,segment", [
+    ("租赁公司 (90)", "rental"),
+    ("AV集成商 (85)", "install"),
+    ("fixed installation contractor", "install"),
+    ("rental and fixed installation", "general"),
+    ("标识/广告牌 (70)", "general"),
+    ("AV", "general"),
+])
+def test_target_fit_is_conservative(fit, segment):
+    assert cs.segment_of({"target_fit": fit}) == segment
 
 
-@pytest.mark.parametrize("tag", ["透明屏", "代理商", "批发商"])
-def test_the_folded_segments_get_the_neutral_letter(tag):
-    """These had segments of their own until Allen folded them in: "室内为主，代理批发
-    也都归类到中性版". 23 companies do not pay for copy maintained in two languages."""
+@pytest.mark.parametrize("tag", ["outdoor", "户外", "广告商", "透明屏", "终端用户"])
+def test_environment_or_non_buyer_tags_do_not_create_a_copy_segment(tag):
     assert cs.segment_of({"tags": tag}) == "general"
 
 
+def test_outdoor_tag_does_not_hide_clear_rental_evidence():
+    assert cs.segment_of({"tags": "outdoor", "business": "LED rental company"}) == "rental"
+
+
 @pytest.mark.parametrize("text,segment", [
-    ("We provide staging and rental LED for concerts", "rental"),
-    ("Systems integrator, commercial AV installation", "install"),
-    ("Digital billboard and facade advertising", "outdoor"),
+    ("We are an LED rental company for live events", "rental"),
+    ("Systems integrator and commercial AV installer", "install"),
+    ("Rental inventory plus fixed-install projects", "general"),
+    ("Digital billboard and facade advertising", "general"),
+    ("Concert and festival production", "general"),
+    ("Church and auditorium AV", "general"),
     ("무대 렌탈 전문", "rental"),
-    ("LED 시공 전문 업체", "install"),
+    ("LED 설치 전문 업체", "install"),
 ])
-def test_what_the_company_says_about_itself_is_the_last_resort(text, segment):
+def test_company_description_is_used_only_when_it_clearly_identifies_business_model(text, segment):
     assert cs.segment_of({"business": text}) == segment
 
 
-def test_a_company_we_know_nothing_about_gets_the_neutral_letter():
+def test_unknown_company_gets_general():
     assert cs.segment_of({}) == "general"
     assert cs.segment_of({"company_en": "Verum AV", "business": "We do great work"}) == "general"
 
 
-def test_an_end_user_is_not_forced_into_a_segment():
-    """终端用户 says who buys, not what they put on a wall — it falls through to the
-    business text rather than inventing indoor or outdoor."""
-    assert cs.segment_of({"tags": "终端用户"}) == "general"
-    assert cs.segment_of({"tags": "终端用户", "business": "stadium facade"}) == "outdoor"
+def test_there_are_exactly_three_copy_segments():
+    assert cs.SEGMENTS == ("rental", "install", "general")
+    assert set(cs.LABEL) == set(cs.SEGMENTS)
 
 
-def test_there_are_only_four_segments():
-    assert cs.SEGMENTS == ("rental", "install", "outdoor", "general")
-
-
-def test_every_segment_has_a_label_and_a_sequence():
+def test_every_copy_segment_has_email_sequences():
     from app.seed_sequences import name_for, steps_for
     for segment in cs.SEGMENTS:
-        assert segment in cs.LABEL
         for korean in (False, True):
             assert name_for(segment, korean)
-            # Three letters, except the two English sequences whose follow-ups Allen
-            # deleted outright — 整个都很垃圾 直接删去 永不复用 (docs/82 R7). A
-            # one-letter sequence is the instruction, not a gap to fill back in.
             expected = 1 if (not korean and segment in ("general", "install")) else 3
             assert len(steps_for(segment, korean)) == expected
 
@@ -88,39 +94,14 @@ def test_every_segment_has_a_label_and_a_sequence():
 def test_counts_covers_the_whole_book_exactly_once(conn):
     conn.executescript("""
         DELETE FROM leads;
-        INSERT INTO leads(no, company_en, tags) VALUES
-            (1,'A','租赁商'), (2,'B','工程商'), (3,'C',NULL), (4,'D','批发商');
+        INSERT INTO leads(no, company_en, tags, business) VALUES
+            (1,'A','租赁商',''),
+            (2,'B','工程商',''),
+            (3,'C',NULL,'outdoor billboard operator'),
+            (4,'D','批发商',''),
+            (5,'E','租赁商、工程商','');
     """)
     conn.commit()
     counts = cs.counts(conn)
-    assert sum(counts.values()) == 4
-    assert counts["rental"] == 1 and counts["install"] == 1
-    # 批发商 and the untagged company both read as general (docs/60 R2)
-    assert counts["outdoor"] == 0 and counts["general"] == 2
-
-
-# --- docs/60 R2: three types, and the old vocabulary still routes -------------------
-
-def test_there_are_only_three_customer_types():
-    """Allen cut eight to three: 只保留工程商，租赁商，批发商，其他都删去."""
-    from app import customer_types as ct
-    assert set(ct.KNOWN) == {"工程商", "租赁商", "批发商"}
-
-
-@pytest.mark.parametrize("retired,survivor", [
-    ("系统集成商", "工程商"),   # both build and install
-    ("广告商", "工程商"),       # an outdoor sign is a fixed-install job
-    ("代理商", "批发商"),       # both resell; docs/76 already gave them one letter
-])
-def test_a_retired_type_still_reaches_its_letter(retired, survivor):
-    """The book was migrated, but the old words can arrive again on an import. A row
-    saying 系统集成商 must not fall quietly through to the neutral letter."""
-    assert cs.segment_of({"tags": retired}) == cs.segment_of({"tags": survivor})
-
-
-@pytest.mark.parametrize("dropped", ["透明屏", "终端用户"])
-def test_a_dropped_type_names_no_buyer(dropped):
-    """透明屏 is a product and 终端用户 says nothing about how they use a screen."""
-    from app import customer_types as ct
-    assert ct.canonical_type(dropped) is None
-    assert cs.segment_of({"tags": dropped}) == "general"
+    assert sum(counts.values()) == 5
+    assert counts == {"rental": 1, "install": 1, "general": 3}
