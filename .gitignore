@@ -49,3 +49,6 @@ backend/fb_dock.json
 # 这些留在原地会挡住 update_production.ps1。
 .pytest-codex-temp/
 .playwright-mcp/
+
+# Allen 手工维护的客户资料表（docs/118 读的就是它）：客户联系方式，42MB，永远不进仓库
+/*.xlsx
