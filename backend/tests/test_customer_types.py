@@ -48,12 +48,17 @@ def test_old_and_new_labels_canonicalise(raw, expected):
 
 
 @pytest.mark.parametrize("raw", ["工程商、租赁客户", "工程商,租赁客户", "工程商，租赁客户"])
-def test_all_separators_are_supported(raw):
-    assert ct.customer_types(raw) == ["Install", "Rental"]
+def test_all_separators_and_mixed_business_collapse_to_general(raw):
+    assert ct.customer_types(raw) == ["General"]
 
 
-def test_machine_note_is_dropped_but_customer_type_survives():
-    assert ct.customer_types("工程商、租赁客户,icp:signage") == ["Install", "Rental"]
+def test_machine_note_is_dropped_and_mixed_business_is_general():
+    assert ct.customer_types("工程商、租赁客户,icp:signage") == ["General"]
+
+
+def test_general_wins_over_specialised_legacy_type():
+    assert ct.customer_types("Rental,批发商") == ["General"]
+    assert ct.customer_types("Install,outdoor") == ["General"]
 
 
 def test_picker_offers_exactly_three_values(conn):
@@ -67,10 +72,10 @@ def test_arbitrary_tags_do_not_become_customer_types(conn):
     assert ct.options(conn) == ["Rental", "Install", "General"]
 
 
-def test_list_shows_canonical_customer_type(conn):
+def test_list_shows_one_canonical_customer_type(conn):
     by_no = {l.no: l for l in repo.list_leads(conn)}
     assert by_no[1].customer_types == ["Install"]
-    assert by_no[3].customer_types == ["Install", "Rental"]
+    assert by_no[3].customer_types == ["General"]
     assert by_no[5].customer_types == ["General"]
     assert by_no[2].customer_types == []
 
