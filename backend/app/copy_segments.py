@@ -53,8 +53,8 @@ _RENTAL_WORDS = re.compile(
 _INSTALL_WORDS = re.compile(
     r"\bsystems? integrator\b|\bav integrator\b|\bintegration company\b|"
     r"\binstaller\b|\binstallation contractor\b|\bfixed[- ]installation\b|"
-    r"\bcommercial av integration\b|系统集成(?:商)?|工程商|安装商|固定安装|"
-    r"고정 설치|시스템 통합|시공 전문|설치 전문",
+    r"\bcommercial av integration\b|系统集成(?:商)?|(?:AV|音视频)集成商|工程商|"
+    r"安装商|固定安装|고정 설치|시스템 통합|시공 전문|설치 전문",
     re.I,
 )
 
