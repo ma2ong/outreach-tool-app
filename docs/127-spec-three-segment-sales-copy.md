@@ -38,7 +38,8 @@ The system copy should read like a salesperson, not a mail-merge brochure:
 
 1. Use a specific public/customer hook when one is available.
 2. State one short, relevant LED capability. A cold-email opener should include **one grounded product clue** (normally a real pitch/range already supported by the product library) so the reader has something concrete to react to; do not turn the message into a specification list.
-3. End with **one low-friction question** that advances qualification or reveals the relevant project.
+3. Offer at most one concrete next resource, such as the matching spec sheet. This is a statement, not a second call-to-action question.
+4. End with **one low-friction question** that advances qualification or reveals the relevant project.
 
 For `general`, the best first question is normally the missing classification itself: rental, fixed install, or both.
 
