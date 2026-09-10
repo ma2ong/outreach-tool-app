@@ -41,28 +41,41 @@ _PRAISE = re.compile(
 
 SYSTEM = """You write the single opening line of a cold B2B email to an LED display buyer.
 
-You are given one company's own web pages. Find one concrete thing the page says this
-company has done or has — a named project, a venue, a client, a product line, a spec —
-and write ONE SENTENCE that tells them you saw it.
+You are given one company's own web pages. Find ONE concrete thing the page says this
+company has done or has — a named project, venue, client, product line or spec — and turn
+that into a short reason Allen is writing to them.
+
+The line must sound like a salesperson who briefly looked through the recipient's own
+website before writing, not like a mail-merge token. Vary the sentence naturally around
+the fact. Do NOT mechanically start hooks with "Saw the..." or "Saw that...".
 
 Hard rules:
 - The hook is a sentence YOU write, addressed to them. It is NOT the page text pasted
-  back. A label, a heading, a product code or a registration number is not a sentence.
+  back. A label, heading, product code or registration number is not a sentence.
 - `hook` is always ENGLISH, one sentence, at most 20 words, ending in a full stop —
   even when the page is Korean. The English letter uses this line.
 - `hook_ko` is Korean, one sentence, at most 40 characters, ending in a full stop. Fill
   it only when the page is Korean; the Korean letter uses this line instead.
 - `quote` is the fragment of the page the fact came from, copied character for
   character. It is evidence, not the hook.
-- Never a compliment and never an adjective about them ("leading", "professional").
-  Never our products, our specs or any price.
+- Mention only one concrete, verifiable detail. Do not infer company size, purchasing
+  intent, current projects or anything the quote does not establish.
+- Never compliment them and never use praise adjectives such as "leading", "professional"
+  or "impressive". Never mention our products, our specs or any price.
+- No questions, no CTA and no sales pitch in the hook. The rest of the message does that.
+- For Korean, write natural Korean rather than translating the English structure word for
+  word. A useful shape is "... 시공 사례를 보고 연락드렸습니다." when the source supports it.
 - If the page says nothing concrete about this company, return an empty hook. That is a
   correct answer.
 
 Good:  quote "we supplied the main scoreboard at Estadio Nacional"
-       hook  "Saw the scoreboard you installed at Estadio Nacional."
-Bad:   hook  "we supplied the main scoreboard at Estadio Nacional"   (pasted, not written)
-Bad:   hook  "Samsung official B2B dealer : Comolab (1466869)"       (a label, not a sentence)
+       hook  "I noticed the Estadio Nacional scoreboard project on your website."
+Good:  quote "잠실 실내체육관 메인 스크린 시공"
+       hook  "I came across your main-screen project at Jamsil Arena."
+       hook_ko "잠실 메인 스크린 시공 사례를 보고 연락드렸습니다."
+Bad:   hook  "Saw the scoreboard you installed at Estadio Nacional."  (canned opener)
+Bad:   hook  "we supplied the main scoreboard at Estadio Nacional"    (pasted page text)
+Bad:   hook  "Samsung official B2B dealer : Comolab (1466869)"        (a label)
 
 Return JSON: {"hook": "...", "hook_ko": "...", "quote": "...", "source_url": "..."}"""
 
@@ -88,7 +101,8 @@ def _flat(text: str) -> str:
 def quoted_from(quote: str, page_text: str) -> bool:
     """出处是不是页面上真有的一句话。归一化空白后逐字比对，短到没有信息量的不算。"""
     flat = _flat(quote)
-    floor = MIN_QUOTE_CHARS_CJK if (_HANGUL.search(flat) or _CJK.search(flat))         else MIN_QUOTE_CHARS
+    floor = MIN_QUOTE_CHARS_CJK if (_HANGUL.search(flat) or _CJK.search(flat)) \
+        else MIN_QUOTE_CHARS
     return len(flat) >= floor and flat in _flat(page_text)
 
 
@@ -124,8 +138,8 @@ def rejected(hook: str, korean: bool = False, quote: str = "") -> str:
 
 
 def _is_korean(lead: dict) -> bool:
-    return str(lead.get("country") or "").strip().lower() in {
-        "south korea", "korea", "republic of korea", "대한민국"}
+    from app.personalize import is_korean_customer
+    return is_korean_customer(lead)
 
 
 def improve(conn, lead: dict, page_text: str, source_url: str) -> dict | None:
