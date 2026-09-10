@@ -261,7 +261,7 @@ def test_two_companies_in_one_segment_do_not_get_the_same_sentence(bare):
 def test_a_company_with_a_hook_still_gets_the_hook_message(bare):
     _add(bare, 920, "loudco", hook="Saw the arena job on your site.")
     social_queue.build_today(bare, now=_monday())
-    assert "Saw the arena job on your site." in _body(bare, 920)
+    assert "I noticed the arena job on your site." in _body(bare, 920)
 
 
 def test_a_hook_still_outranks_a_generic_opener(bare):
