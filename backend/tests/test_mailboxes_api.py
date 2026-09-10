@@ -207,7 +207,8 @@ def test_the_test_mail_is_the_real_opening_email(tmp_path, monkeypatch):
     assert sent["box"] == "allen@maxcolorvisual.com"
     # Rendered, not raw: placeholders must be gone before this measures anything.
     assert "{company}" not in sent["subject"] and "{hook}" not in sent["body"]
-    assert "Saw the rental work" in sent["body"]
+    assert "noticed your rental work" in sent["body"]
+    assert "Saw the" not in sent["body"]
     assert r.json()["guard_blocked"] is False
 
 
