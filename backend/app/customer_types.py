@@ -53,15 +53,26 @@ def canonical_type(tag: str) -> str | None:
 
 
 def customer_types(raw: str | None) -> list[str]:
-    """Return only the three routing types, canonicalised and de-duplicated."""
-    out: list[str] = []
+    """Return zero or one canonical routing type.
+
+    Rental + Install is not treated as two classifications. By the commercial rule it
+    means the company does both, so it receives General copy. General also wins whenever
+    a legacy/general tag is present alongside a specialised one.
+    """
+    found: set[str] = set()
     for tag in split_tags(raw):
         if tag.lower().startswith(MACHINE_PREFIXES):
             continue
         canonical = canonical_type(tag)
-        if canonical and canonical not in out:
-            out.append(canonical)
-    return out
+        if canonical:
+            found.add(canonical)
+    if "General" in found or {"Rental", "Install"} <= found:
+        return ["General"]
+    if "Rental" in found:
+        return ["Rental"]
+    if "Install" in found:
+        return ["Install"]
+    return []
 
 
 # The ICP classifier may stay richer internally; outbound only sees the three commercial
