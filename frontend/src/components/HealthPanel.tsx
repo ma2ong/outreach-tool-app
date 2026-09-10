@@ -11,7 +11,7 @@ const ISSUE_META: Record<string, { title: string; hint: string; fixable: boolean
   junk_name: { title: "公司名可疑", hint: "抓成了 Contact / Home 这种网页标题，发信开头会很怪。能改名就打开改，改不了就删", fixable: false },
 };
 
-export function HealthPanel({ onFixed }: { onFixed: () => void }) {
+export function HealthPanel({ onFixed, onOpenLead }: { onFixed: () => void; onOpenLead: (no: number) => void }) {
   const [issues, setIssues] = useState<Record<string, HealthLead[]> | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -165,7 +165,16 @@ export function HealthPanel({ onFixed }: { onFixed: () => void }) {
                         <label key={l.no} style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 0", fontSize: 13, cursor: "pointer" }}>
                           <input type="checkbox" checked={picked.has(l.no)} onChange={() => toggle(l.no)} />
                           <span className="muted">#{l.no}</span>
-                          <b>{l.company_en}</b>
+                          {/* 勾选框是用来删的，删之前总得看一眼这家到底是谁 —— 公司名点开就是详情侧栏，
+                              它在 label 里，所以要拦下冒泡，别把点击变成勾选 */}
+                          <button type="button" title="打开客户详情"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenLead(l.no); }}
+                            style={{
+                              background: "none", border: "none", padding: 0, font: "inherit", fontWeight: 700,
+                              color: "var(--accent)", textDecoration: "underline", cursor: "pointer",
+                            }}>
+                            {l.company_en}
+                          </button>
                           <span className="muted">{l.website || ""}</span>
                           <span className="muted" style={{ marginLeft: "auto" }}>{l.country || ""}</span>
                         </label>

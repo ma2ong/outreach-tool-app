@@ -458,7 +458,7 @@ export function App() {
                   <button className="btn btn-sm" onClick={() => setSelected(new Set())}>清空选择</button>
                 )}
               </div>
-              {healthOpen && <HealthPanel onFixed={reload} />}
+              {healthOpen && <HealthPanel onFixed={reload} onOpenLead={openLead} />}
               {quickOpen && (
                 <div className="card" style={{ marginBottom: 10, padding: 12 }}>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
