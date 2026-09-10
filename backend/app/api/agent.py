@@ -291,6 +291,28 @@ def write_lead_memory(lead_no: int, req: MemoryWriteRequest, conn=Depends(get_co
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/memory-presets")
+def memory_presets():
+    """The sentences Allen writes over and over, as buttons (docs/122 R3). Defined on the
+    server: each one is a memory *and* a state change, and that pair needs one home."""
+    from app.agent import memory_presets as presets
+
+    return {"options": presets.options()}
+
+
+@router.post("/memory/{lead_no}/preset/{key}")
+def apply_memory_preset(lead_no: int, key: str, conn=Depends(get_conn)):
+    from app import repository
+    from app.agent import memory_presets as presets
+
+    if repository.get_lead(conn, lead_no) is None:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    try:
+        return presets.apply(conn, lead_no, key)
+    except KeyError:
+        raise HTTPException(status_code=400, detail="未知的预设") from None
+
+
 @router.delete("/memory/{lead_no}/{item_id}")
 def forget_lead_memory(lead_no: int, item_id: int, conn=Depends(get_conn)):
     """Retire one memory. The row stays on the record; it just stops being current."""

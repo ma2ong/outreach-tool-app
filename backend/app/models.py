@@ -84,6 +84,8 @@ class Lead(BaseModel):
     whatsapp_verified: bool = False
     email_status: str | None = None
     do_not_contact: bool = False
+    # 停冷发：不再自动发冷开发信/冷私信，但跟进、报价、手动发信照常（docs/122 R1）
+    no_cold_outreach: bool = False
     stage: str = "new"
     tags: str | None = None
     follow_up_date: str | None = None

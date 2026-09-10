@@ -397,6 +397,7 @@ export function App() {
                   <option value="untouched">未触达</option>
                   <option value="messaged">已触达</option>
                   <option value="replied">已回复</option>
+                  <option value="no_cold">已停冷发</option>
                 </select>
                 <select className="input" value={has} onChange={(e) => { setHas(e.target.value); filterReset(); }}>
                   <option value="">全部联系方式</option>

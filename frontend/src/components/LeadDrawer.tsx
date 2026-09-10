@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead, fetchActivities, createActivity, completeActivity, fetchLead, fetchContacts, createContact, updateContact, setPrimaryContact, deleteContact, recheckLead, addContactChannel, promoteContactChannel, deleteContactChannel, updateContactChannel, ContactAddressTaken } from "../api";
 import type { Activity, Contact, ContactChannel, Lead, LeadIntelligence, Opportunity } from "../types";
 import { fetchLeadIntelligence } from "../salesIntelligenceApi";
-import { fetchLeadMemory, writeLeadMemory, forgetLeadMemory, type MemoryItem } from "../agentApi";
+import { fetchLeadMemory, writeLeadMemory, forgetLeadMemory, fetchMemoryPresets,
+         applyMemoryPreset, type MemoryItem, type MemoryPreset } from "../agentApi";
 import { CustomerTypePicker } from "./CustomerTypePicker";
 import { CorrespondencePanel } from "./CorrespondencePanel";
 import { fetchCustomerTypes } from "../api";
@@ -229,6 +230,8 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
   const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
   const [memoryDraft, setMemoryDraft] = useState("");
   const [memoryKind, setMemoryKind] = useState<"profile" | "log">("profile");
+  const [presets, setPresets] = useState<MemoryPreset[]>([]);
+  const [presetMsg, setPresetMsg] = useState("");
   const [typeOptions, setTypeOptions] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
   const [blockToo, setBlockToo] = useState(true);
@@ -294,6 +297,7 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
   // 客户类型选项跟着库走，不写死在前端：他新填一个类型，下次就出现在清单里
   useEffect(() => {
     fetchCustomerTypes().then((r) => setTypeOptions(r.options)).catch(() => setTypeOptions([]));
+    fetchMemoryPresets().then((r) => setPresets(r.options)).catch(() => setPresets([]));
   }, []);
 
   async function submitMemory() {
@@ -304,6 +308,17 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
       setMemoryDraft("");
       setMemoryItems((await fetchLeadMemory(lead.no)).items);
     } catch (e) { setErr("记忆保存失败：" + String(e)); }
+  }
+
+  // 预设按一下同时做两件事：写下那句话，改掉真正管发信的开关（docs/122 R3）
+  async function usePreset(p: MemoryPreset) {
+    try {
+      const r = await applyMemoryPreset(lead.no, p.key);
+      setPresetMsg(r.effect);
+      setMemoryItems((await fetchLeadMemory(lead.no)).items);
+      const fresh = await fetchLead(lead.no);
+      setDraft(fresh); onChange(fresh);
+    } catch (e) { setErr("预设写入失败：" + String(e)); }
   }
 
   async function dropMemory(itemId: number) {
@@ -658,6 +673,25 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
             onKeyDown={(e) => { if (e.key === "Enter") submitMemory(); }} />
           <button className="btn btn-sm" onClick={submitMemory}>记住</button>
         </div>
+        {/* 常写的那几句话做成按钮。点一下写进记忆，同时改掉真正管发信的开关 —— 它改了什么
+            必须说出来，一个看不见的开关下次就没人敢信（docs/122 R3、R4）。 */}
+        {presets.length > 0 && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+            {presets.map((p) => (
+              <button key={p.key} className="btn btn-sm" title={`${p.memory}
+
+动作：${p.effect}`}
+                onClick={() => usePreset(p)}>{p.label}</button>
+            ))}
+          </div>
+        )}
+        {(draft.no_cold_outreach || presetMsg) && (
+          <div className="note-item" style={{ marginBottom: 10, borderLeft: "3px solid var(--green)" }}>
+            {draft.no_cold_outreach
+              ? "已停冷发：不再自动发冷开发信和冷私信；跟进任务、报价、手动发信、回信都照常。"
+              : presetMsg}
+          </div>
+        )}
         {memoryItems.length === 0 ? <div className="muted">还没有记忆；Agent 每次收到回复会自己补充。</div> :
           memoryItems.map((m) => (
             <div key={m.id} className="note-item" style={{ display: "flex", gap: 8 }}>

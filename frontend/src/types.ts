@@ -29,6 +29,8 @@ export interface Lead {
   whatsapp_verified: boolean;
   email_status: string | null;
   do_not_contact: boolean;
+  // 停冷发：不再自动发冷开发信/冷私信，但跟进、报价、手动发信照常（docs/122）
+  no_cold_outreach: boolean;
   business: string | null;
   target_fit: string | null;
   brief: string | null;

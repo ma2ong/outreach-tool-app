@@ -38,6 +38,10 @@ COOLDOWN_DAYS = 14
 #
 # `do_not_contact` and `email_status='invalid'` — which is where all 36 bounced addresses
 # already sit — are enforced by the callers' own WHERE clauses and stay enforced.
+# The UNION arm is deliberately a second query over `leads` rather than another AND:
+# the first arm starts from `outreach`, so it can only ever see companies we have already
+# written to, and "stop cold outreach" has to hold for one we never wrote to as well
+# (docs/122 R2).
 BLOCKED_SQL = """
     SELECT o.lead_no FROM outreach o JOIN leads l ON l.no = o.lead_no
      WHERE o.channel = ?
@@ -46,6 +50,8 @@ BLOCKED_SQL = """
             OR l.stage IN ('won', 'lost')
             OR o.message_sent_date IS NULL
             OR o.message_sent_date > date('now', ?))
+    UNION
+    SELECT no AS lead_no FROM leads WHERE COALESCE(no_cold_outreach, 0) = 1
 """
 
 # Bind after the channel, wherever BLOCKED_SQL is inlined.
