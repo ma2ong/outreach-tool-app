@@ -145,7 +145,7 @@ def _candidates(conn, now: dt.datetime) -> list[dict]:
     sales_intelligence.ensure_schema(conn)
     rows = conn.execute(
         """
-        SELECT l.no, l.company_en, l.contact_name, l.country, l.city, l.website,
+        SELECT l.no, l.company_en, l.contact_name, l.title, l.country, l.city, l.website,
                l.hook, l.brief, l.phone, l.instagram, l.facebook, l.target_fit,
                l.whatsapp_status, l.tags, l.business,
                COALESCE(MAX(CASE WHEN b.status != 'dismissed' THEN b.confidence END), 0) signal,
@@ -203,12 +203,10 @@ def _channel_for(conn, lead: dict, taken: set[str]) -> tuple[str, str] | None:
 def _compose(lead: dict) -> str:
     from app import copy_segments
 
-    contact = str(lead.get("contact_name") or "").strip()
     hook = str(lead.get("hook") or "").strip()
     no = int(lead.get("no") or 0)
     sentence = sentence_for(copy_segments.segment_of(lead), no)
-    greeting = f"Hi {contact}," if contact else "Hi,"
-    parts = [greeting]
+    parts = ["{greeting}"]
     if hook:
         parts.append("{hook}")
     parts.append(sentence)
