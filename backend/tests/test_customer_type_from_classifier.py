@@ -1,12 +1,4 @@
-"""The classifier's verdict reaches the customer type column (docs/64).
-
-The DMs said "Saw the rental and staging work you do around Houston" while the 客户类型
-column showed —. The decision existed; it was stored as `icp:rental` and nothing
-translated it into a word Allen uses.
-
-The rule worth guarding is the one that runs the other way: a type he deleted is a
-judgement, and the next classification must not put it back.
-"""
+"""The richer ICP classifier collapses into the three outbound customer types."""
 import pytest
 
 from app import customer_types as ct
@@ -16,42 +8,29 @@ from app.db import connect, init_schema
 
 
 @pytest.mark.parametrize("icp_type,expected", [
-    ("rental", "租赁商"),
-    ("integrator", "工程商"),
-    ("signage", "工程商"),
-    ("reseller", "批发商"),
+    ("rental", "Rental"),
+    ("integrator", "Install"),
+    ("signage", "General"),
+    ("reseller", "General"),
+    ("end-user", "General"),
+    ("unknown", "General"),
 ])
-def test_each_classifier_verdict_maps_to_his_own_word(icp_type, expected):
+def test_classifier_verdict_maps_to_three_customer_types(icp_type, expected):
+    assert ct.from_icp(icp_type) == expected
     assert ct.derive(f"icp:{icp_type}") == expected
 
 
-def test_unknown_stays_blank():
-    # A type we cannot tell is a blank, not a category. Naming it would add a filter
-    # option that means nothing.
-    assert ct.derive("icp:unknown") is None
-
-
-def test_no_verdict_means_no_type():
+def test_no_classifier_verdict_means_no_automatic_type():
     assert ct.derive("") is None
     assert ct.derive(None) is None
 
 
-def test_a_type_he_chose_is_never_replaced():
-    assert ct.derive("工程商,icp:rental") is None
+def test_human_type_is_never_replaced():
+    assert ct.derive("Install,icp:rental") is None
 
 
-def test_a_type_he_deleted_does_not_grow_back():
-    # He removed 租赁商 from this lead. The website still says "rental"; that does not
-    # make his judgement wrong, and re-deriving would overrule him silently.
+def test_manual_edit_prevents_rederivation():
     assert ct.derive("icp:rental", edited_at="2026-08-27T10:00:00Z") is None
-
-
-def test_the_edit_record_never_reaches_the_tags_column():
-    # It lives in its own column, so it cannot turn up in his Excel export.
-    from app.models import Lead
-
-    assert "types_edited_at" not in Lead.model_fields or True
-    assert ct.customer_types("工程商,icp:rental") == ["工程商"]
 
 
 @pytest.fixture
@@ -61,50 +40,56 @@ def conn(tmp_path):
     c.executescript("""
         INSERT INTO leads(no, company_en, country, tags) VALUES
             (1, 'Atlanta Pro AV', 'USA', NULL),
-            (2, 'Kinoton Korea', 'South Korea', '工程商'),
-            (3, 'Edited Co', 'USA', NULL);
+            (2, 'Kinoton Korea', 'South Korea', 'Install'),
+            (3, 'Edited Co', 'USA', NULL),
+            (4, 'Signage Co', 'USA', NULL),
+            (5, 'Unknown Co', 'USA', NULL);
     """)
     c.commit()
     return c
 
 
-def test_classifying_a_lead_fills_the_type_column(conn):
+def test_classifying_rental_fills_rental_type(conn):
     icp.apply_to_lead(conn, 1, {"icp_type": "rental", "fit_score": 90})
     tags = conn.execute("SELECT tags FROM leads WHERE no=1").fetchone()[0]
-    assert ct.customer_types(tags) == ["租赁商"]
-    # The classifier's own tag stays: it is the provenance, and how R2 knows a verdict
-    # was ever made.
+    assert ct.customer_types(tags) == ["Rental"]
     assert "icp:rental" in tags
 
 
-def test_classifying_does_not_touch_a_type_he_set(conn):
+def test_classifying_signage_fills_general_not_outdoor_or_install(conn):
+    icp.apply_to_lead(conn, 4, {"icp_type": "signage", "fit_score": 75})
+    tags = conn.execute("SELECT tags FROM leads WHERE no=4").fetchone()[0]
+    assert ct.customer_types(tags) == ["General"]
+    assert "icp:signage" in tags
+
+
+def test_unknown_classifier_result_fills_general(conn):
+    icp.apply_to_lead(conn, 5, {"icp_type": "unknown", "fit_score": 0})
+    row = conn.execute("SELECT tags, target_fit FROM leads WHERE no=5").fetchone()
+    assert row["target_fit"] == "未知 (0)"
+    assert ct.customer_types(row["tags"]) == ["General"]
+    assert "icp:unknown" in row["tags"]
+
+
+def test_classifying_does_not_touch_human_type(conn):
     icp.apply_to_lead(conn, 2, {"icp_type": "rental", "fit_score": 90})
     tags = conn.execute("SELECT tags FROM leads WHERE no=2").fetchone()[0]
-    assert ct.customer_types(tags) == ["工程商"]
+    assert ct.customer_types(tags) == ["Install"]
 
 
-def test_classifying_again_after_he_clears_it_leaves_it_clear(conn):
+def test_classifying_again_after_human_clears_type_leaves_it_clear(conn):
     icp.apply_to_lead(conn, 3, {"icp_type": "rental", "fit_score": 90})
     assert ct.customer_types(
-        conn.execute("SELECT tags FROM leads WHERE no=3").fetchone()[0]) == ["租赁商"]
+        conn.execute("SELECT tags FROM leads WHERE no=3").fetchone()[0]) == ["Rental"]
 
-    repo.update_lead(conn, 3, {"tags": ""})          # he removes it
-    icp.apply_to_lead(conn, 3, {"icp_type": "rental", "fit_score": 90})   # site re-read
+    repo.update_lead(conn, 3, {"tags": ""})
+    icp.apply_to_lead(conn, 3, {"icp_type": "rental", "fit_score": 90})
 
     assert ct.customer_types(
         conn.execute("SELECT tags FROM leads WHERE no=3").fetchone()[0]) == []
 
 
-def test_target_fit_still_carries_the_score(conn):
+def test_target_fit_keeps_richer_icp_label_and_score(conn):
     icp.apply_to_lead(conn, 1, {"icp_type": "rental", "fit_score": 90})
     fit = conn.execute("SELECT target_fit FROM leads WHERE no=1").fetchone()[0]
     assert fit == "租赁公司 (90)"
-
-
-def test_an_unknown_verdict_names_no_customer_type(conn):
-    """docs/112 R1 记下判不出来这件事；但判不出来就不该编一个客户类型出来 ——
-    docs/64 管的是「分级说了什么就写什么」，unknown 什么都没说。"""
-    icp.apply_to_lead(conn, 1, {"icp_type": "unknown", "fit_score": 0})
-    row = conn.execute("SELECT tags, target_fit FROM leads WHERE no=1").fetchone()
-    assert row["target_fit"] == "未知 (0)"
-    assert row["tags"] == "icp:unknown"   # 只有机器标签，没有客户类型
