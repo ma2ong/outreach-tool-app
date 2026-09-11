@@ -848,3 +848,18 @@ def test_a_file_with_only_one_value_is_not_half_configured(tmp_path, monkeypatch
     path.write_text("61d659eae9e7f42b0", encoding="utf-8")
     assert ds._google_cse() == ("", "61d659eae9e7f42b0")
     assert "programmablesearchengine" in ds._google_unavailable()
+
+
+def test_the_two_google_refusals_are_translated_into_the_next_step():
+    """A 403 body of raw JSON tells Allen nothing he can act on. Measured 2026-09-11:
+    the key worked and the project had not enabled the API."""
+    not_enabled = ds.google_hint(
+        403, '{"error": {"message": "This project does not have the access to '
+             'Custom Search JSON API."}}')
+    assert "启用" in not_enabled and "customsearch" in not_enabled
+
+    quota = ds.google_hint(429, '{"error": {"message": "Quota exceeded"}}')
+    assert "100" in quota and "明天" in quota
+
+    other = ds.google_hint(400, '{"error": {"message": "Invalid Value"}}')
+    assert "Invalid Value" in other, "不认识的错误照原样说出来，不要编"

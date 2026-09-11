@@ -350,6 +350,22 @@ def _google_unavailable() -> str:
     return "" if key and cx else _GOOGLE_HOWTO
 
 
+def google_hint(status: int, body: str) -> str:
+    """Turn Google's refusal into the step that fixes it (docs/70 R4, docs/128 R2).
+
+    Both of these are ordinary and both look like a wall of JSON: the API not switched
+    on for the project the key belongs to, and the free 100 calls spent for the day.
+    """
+    text = str(body or "")[:300]
+    if status == 403 and "does not have the access" in text:
+        return ("这个项目还没启用 Custom Search API。到 "
+                "https://console.cloud.google.com/apis/library/customsearch.googleapis.com "
+                "把顶部项目切换成**这把 key 所在的项目**，点「启用」，等一两分钟生效再试")
+    if status == 429 or "Quota exceeded" in text:
+        return "今天的 100 次免费额度用完了，明天自动恢复（超额才收费，系统不会替你付钱）"
+    return f"Google {status}: {text}"
+
+
 def _google_call(key: str, cx: str, query: str, count: int) -> dict:
     import json as _json
     import urllib.error
@@ -363,8 +379,8 @@ def _google_call(key: str, cx: str, query: str, count: int) -> dict:
     except urllib.error.HTTPError as exc:
         # 429 is the daily quota, 403 is usually the API not enabled yet. Both are
         # sentences Allen can act on; a bare status code is not (docs/128 R2).
-        detail = exc.read().decode("utf-8", "replace")[:200]
-        raise RuntimeError(f"Google {exc.code}: {detail}") from exc
+        detail = exc.read().decode("utf-8", "replace")
+        raise RuntimeError(google_hint(exc.code, detail)) from exc
 
 
 def google_api_search(query: str, limit: int = 20) -> list[Candidate]:
