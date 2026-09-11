@@ -308,8 +308,10 @@ _GOOGLE_HOWTO = (
     "「要搜索的网站」先填一个占位的 www.example.com（这一步必填，否则创建不了），"
     "勾人机验证后创建；② 创建完进它的设置页，打开「搜索整个网络」，"
     "再把 www.example.com 那条删掉，然后复制「搜索引擎 ID」（cx）；"
-    "③ 到 https://developers.google.com/custom-search/v1/introduction 点「Get a Key」"
-    "拿 API key。把两行写进 backend/google_cse.txt：第一行 key，第二行 cx。"
+    "③ 拿 API key：先到 https://console.cloud.google.com/apis/library/customsearch.googleapis.com "
+    "选一个项目并点「启用」，再到 https://console.cloud.google.com/apis/credentials "
+    "点「创建凭据 → API 密钥」，复制那串 AIzaSy…。"
+    "把 key 和 cx 各写一行进 backend/google_cse.txt，顺序随意。"
     "（每天 100 次免费，超出才收费）")
 
 
