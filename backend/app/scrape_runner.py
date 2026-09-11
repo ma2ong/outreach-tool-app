@@ -150,7 +150,9 @@ SEARCH_URL = {
 ABOUT_URL = "https://www.facebook.com/{h}/about"
 # Where Allen logs a collecting account in. He types into this window; nothing about the
 # account passes through the server (docs/128 R5).
-LOGIN_URL = {"instagram": "https://www.instagram.com/accounts/login/"}
+# The home page, not /accounts/login/: logged out they serve the same form, and the
+# login path answered one launch on 2026-09-11 with ERR_HTTP_RESPONSE_CODE_FAILURE.
+LOGIN_URL = {"instagram": "https://www.instagram.com/"}
 LOGIN_WAIT = 1800          # half an hour, then the window is on its own
 CHANNELS = tuple(sorted(set(SEARCH_URL) | {"facebook"}))
 _LINKS_JS = "() => [...document.querySelectorAll('a[href]')].map(a => a.href)"
@@ -180,6 +182,24 @@ def _read_about(page, handles: list[str]) -> list[dict]:
     return rows
 
 
+def open_login_page(page, url: str, attempts: int = 2) -> str:
+    """Navigate, and never let a bad response take the window down.
+
+    A login window exists so that Allen can type in it. Closing it because the first
+    request came back with an error status leaves him with a flash and no reason, and
+    the error was transient both times it was measured — so retry once, then leave the
+    window sitting on whatever Chrome shows, where reload is one key away.
+    """
+    last = ""
+    for _ in range(max(1, attempts)):
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            return ""
+        except Exception as exc:  # noqa: BLE001 — the window outlives any of these
+            last = str(exc).splitlines()[0][:160]
+    return last
+
+
 def _login(args) -> dict:
     """Open the collecting profile and wait for the window to be closed.
 
@@ -196,7 +216,9 @@ def _login(args) -> dict:
             args.profile_dir, headless=False,
             args=["--window-position=80,80", "--window-size=1100,900"])
         page = browser.pages[0] if browser.pages else browser.new_page()
-        page.goto(LOGIN_URL[args.channel], wait_until="domcontentloaded", timeout=60000)
+        failed = open_login_page(page, LOGIN_URL[args.channel])
+        if failed:
+            print(f"login page did not load: {failed}", file=sys.stderr)
         deadline = time.monotonic() + LOGIN_WAIT
         while time.monotonic() < deadline:
             try:

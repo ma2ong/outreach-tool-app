@@ -113,6 +113,11 @@ export function ConnectionPanel() {
                   {s.state === "等待登录" ? "窗口已打开，去登录" : "登录采集账号"}
                 </button>
               )}
+              {s.state === "等待登录" && (
+                <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>
+                  登完把那个窗口关掉，登录态才会存下来；页面如果是错误页，按 F5 重试一次
+                </span>
+              )}
             </div>
           ))}
           {scrapeErr && <div style={{ color: "var(--red)", fontSize: 12 }}>{scrapeErr}</div>}

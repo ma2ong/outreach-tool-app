@@ -319,3 +319,30 @@ def test_pressing_login_opens_a_window_rather_than_asking_for_a_password(tmp_pat
     client = _client(tmp_path)
     assert client.post("/api/channels/scrape/instagram/login").json()["status"] == "等待登录"
     assert opened == ["instagram"]
+
+
+def test_a_failed_navigation_does_not_take_the_login_window_with_it():
+    """Measured 2026-09-11: the first launch got ERR_HTTP_RESPONSE_CODE_FAILURE from
+    Instagram and every launch after it got 200 — and that one failure closed the
+    window, which is all Allen saw of it."""
+    class Page:
+        calls = 0
+
+        def goto(self, url, **kw):
+            Page.calls += 1
+            raise RuntimeError("net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://x/")
+
+    reason = scrape_runner.open_login_page(Page(), "https://www.instagram.com/")
+    assert Page.calls == 2, "一次偶发失败值得重试一次"
+    assert "ERR_HTTP_RESPONSE_CODE_FAILURE" in reason, "窗口留着，但要说得出为什么是错误页"
+
+
+def test_a_navigation_that_works_is_not_retried():
+    class Page:
+        calls = 0
+
+        def goto(self, url, **kw):
+            Page.calls += 1
+
+    assert scrape_runner.open_login_page(Page(), "https://www.instagram.com/") == ""
+    assert Page.calls == 1
