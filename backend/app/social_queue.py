@@ -93,34 +93,34 @@ _FAMILIES: dict[str, tuple[str, ...]] = {
 
 _FAMILIES_KO: dict[str, tuple[str, ...]] = {
     "rental": (
-        "렌탈용은 실내·실외 모두 P2.604 / P2.976 / P3.91 / P4.8 라인업으로 대응하고 있습니다. "
-        "필요하신 피치나 제품 사양을 알려주시면 용도에 맞는 구성과 상세 견적을 보내드리겠습니다.",
-        "렌탈 LED는 P2.604 / P2.976 / P3.91 / P4.8까지 실내·실외 모두 가능합니다. "
-        "검토 중인 사양을 알려주시면 맞는 구성으로 안내드리고 견적도 함께 보내드리겠습니다.",
-        "렌탈·행사용 다이캐스팅 LED 캐비닛을 공급하고 있습니다. 필요한 피치와 사양을 "
-        "보내주시면 용도에 맞는 제품 구성과 상세 견적을 정리해 드리겠습니다.",
-        "렌탈 LED가 주요 제품군 중 하나입니다. 피치, 화면 크기 또는 필요한 사양을 알려주시면 "
-        "적합한 구성으로 추천드리고 견적도 보내드리겠습니다.",
+        "렌탈용은 실내·실외 모두 P2.604 / P2.976 / P3.91 / P4.8 제품을 공급하고 있습니다. "
+        "필요하신 피치나 사양을 알려주시면 맞는 제품으로 추천드리고 상세 견적도 보내드리겠습니다.",
+        "렌탈 LED는 P2.604 / P2.976 / P3.91 / P4.8 제품을 실내·실외용으로 공급하고 있습니다. "
+        "필요하신 피치나 사양을 알려주시면 맞는 제품으로 추천드리고 상세 견적도 보내드리겠습니다.",
+        "렌탈·행사용 다이캐스팅 LED 캐비닛을 공급하고 있습니다. 필요한 피치나 사양을 "
+        "알려주시면 맞는 제품으로 추천드리고 상세 견적도 보내드리겠습니다.",
+        "렌탈 LED 제품을 다양하게 공급하고 있습니다. 피치, 화면 크기 또는 필요한 사양을 알려주시면 "
+        "맞는 제품으로 추천드리고 상세 견적도 보내드리겠습니다.",
     ),
     "install": (
-        "고정 설치용은 실내부터 실외까지 다양한 사양으로 대응하고 있습니다. 피치, 화면 크기 또는 "
-        "필요한 조건을 알려주시면 용도에 맞는 제품 구성과 상세 견적을 보내드리겠습니다.",
-        "고정 설치 프로젝트 검토 중이시면 사용 용도와 화면 크기를 알려주세요. 맞는 피치와 제품 "
-        "구성을 추천드리고 견적도 함께 보내드리겠습니다.",
-        "AV·시스템 통합 프로젝트용 고정 설치 LED를 공급하고 있습니다. 필요한 피치와 화면 크기, "
-        "사양을 보내주시면 적합한 구성과 상세 견적을 정리해 드리겠습니다.",
-        "고정 설치 LED는 전·후면 유지보수 옵션으로 대응 가능합니다. 프로젝트 조건을 알려주시면 "
-        "맞는 제품을 추천드리고 견적도 보내드리겠습니다.",
+        "고정 설치용은 실내부터 실외까지 다양한 LED 제품을 공급하고 있습니다. 피치, 화면 크기 또는 "
+        "필요한 사양을 알려주시면 맞는 제품으로 추천드리고 상세 견적도 보내드리겠습니다.",
+        "고정 설치 프로젝트 검토 중이시면 사용 용도, 피치나 화면 크기를 알려주세요. 맞는 제품으로 "
+        "추천드리고 상세 견적도 보내드리겠습니다.",
+        "AV·시스템 통합 프로젝트용 고정 설치 LED를 공급하고 있습니다. 필요한 피치, 화면 크기나 "
+        "사양을 알려주시면 맞는 제품으로 추천드리고 상세 견적도 보내드리겠습니다.",
+        "고정 설치 LED는 전·후면 유지보수 방식 모두 가능합니다. 프로젝트 조건을 알려주시면 "
+        "맞는 제품으로 추천드리고 상세 견적도 보내드리겠습니다.",
     ),
     "general": (
-        "파인피치부터 실내, 렌탈, 실외 고정형까지 LED 제품군을 공급하고 있습니다. 사용 용도, "
-        "피치, 화면 크기 또는 필요한 사양을 알려주시면 맞는 제품과 상세 견적을 보내드리겠습니다.",
-        "렌탈과 고정 설치 프로젝트 모두 대응하고 있습니다. 검토 중인 용도와 화면 크기를 알려주시면 "
-        "적합한 제품 구성을 추천드리고 견적도 함께 보내드리겠습니다.",
+        "파인피치부터 실내, 렌탈, 실외 고정형까지 다양한 LED 제품을 공급하고 있습니다. 사용 용도, "
+        "피치, 화면 크기 또는 필요한 사양을 알려주시면 맞는 제품으로 추천드리고 상세 견적도 보내드리겠습니다.",
+        "렌탈용과 고정 설치용 LED 제품을 모두 공급하고 있습니다. 검토 중인 용도, 피치나 화면 크기를 알려주시면 "
+        "맞는 제품으로 추천드리고 상세 견적도 보내드리겠습니다.",
         "상업용, 렌탈용, 실외용 LED 디스플레이를 공급하고 있습니다. 주로 보시는 피치나 필요한 "
-        "사양을 알려주시면 가장 적합한 제품과 상세 견적을 안내드리겠습니다.",
-        "파인피치부터 실외까지 다양한 LED 제품군을 대응하고 있습니다. 프로젝트 용도, 크기 또는 "
-        "필요한 사양을 보내주시면 맞는 제품을 추천드리고 견적도 보내드리겠습니다.",
+        "사양을 알려주시면 맞는 제품으로 추천드리고 상세 견적도 보내드리겠습니다.",
+        "파인피치부터 실외까지 다양한 LED 제품을 공급하고 있습니다. 프로젝트 용도, 크기 또는 "
+        "필요한 사양을 알려주시면 맞는 제품으로 추천드리고 상세 견적도 보내드리겠습니다.",
     ),
 }
 
@@ -243,13 +243,20 @@ def _channel_for(conn, lead: dict, taken: set[str]) -> tuple[str, str] | None:
 def _compose(lead: dict) -> str:
     from app import copy_segments
 
-    hook = str(lead.get("hook") or lead.get("hook_ko") or "").strip()
     no = int(lead.get("no") or 0)
     korean = is_korean_customer(lead)
+    # The placeholder has to follow the hook that exists, not the language of the copy.
+    # Asking for {hook_ko} on a lead whose opener was written in English dropped the
+    # opener silently — and `guarded_as` below still measured the letter by the stricter
+    # rule because the lead *had* a hook, so every Korean customer was held as
+    # impersonal and never reached the queue. An English opener inside Korean copy is
+    # slightly odd; losing the customer is not slightly anything.
+    field = "hook_ko" if korean and str(lead.get("hook_ko") or "").strip() else "hook"
+    hook = str(lead.get(field) or "").strip()
     sentence = sentence_for(copy_segments.segment_of(lead), no, korean=korean)
     parts = ["{greeting}"]
     if hook:
-        parts.append("{hook_ko}" if korean else "{hook}")
+        parts.append("{" + field + "}")
     parts.append(sentence)
     return render(" ".join(parts), lead).strip()
 

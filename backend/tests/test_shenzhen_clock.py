@@ -244,6 +244,19 @@ def test_an_auto_channel_is_not_waiting_for_allen():
     assert social_queue.awaiting_you(conn, now=cn(2026, 9, 3, 9)) == 0
 
 
+def test_a_korean_customer_with_only_an_english_hook_still_reaches_the_queue():
+    """The Korean copy asked for {hook_ko}, and a lead whose hook was written in English
+    has none — so the opener vanished from the text while `guarded_as` still held the
+    letter to the stricter rule *because* the lead had a hook. Every Korean customer was
+    held as impersonal and silently left the queue: 0 rows against 6 for the same book
+    in the USA."""
+    conn = _book(country="South Korea")
+    social_queue.build_today(conn, now=cn(2026, 9, 3, 9))
+    rows = social_queue.today(conn, cn(2026, 9, 3, 9))
+    assert len(rows) == 6, "韩国客户被静默吞掉了"
+    assert any("P1" in row["body"] for row in rows), "开场白不该在换成韩文时消失"
+
+
 def test_korea_is_still_waiting_for_him_on_an_auto_channel():
     """docs/63 没变：渠道自动，但韩国压回手动，那这几条确实在等他。"""
     conn = _book(country="South Korea")

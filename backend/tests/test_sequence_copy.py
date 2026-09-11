@@ -52,7 +52,15 @@ def test_a_letter_that_did_carry_a_price_would_be_refused():
 @pytest.mark.parametrize("segment,korean", ALL)
 def test_every_pitch_quoted_exists_in_the_product_library(conn, segment, korean):
     """docs/45: a claim without a source is not written. The copy may not widen the
-    range on its own."""
+    range on its own.
+
+    What counts as "in the library" is **inside one of its ranges**, not "written the
+    same way the range endpoints are". P2.604 and P4.81 are real pitches Allen sells and
+    both sit inside a product's range; the first version of this check compared against
+    the set of numbers appearing in the range strings, so an exact pitch failed while the
+    rounded one it lies between passed. That rejected correct copy and would have taught
+    whoever hit it to round the spec — the opposite of what docs/45 is protecting.
+    """
     conn.executescript("""
         DELETE FROM products;
         INSERT INTO products(model, pixel_pitch, agent_approved) VALUES
@@ -61,12 +69,15 @@ def test_every_pitch_quoted_exists_in_the_product_library(conn, segment, korean)
             ('Outdoor Fixed','P2.5-P10',1);
     """)
     conn.commit()
-    bounds = set()
+    ranges = []
     for row in conn.execute("SELECT pixel_pitch FROM products"):
-        bounds.update(re.findall(r"\d+(?:\.\d+)?", row["pixel_pitch"]))
+        numbers = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", row["pixel_pitch"])]
+        if numbers:
+            ranges.append((min(numbers), max(numbers)))
     body = seed_sequences.steps_for(segment, korean)[0][3]
-    quoted = set(re.findall(r"P(\d+(?:\.\d+)?)", body))
-    assert quoted <= bounds, f"{segment} 里的点间距不在产品库内：{quoted - bounds}"
+    quoted = {float(p) for p in re.findall(r"P(\d+(?:\.\d+)?)", body)}
+    outside = {p for p in quoted if not any(low <= p <= high for low, high in ranges)}
+    assert not outside, f"{segment} 里的点间距不在产品库任何一个区间内：{sorted(outside)}"
 
 
 def test_the_segments_do_not_all_get_the_same_letter():
