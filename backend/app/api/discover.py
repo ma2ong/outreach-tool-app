@@ -36,6 +36,15 @@ class PageDiscoverRequest(BaseModel):
     exclude_peers: bool = True
 
 
+class DomainDiscoverRequest(BaseModel):
+    """A list of domains found outside this server - see docs/128 R10."""
+
+    domains: list[str] = []
+    exclude_countries: list[str] = []
+    exclude_peers: bool = True
+    source: str = "粘贴域名"
+
+
 class Candidate(BaseModel):
     company_en: str
     website: str | None = None
@@ -188,6 +197,34 @@ def discover_page(req: PageDiscoverRequest, background: BackgroundTasks, conn=De
             raise HTTPException(status_code=400, detail=reason)
     job_id = jobs.create(total=req.limit)
     background.add_task(_run_page, job_id, req.url.strip(), req.limit, req, database_path(conn))
+    return {"job_id": job_id}
+
+
+def _run_domains(job_id: str, domains: list[str], req: "DomainDiscoverRequest",
+                 db_path: str):
+    conn = connect(db_path)
+    try:
+        cands = discovery.run_domain_discovery(
+            conn, domains, enrich_fn=ENRICH_FN,
+            on_progress=lambda done, total: jobs.update(job_id, done),
+            exclude_countries=req.exclude_countries, exclude_peers=req.exclude_peers,
+            source=req.source)
+        jobs.finish(job_id, {"candidates": cands})
+    except Exception as exc:  # noqa: BLE001
+        jobs.fail(job_id, str(exc))
+    finally:
+        conn.close()
+
+
+@router.post("/discover/domains")
+def discover_domains(req: DomainDiscoverRequest, background: BackgroundTasks,
+                     conn=Depends(get_conn)):
+    """Take a list of domains and run it through the pipeline every channel uses."""
+    domains = [d.strip() for d in req.domains if d and d.strip()]
+    if not domains:
+        raise HTTPException(status_code=400, detail="至少给一个域名")
+    job_id = jobs.create(total=len(domains))
+    background.add_task(_run_domains, job_id, domains, req, database_path(conn))
     return {"job_id": job_id}
 
 

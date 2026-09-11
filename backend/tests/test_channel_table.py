@@ -863,3 +863,34 @@ def test_the_two_google_refusals_are_translated_into_the_next_step():
 
     other = ds.google_hint(400, '{"error": {"message": "Invalid Value"}}')
     assert "Invalid Value" in other, "不认识的错误照原样说出来，不要编"
+
+
+# ============== docs/128 R10 - domains that came from somewhere else entirely
+
+def test_a_list_of_domains_goes_through_the_same_pipeline_as_any_other_channel(conn):
+    """Google answers Allen's own browser and refuses this machine (docs/128 R9), so the
+    one route that works cannot be a channel the server calls. What it can be is a list
+    of domains handed to the same enrichment, screening and dedupe every channel uses -
+    which also covers a list pasted from anywhere else."""
+    from app import discovery
+
+    out = discovery.run_domain_discovery(
+        conn, ["pantallasmexico.com.mx", "https://www.miamexscreenled.com/", "", "arrow.com"],
+        enrich_fn=lambda d: {"country": "Mexico"}, source="google-browser")
+    # 深挖是并发的，顺序不是契约；「哪些进来了、空串没进来、重复没进来」才是。
+    assert {c["domain"] for c in out} == {
+        "pantallasmexico.com.mx", "miamexscreenled.com", "arrow.com"}
+    assert all(c["source"] == "google-browser" for c in out)
+
+
+def test_the_domain_route_screens_peers_like_every_other_route(conn):
+    from app import discovery
+
+    out = discovery.run_domain_discovery(
+        conn, ["szjy-led.cn"], enrich_fn=lambda d: {"country": "China"})
+    assert out[0]["excluded"], "同行不因为是手工粘进来的就免检"
+
+
+def test_the_api_refuses_an_empty_domain_list(tmp_path):
+    client = _client(tmp_path)
+    assert client.post("/api/discover/domains", json={"domains": []}).status_code == 400

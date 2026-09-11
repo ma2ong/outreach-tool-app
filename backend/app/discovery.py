@@ -5,6 +5,7 @@ from typing import Callable
 from app import repository as repo, screening
 from app.search import search_domains
 from app.enrich import enrich_domain
+from app import harvest
 from app.harvest import harvest_domains
 from app.jina import fetch as jina_fetch
 
@@ -321,6 +322,32 @@ def run_discovery(conn, query: str, limit: int = 10,
     enrich_fn = enrich_fn or (lambda d: enrich_domain(d, fetch=_bounded_fetch))
     domains = search_fn(query, limit)
     return _enrich_candidates(conn, domains, enrich_fn, "搜索", on_progress,
+                              exclude_countries, exclude_peers)
+
+
+def run_domain_discovery(conn, domains: list[str], enrich_fn: Callable = None,
+                         on_progress: Callable[[int, int], None] | None = None,
+                         exclude_countries: list[str] | None = None,
+                         exclude_peers: bool = True,
+                         source: str = "粘贴域名") -> list[dict]:
+    """Enrich a list of domains that was found somewhere this server cannot reach.
+
+    Google answers Allen's own browser and refuses this machine (docs/128 R9), so the
+    one route that works cannot be a channel the server calls on a schedule - it ends
+    with a person holding a list of domains. This is where that list rejoins the normal
+    path: the same enrichment, the same peer screen, the same duplicate check every
+    channel goes through, so nothing arrives by a side door.
+    """
+    enrich_fn = enrich_fn or (lambda d: enrich_domain(d, fetch=_bounded_fetch))
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for raw in domains or []:
+        host = harvest.host_of(str(raw or "").strip() if "://" in str(raw or "")
+                               else f"http://{str(raw or '').strip()}")
+        if host and host not in seen:
+            seen.add(host)
+            rows.append({"domain": host, "title": ""})
+    return _enrich_candidates(conn, rows, enrich_fn, source, on_progress,
                               exclude_countries, exclude_peers)
 
 

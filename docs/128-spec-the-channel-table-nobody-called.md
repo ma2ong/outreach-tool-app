@@ -326,6 +326,25 @@ Google 自己留了另一扇门：Programmable Search Engine 的 JSON API，**�
 「搜索整个网络」），一个 API key。两行写进 `backend/google_cse.txt`。没配的时候
 渠道报的不是「坏了」，是**这两步怎么做**——docs/70 R4 的规矩在这里的样子。
 
+## R10 Google 认得的是 Allen 自己的浏览器，所以那条路的终点是一串域名
+
+R9 试到底之后，2026-09-11 傍晚用 Claude 浏览器扩展在 Allen **日常那个 Chrome** 里搜了两次：
+`led display distributor` 拿到完整结果页外加本地商户块（GCL Electronics 带电话和城市——
+和 Facebook 渠道当天采到的是同一家），`pantallas led mexico` 拿到 6 家真实墨西哥公司。
+没有墙。Google 认的是那台浏览器的历史和 cookie，不是这台服务器。
+
+这条路**不可能是服务器上的渠道**：它要人的浏览器开着、要人在场。所以它不进渠道表，
+它的终点是**人手上一串域名**，而系统要做的只是给这串域名一个回到正常流程的入口——
+`POST /api/discover/domains`，面板上叫「粘贴域名」。进来之后走的是和每条渠道
+**完全相同**的深挖、筛同行、查重、ICP 打分；来源标签跟着进库，三个月后仍能回答
+「这家是哪儿来的」。
+
+实测（真实读官网）：absen.com 被筛成同行；pantallasmexico.com.mx → integrator 85、
+rgbmedia.com.mx → rental 92、ledectechnology.com → rental 92，邮箱全部读到。
+
+这个入口顺带覆盖了「从任何地方拿到一串域名」——展会名单、同行的客户案例页、
+Allen 自己随手记的——不必再为每个来源写一条渠道。
+
 ## R6 读法由渠道声明，API 按声明校验
 
 `/api/discover` 和 `/api/discover/page` 收到一条渠道没有声明的读法时报 400，

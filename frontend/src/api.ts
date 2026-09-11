@@ -265,6 +265,23 @@ export async function fetchDiscoverySources(): Promise<{ sources: DiscoverySourc
   return r.json();
 }
 
+// 从别处拿到的一串域名（比如用自己的浏览器搜 Google 得到的），走和所有渠道一样的
+// 深挖、筛同行、查重流程。docs/128 R10
+export async function startDomainDiscover(
+  domains: string[], screen: ScreenOpts = {}, source?: string,
+): Promise<{ job_id: string }> {
+  const r = await fetch("/api/discover/domains", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domains, ...screen, source: source || undefined }),
+  });
+  if (!r.ok) {
+    const detail = await r.json().then((b) => b?.detail).catch(() => null);
+    throw new Error(detail || `discover ${r.status}`);
+  }
+  return r.json();
+}
+
 export async function quickAddLead(body: { url: string; country?: string; company_en?: string }): Promise<{ duplicate_of: number | null; lead: Lead }> {
   const r = await fetch("/api/leads/quick_add", {
     method: "POST",

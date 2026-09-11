@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { startDiscover, startPageDiscover, fetchDiscoverJob, importLeads, fetchDiscoverySources } from "../api";
+import { startDiscover, startPageDiscover, startDomainDiscover, fetchDiscoverJob, importLeads, fetchDiscoverySources } from "../api";
 import type { Candidate, DiscoverySource, SourceReport } from "../types";
 
 const ICP_LABEL: Record<string, string> = {
@@ -42,7 +42,10 @@ const EXCLUDABLE = ["India", "Pakistan", "Bangladesh", "Sri Lanka", "Nepal",
 const isLatin = (line: string) => [...line].every((ch) => ch.charCodeAt(0) < 128);
 
 export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
-  const [mode, setMode] = useState<"search" | "page">("search");
+  const [mode, setMode] = useState<"search" | "page" | "domains">("search");
+  // 一行一个域名。Google 只认得你自己的浏览器（docs/128 R9），所以那条路的终点是
+  // 你手上一串域名 —— 这里是它们回到正常流程的入口。
+  const [domains, setDomains] = useState("");
   const [query, setQuery] = useState(DEFAULT_QUERIES);
   const [url, setUrl] = useState("");
   // 多选：一次搜可以同时铺几个市场，每条关键词会和每个国家组合成一条搜索。
@@ -85,6 +88,8 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
 
   async function run(engine: "jina" | "browser" = "jina") {
     if (mode === "page" && !url.trim()) { setMsg("请粘贴名录/经销商页 URL"); return; }
+    const domainLines = domains.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (mode === "domains" && domainLines.length === 0) { setMsg("请粘贴至少一个域名"); return; }
     if (mode === "search" && queryLines.length === 0) { setMsg("请至少填一行搜索关键词"); return; }
     setBusy(true); setCands([]); setPicked(new Set()); setBrowserOffer(false); setReport([]);
     setMsg(engine === "browser" ? "浏览器读取中…（屏幕上会弹出一个 Chrome 窗口，读完自动关）"
@@ -99,7 +104,9 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
           ? targets.map((c) => `${l} ${c}`) : [l]))
         : queryLines;
       const screen = { exclude_countries: [...excluded], exclude_peers: excludePeers };
-      const { job_id } = mode === "page"
+      const { job_id } = mode === "domains"
+        ? await startDomainDiscover(domainLines, screen, "手工/浏览器搜到的")
+        : mode === "page"
         ? await startPageDiscover(url.trim(), 40, screen, undefined, undefined, engine)
         : await startDiscover(composed, 10, screen, [...channels],
           [...channels].length === 1 ? engineFor([...channels][0]) : undefined);
@@ -187,6 +194,7 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
       <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
         <button className={`btn btn-sm${mode === "search" ? " btn-primary" : ""}`} onClick={() => setMode("search")}>关键词搜索</button>
         <button className={`btn btn-sm${mode === "page" ? " btn-primary" : ""}`} onClick={() => setMode("page")}>名录 / 竞品经销商页</button>
+        <button className={`btn btn-sm${mode === "domains" ? " btn-primary" : ""}`} onClick={() => setMode("domains")}>粘贴域名</button>
       </div>
       {mode === "search" ? (
         <>
@@ -246,7 +254,7 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
             ))}
           </div>
         </>
-      ) : (
+      ) : mode === "page" ? (
         <>
           <h3>从名录 / 竞品经销商页批量挖客户</h3>
           <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
@@ -269,6 +277,23 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
               </span>
             </div>
           )}
+        </>
+      ) : (
+        <>
+          <h3>把一串域名走一遍深挖</h3>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+            一行一个域名。用在 Google 这类只认你自己浏览器的渠道上：你（或我）在浏览器里搜到一页结果，
+            把公司域名贴进来，它们就走和所有渠道完全一样的流程——读官网、筛同行、查重、打 ICP 分。
+            贴 <code>pantallasmexico.com.mx</code> 或整段 URL 都行，站内路径会被去掉。
+          </div>
+          <textarea className="input" style={{ width: "100%", height: 120, marginBottom: 8 }}
+            value={domains} onChange={(e) => setDomains(e.target.value)}
+            placeholder={"pantallasmexico.com.mx" + String.fromCharCode(10) + "https://www.miamexscreenled.com/" + String.fromCharCode(10) + "rgbmedia.com.mx"} />
+          <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <button className="btn btn-primary" onClick={() => run()} disabled={busy}>
+              {busy ? "深挖中…" : `深挖这 ${domains.split(String.fromCharCode(10)).filter((l) => l.trim()).length} 个域名`}
+            </button>
+          </div>
         </>
       )}
       {report.length > 0 && (
