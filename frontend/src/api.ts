@@ -217,6 +217,25 @@ export async function startDiscover(
   return r.json();
 }
 
+// 采集账号：只有真的需要登录的渠道会出现在这里（FB 公共主页不需要账号）。docs/128 R5
+export interface ScrapeChannel { name: string; state: string; logged_in: boolean; hint: string }
+
+export async function fetchScrapeChannels(): Promise<{ channels: ScrapeChannel[] }> {
+  const r = await fetch("/api/channels/scrape");
+  if (!r.ok) throw new Error(`scrape channels ${r.status}`);
+  return r.json();
+}
+
+// 密码不经过服务器：这里只是让后端弹出一个浏览器窗口，Allen 在窗口里自己登录。
+export async function startScrapeLogin(channel: string): Promise<{ status: string }> {
+  const r = await fetch(`/api/channels/scrape/${channel}/login`, { method: "POST" });
+  if (!r.ok) {
+    const detail = await r.json().then((b) => b?.detail).catch(() => null);
+    throw new Error(detail || `login ${r.status}`);
+  }
+  return r.json();
+}
+
 // 哪几条渠道现在能跑，哪几条没配好、为什么。docs/70 R4
 export async function fetchDiscoverySources(): Promise<{ sources: DiscoverySource[] }> {
   const r = await fetch("/api/discover/sources");

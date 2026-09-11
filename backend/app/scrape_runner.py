@@ -148,6 +148,10 @@ SEARCH_URL = {
 # (9 bytes, measured 2026-09-11). Its pages are public though, so that channel arrives
 # here with a list of pages someone else found and reads each one's About tab.
 ABOUT_URL = "https://www.facebook.com/{h}/about"
+# Where Allen logs a collecting account in. He types into this window; nothing about the
+# account passes through the server (docs/128 R5).
+LOGIN_URL = {"instagram": "https://www.instagram.com/accounts/login/"}
+LOGIN_WAIT = 1800          # half an hour, then the window is on its own
 CHANNELS = tuple(sorted(set(SEARCH_URL) | {"facebook"}))
 _LINKS_JS = "() => [...document.querySelectorAll('a[href]')].map(a => a.href)"
 # Google keeps the real URL in the link. Bing does not — it wraps every result in a
@@ -174,6 +178,38 @@ def _read_about(page, handles: list[str]) -> list[dict]:
         except Exception:  # noqa: BLE001 — one page, not the channel
             continue
     return rows
+
+
+def _login(args) -> dict:
+    """Open the collecting profile and wait for the window to be closed.
+
+    The wait is the whole point: closing the context before Allen finishes typing would
+    throw the session away, and a persistent context only writes its cookies out when it
+    shuts down cleanly.
+    """
+    import time
+
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as play:
+        browser = play.chromium.launch_persistent_context(
+            args.profile_dir, headless=False,
+            args=["--window-position=80,80", "--window-size=1100,900"])
+        page = browser.pages[0] if browser.pages else browser.new_page()
+        page.goto(LOGIN_URL[args.channel], wait_until="domcontentloaded", timeout=60000)
+        deadline = time.monotonic() + LOGIN_WAIT
+        while time.monotonic() < deadline:
+            try:
+                if not [p for p in browser.pages if not p.is_closed()]:
+                    break
+            except Exception:  # noqa: BLE001 — the window is gone, which is the signal
+                break
+            time.sleep(2)
+        try:
+            browser.close()
+        except Exception:  # noqa: BLE001
+            pass
+    return {"hosts": [], "handles": [], "pages": [], "blocked": ""}
 
 
 def _read(args) -> dict:
@@ -237,10 +273,11 @@ def main() -> None:
     parser.add_argument("--profile-dir", required=True)
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--headless", action="store_true")
+    parser.add_argument("--login", action="store_true")
     args = parser.parse_args()
     args.pages = [h for h in args.pages.split(",") if h.strip()]
     try:
-        result = _read(args)
+        result = _login(args) if args.login else _read(args)
     except Exception as exc:  # noqa: BLE001 — the caller reads JSON, not a traceback
         print(f"scrape failed: {exc}", file=sys.stderr)
         result = {"hosts": [], "handles": [], "pages": [], "error": str(exc)[:200]}

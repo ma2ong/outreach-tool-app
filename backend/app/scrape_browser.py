@@ -39,11 +39,16 @@ RUN_TIMEOUT = 180
 # search is shut to a logged-out browser — every public Page's About tab reads fine
 # without an account, so that channel carries none (docs/128 R4).
 NEEDS_LOGIN = ("instagram",)
+LOGIN_URL = {"instagram": "https://www.instagram.com/accounts/login/"}
 LOGIN_HINT = {
-    "instagram": "未启用：需要先登录采集专用账号（小号）。到「渠道」页用采集账号登录 "
-                 "Instagram —— 不要用发私信那个账号：平台封的是账号，"
+    "instagram": "未启用：需要先登录采集专用账号（小号）。到「渠道」页点「登录采集账号」，"
+                 "在弹出的窗口里自己登录 —— 不要用发私信那个账号：平台封的是账号，"
                  "发信账号封了，在谈的对话和联系人一起没（docs/126 R4）",
 }
+# The cookie a platform sets only after a real login. A profile directory is not the
+# test: Chromium writes `Default/` the moment it starts, so the first version of
+# `logged_in` called every profile that had ever been opened a logged-in one.
+SESSION_COOKIE = {"instagram": (".instagram.com", ("sessionid",))}
 
 
 class Blocked(RuntimeError):
@@ -59,13 +64,32 @@ def profile_dir(channel: str) -> Path:
 
 
 def logged_in(channel: str) -> bool:
-    """Has a collection account ever been logged in here?
+    """Is a collecting account actually logged in here?
 
-    A persistent context writes `Default/` the first time Chromium opens the directory,
-    so the directory existing is not the test; something inside it is.
+    The session cookie is the only honest answer. Chromium's cookie file is locked while
+    the browser is running, so a login still in progress reads as not-logged-in — which
+    is why the panel tracks the window separately (`login_state`).
     """
-    path = profile_dir(channel)
-    return path.is_dir() and any(path.iterdir())
+    import sqlite3
+
+    host, names = SESSION_COOKIE.get(channel, ("", ()))
+    path = profile_dir(channel) / "Default" / "Network" / "Cookies"
+    if not host or not path.is_file():
+        return False
+    try:
+        db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)
+        try:
+            row = db.execute(
+                "SELECT 1 FROM cookies WHERE host_key LIKE ? AND name IN (%s) LIMIT 1"
+                % ",".join("?" * len(names)), (f"%{host.lstrip('.')}", *names)).fetchone()
+        finally:
+            db.close()
+    except sqlite3.Error:
+        # Locked, or a Chromium schema we do not know. Saying "not logged in" sends
+        # Allen to a login window he may not need; saying "logged in" sends the channel
+        # at a wall. The first is the recoverable mistake.
+        return False
+    return row is not None
 
 
 def unavailable(channel: str = "") -> str:
@@ -81,6 +105,43 @@ def unavailable(channel: str = "") -> str:
 
 def available(channel: str = "") -> bool:
     return not unavailable(channel)
+
+
+def _spawn(argv: list[str]):
+    """Start a window and return, rather than waiting for Allen to finish typing."""
+    return subprocess.Popen(argv)
+
+
+# The login windows this process opened, so the panel can tell "still logged out" from
+# "the window is open and he is typing" — those look identical on disk.
+_LOGIN_WINDOWS: dict = {}
+
+
+def start_login(channel: str):
+    """Open a browser on the collecting profile so Allen can log a spare account in.
+
+    No credential ever reaches this process: the window is his, the session lands in
+    `~/.outreach-tool/scrape/<channel>`, and the collector later reuses that directory.
+    """
+    if channel not in LOGIN_URL:
+        raise ValueError(f"{channel} 不需要登录采集账号")
+    reason = unavailable("")          # playwright itself has to be installed
+    if reason:
+        raise Unavailable(reason)
+    profile = profile_dir(channel)
+    profile.mkdir(parents=True, exist_ok=True)
+    proc = _spawn([sys.executable, str(RUNNER), "--channel", channel, "--login",
+                   "--profile-dir", str(profile)])
+    _LOGIN_WINDOWS[channel] = proc
+    return proc
+
+
+def login_state(channel: str) -> str:
+    """已登录 / 等待登录 / 未登录 — three states, because they need three answers."""
+    if logged_in(channel):
+        return "已登录"
+    proc = _LOGIN_WINDOWS.get(channel)
+    return "等待登录" if proc is not None and proc.poll() is None else "未登录"
 
 
 def _subprocess_run(argv: list[str], timeout: int) -> str:

@@ -239,3 +239,83 @@ def test_what_each_channel_reported_travels_with_the_result(tmp_path, monkeypatc
     result = client.get(f"/api/discover/jobs/{job_id}").json()["result"]
     walled = [s for s in result["sources"] if s["name"] == "google"][0]
     assert walled["status"] == "失败" and "unusual traffic" in walled["reason"]
+
+
+# ------------------------------------------- R5 handing over the collecting account
+
+def _cookie_db(profile, host: str, name: str):
+    """A Chromium profile that has actually been logged in, as far as disk is concerned."""
+    import sqlite3
+
+    path = profile / "Default" / "Network"
+    path.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(path / "Cookies")
+    db.execute("CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT)")
+    db.execute("INSERT INTO cookies VALUES (?,?,?)", (host, name, "x"))
+    db.commit()
+    db.close()
+
+
+def test_a_browser_that_merely_opened_is_not_a_login(tmp_path, monkeypatch):
+    """The first version called any non-empty directory a login — and Chromium writes
+    `Default/` the moment it starts, so every profile looked logged in."""
+    monkeypatch.setattr(scrape_browser, "SCRAPE_DIR", tmp_path)
+    (tmp_path / "instagram" / "Default").mkdir(parents=True)
+    (tmp_path / "instagram" / "Default" / "Preferences").write_text("{}", encoding="utf-8")
+    assert scrape_browser.logged_in("instagram") is False
+
+
+def test_a_session_cookie_is_what_counts_as_logged_in(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_browser, "SCRAPE_DIR", tmp_path)
+    _cookie_db(tmp_path / "instagram", ".instagram.com", "sessionid")
+    assert scrape_browser.logged_in("instagram") is True
+
+
+def test_another_sites_cookie_is_not_a_login_here(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_browser, "SCRAPE_DIR", tmp_path)
+    _cookie_db(tmp_path / "instagram", ".example.com", "sessionid")
+    assert scrape_browser.logged_in("instagram") is False
+
+
+def test_the_login_window_opens_the_collecting_profile_and_no_other(tmp_path, monkeypatch):
+    from app import playwright_engine
+
+    class FakeWindow:
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(scrape_browser, "SCRAPE_DIR", tmp_path)
+    monkeypatch.setattr(scrape_browser, "_LOGIN_WINDOWS", {})
+    started: list[list[str]] = []
+    monkeypatch.setattr(scrape_browser, "_spawn", lambda argv: started.append(argv) or FakeWindow())
+    scrape_browser.start_login("instagram")
+    argv = started[0]
+    assert "--login" in argv
+    profile = argv[argv.index("--profile-dir") + 1]
+    assert profile.lower().startswith(str(tmp_path).lower())
+    assert not profile.lower().startswith(str(playwright_engine.DATA_DIR).lower())
+
+
+def test_a_login_that_has_no_window_to_open_is_refused(monkeypatch):
+    """Facebook collecting needs no account, so offering to log one in is a lie."""
+    with pytest.raises(ValueError):
+        scrape_browser.start_login("facebook")
+
+
+def test_the_panel_can_see_which_collecting_accounts_are_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(scrape_browser, "_LOGIN_WINDOWS", {})
+    monkeypatch.setattr(scrape_browser, "SCRAPE_DIR", tmp_path)
+    client = _client(tmp_path)
+    rows = client.get("/api/channels/scrape").json()["channels"]
+    ig = [r for r in rows if r["name"] == "instagram"][0]
+    assert ig["logged_in"] is False
+    assert "小号" in ig["hint"]
+    assert [r["name"] for r in rows] == ["instagram"], "只有真的需要登录的渠道才该出现在这里"
+
+
+def test_pressing_login_opens_a_window_rather_than_asking_for_a_password(tmp_path, monkeypatch):
+    opened: list[str] = []
+    monkeypatch.setattr(scrape_browser, "start_login", lambda ch: opened.append(ch))
+    client = _client(tmp_path)
+    assert client.post("/api/channels/scrape/instagram/login").json()["status"] == "等待登录"
+    assert opened == ["instagram"]
