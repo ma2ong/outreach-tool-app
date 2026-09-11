@@ -36,11 +36,11 @@ EN_OPENER = {
 
 This is Allen from an LED display manufacturer in Shenzhen.
 
-For rental work, we cover P2.6-P3.9 indoor and P3.9-P4.8 outdoor with die-cast cabinets
-and front/rear service.
+For rental projects, we offer P2.604, P2.976, P3.91 and P4.8 for both indoor and outdoor use,
+with die-cast cabinets and front/rear service options.
 
-If you have a project coming up, send me the pitch and cabinet size you normally use.
-I'll send the closest spec sheet with weight and power per cabinet.
+If you have a project coming up, send me the pitch or specs you need. I can recommend
+the suitable configuration and prepare a detailed quotation for you.
 """),
     "install": ("Fixed-install LED: P0.6-P10, front/rear service", """{greeting}
 
@@ -51,8 +51,8 @@ This is Allen from an LED display manufacturer in Shenzhen.
 For fixed-install projects, we cover P0.6-P4 indoor and P2.5-P10 outdoor, with front or
 rear service options.
 
-If you're specifying a project, send me the pitch and screen size. I'll send the matching
-spec sheet with cabinet weight and power.
+If you're specifying a project, send me the pitch, screen size or other requirements.
+I can recommend the suitable configuration and prepare a detailed quotation for you.
 """),
     "general": ("LED display range: P0.6-P10", """{greeting}
 
@@ -60,21 +60,21 @@ spec sheet with cabinet weight and power.
 
 This is Allen from an LED display manufacturer in Shenzhen.
 
-We cover fine pitch P0.6-P1.8, indoor P2-P4, rental P2.6-P4.8 and outdoor fixed
-P2.5-P10.
+We cover fine pitch P0.6-P1.8, indoor P2-P4, rental P2.604 / P2.976 / P3.91 / P4.8
+and outdoor fixed P2.5-P10.
 
-If LED is relevant to your work, send me the application, pitch or screen size. I'll point
-you to the most relevant spec instead of sending a full catalogue.
+If LED is relevant to your work, send me the application, pitch, screen size or specs you
+need. I can recommend the suitable option and prepare a detailed quotation for you.
 """),
 }
 
 EN_SECOND = {
-    "rental": "Just following up — if you tell me the pitch and cabinet size you use most, "
-              "I can send the closest rental spec for comparison.",
-    "install": "If a fixed-install project comes up, pitch and screen size are enough for "
-               "me to send the matching spec with cabinet weight and power.",
-    "general": "If LED comes up in your pipeline, even just the application is enough for "
-               "me to send the most relevant spec.",
+    "rental": "Just following up — if you tell me the pitch or specs you need, I can "
+              "recommend a suitable rental configuration and prepare a detailed quotation.",
+    "install": "If a fixed-install project comes up, send me the pitch, screen size or "
+               "requirements and I can recommend a suitable configuration and prepare a quotation.",
+    "general": "If LED comes up in your pipeline, send me the application, pitch, size or "
+               "specs you need and I can recommend the suitable option and prepare a quotation.",
 }
 
 # --- Korean ------------------------------------------------------------------------
@@ -86,11 +86,11 @@ KO_OPENER = {
 
 심천 LED 디스플레이 제조업체의 Allen입니다.
 
-렌탈용은 실내 P2.6-P3.9, 실외 P3.9-P4.8까지 대응하며 다이캐스팅 캐비닛,
-전면·후면 유지보수가 가능합니다.
+렌탈용은 실내·실외 모두 P2.604 / P2.976 / P3.91 / P4.8 라인업으로 대응하고 있으며,
+다이캐스팅 캐비닛과 전·후면 유지보수 옵션을 제공합니다.
 
-주로 쓰시는 피치와 캐비닛 사이즈만 알려주시면 가장 가까운 사양서로 보내드리겠습니다.
-무게와 소비전력도 같이 정리해 드립니다.
+필요하신 피치나 제품 사양을 알려주시면 용도에 맞는 구성으로 안내드리고,
+해당 사양 기준으로 상세 견적도 보내드리겠습니다.
 """),
     "install": ("고정 설치 LED: 실내 P0.6-P4 / 실외 P2.5-P10", """{greeting}
 
@@ -101,8 +101,8 @@ KO_OPENER = {
 고정 설치용은 실내 P0.6-P4, 실외 P2.5-P10까지 대응하며 전면·후면 유지보수 사양을
 선택할 수 있습니다.
 
-검토 중인 프로젝트가 있으면 피치와 화면 크기만 알려주세요. 도면 검토하기 쉽게 캐비닛
-무게와 소비전력까지 포함한 사양서로 보내드리겠습니다.
+검토 중인 프로젝트가 있으면 피치, 화면 크기 또는 필요한 사양을 알려주세요.
+용도에 맞는 제품 구성으로 안내드리고 상세 견적도 보내드리겠습니다.
 """),
     "general": ("LED 디스플레이: P0.6-P10", """{greeting}
 
@@ -110,39 +110,41 @@ KO_OPENER = {
 
 심천 LED 디스플레이 제조업체의 Allen입니다.
 
-파인피치 P0.6-P1.8, 실내 P2-P4, 렌탈 P2.6-P4.8, 실외 고정형 P2.5-P10까지
-대응하고 있습니다.
+파인피치 P0.6-P1.8, 실내 P2-P4, 렌탈 P2.604 / P2.976 / P3.91 / P4.8,
+실외 고정형 P2.5-P10까지 대응하고 있습니다.
 
-사용하시는 용도나 피치, 화면 크기 중 하나만 알려주시면 전체 카탈로그 대신 맞는 사양만
-골라 보내드리겠습니다.
+사용 용도나 피치, 화면 크기 또는 필요한 사양을 알려주시면 맞는 제품을 추천드리고
+상세 견적도 보내드리겠습니다.
 """),
 }
 
 KO_SECOND = {
-    "rental": "혹시 렌탈용 LED 사양 비교 중이시면 주로 쓰시는 피치와 캐비닛 사이즈만 "
-              "알려주세요. 가장 가까운 사양으로 정리해 드리겠습니다.",
-    "install": "고정 설치 건이 있으시면 피치와 화면 크기만으로도 충분합니다. 캐비닛 무게와 "
-               "소비전력까지 포함해서 맞는 사양을 보내드리겠습니다.",
-    "general": "LED 관련 건이 생기시면 용도만 알려주셔도 됩니다. 필요한 제품군만 골라서 "
-               "사양 보내드리겠습니다.",
+    "rental": "혹시 렌탈용 LED 검토 중이시면 필요한 피치나 제품 사양을 알려주세요. "
+              "용도에 맞는 구성으로 안내드리고 상세 견적도 보내드리겠습니다.",
+    "install": "고정 설치 건이 있으시면 피치, 화면 크기 또는 필요한 사양을 알려주세요. "
+               "용도에 맞는 제품 구성과 상세 견적을 보내드리겠습니다.",
+    "general": "LED 관련 건이 생기시면 용도, 피치, 화면 크기 또는 필요한 사양을 알려주세요. "
+               "맞는 제품을 추천드리고 상세 견적도 보내드리겠습니다.",
 }
 
 # Shared final reference: by this point the segment-specific angle has already done its
 # work. Keep this useful and easy to file rather than turning it into a goodbye message.
 EN_LAST = """{greeting}
 
-One last reference for later: fine pitch P0.6-P1.8, indoor P2-P4, rental P2.6-P4.8, and
-outdoor fixed P2.5-P10.
+One last reference for later: fine pitch P0.6-P1.8, indoor P2-P4, rental P2.604 /
+P2.976 / P3.91 / P4.8, and outdoor fixed P2.5-P10.
 
-Whenever a project comes up, send me the pitch and size and I can match the spec sheet.
+Whenever a project comes up, send me the pitch, screen size or specs you need. I can
+recommend a suitable configuration and prepare a detailed quotation for you.
 """
 
 KO_LAST = """{greeting}
 
 나중에 참고하시기 쉽게 범위만 간단히 남깁니다. 파인피치 P0.6-P1.8, 실내 P2-P4,
-렌탈 P2.6-P4.8, 실외 고정형 P2.5-P10까지 대응합니다.
+렌탈 P2.604 / P2.976 / P3.91 / P4.8, 실외 고정형 P2.5-P10까지 대응합니다.
 
-프로젝트 생기시면 피치와 화면 크기만 보내주세요. 맞는 사양으로 바로 정리해 드리겠습니다.
+프로젝트 생기시면 피치, 화면 크기 또는 필요한 사양을 보내주세요. 용도에 맞는 제품을
+추천드리고 상세 견적도 함께 보내드리겠습니다.
 """
 
 # Never outrun the two-week contact-frequency rule.

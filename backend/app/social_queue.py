@@ -11,7 +11,7 @@ import random
 import re
 
 from app import local_time, message_guard
-from app.personalize import render
+from app.personalize import is_korean_customer, render
 
 CHANNELS = ("whatsapp", "instagram", "facebook")
 
@@ -45,50 +45,90 @@ CREATE INDEX IF NOT EXISTS idx_social_queue_day ON social_dm_queue(queue_date, r
 
 # Four shapes per segment reduce repetitive platform patterns while keeping the commercial
 # logic stable. Each message says what we can help with and asks for one easy input; it
-# avoids price language, distributor comparisons and vague "worth a conversation" CTAs.
+# avoids price-first language, distributor comparisons and vague "worth a conversation" CTAs.
 _FAMILIES: dict[str, tuple[str, ...]] = {
     "rental": (
-        "We supply rental LED panels for events and touring. If you have a project coming "
-        "up, send me the pitch and cabinet size you use and I'll send the matching specs.",
-        "For rental LED, we cover P2.6-P3.9 indoor and P3.9-P4.8 outdoor. Tell me the "
-        "pitch you use most and I can send a comparable spec.",
-        "We work with rental and staging companies on die-cast LED cabinets. If you're "
-        "reviewing new stock, send me the pitch and cabinet size and I'll match the "
-        "closest option.",
-        "Rental LED is one of our main lines, with front/rear service options. If "
-        "something is on your calendar, send me the pitch + size and I'll send the "
-        "relevant spec.",
+        "We supply rental LED for indoor and outdoor use in P2.604, P2.976, P3.91 and P4.8. "
+        "If you have a project coming up, send me the pitch or specs you need and I can "
+        "recommend a suitable configuration and prepare a detailed quotation.",
+        "For rental LED, we offer P2.604 / P2.976 / P3.91 / P4.8 for both indoor and outdoor "
+        "use. Send me the pitch or specs you need and I can suggest the right configuration "
+        "and prepare a detailed quotation.",
+        "We work with rental and staging companies on die-cast LED cabinets in P2.604, P2.976, "
+        "P3.91 and P4.8. If you're reviewing a project or new stock, send me the specs and I "
+        "can recommend a suitable setup and prepare a quotation.",
+        "Rental LED is one of our main lines, with P2.604 / P2.976 / P3.91 / P4.8 for indoor "
+        "and outdoor use. Send me the pitch, size or requirements and I can recommend a "
+        "suitable configuration and prepare a quotation.",
     ),
     "install": (
-        "We supply fixed-install LED for AV and integration projects, indoor and outdoor. "
-        "If you're specifying a job, send me the pitch + screen size and I'll send the "
-        "matching specs.",
+        "We supply fixed-install LED for indoor and outdoor projects. If you're specifying a "
+        "job, send me the pitch, screen size or requirements and I can recommend a suitable "
+        "configuration and prepare a detailed quotation.",
         "For fixed installs, we cover fine-pitch indoor through outdoor LED. Send me the "
-        "application and screen size and I can narrow it to the right spec.",
+        "application, pitch or screen size and I can suggest the right configuration and "
+        "prepare a quotation.",
         "We work with integrators on fixed-install LED projects. If you have a project in "
-        "design, pitch + screen size is enough for me to send the matching spec.",
-        "Fixed-install LED is one of our main lines, with front/rear service options. If "
-        "a project is coming up, send me the pitch and size and I'll send the closest spec.",
+        "design, send me the pitch, screen size or specs and I can recommend a suitable "
+        "configuration and prepare a detailed quotation.",
+        "Fixed-install LED is one of our main lines, with front/rear service options. Send me "
+        "the project requirements and I can recommend the suitable product configuration and "
+        "prepare a quotation.",
     ),
     "general": (
-        "We supply LED displays across fine-pitch, indoor, rental and outdoor fixed. If "
-        "LED is in your pipeline, tell me the application or pitch and I'll send the most "
-        "relevant specs.",
-        "We work with LED display buyers across rental and installation projects. If you "
-        "have something coming up, send me the application + size and I'll point you to "
-        "the right spec.",
-        "We supply LED display panels for commercial, rental and outdoor projects. Tell "
-        "me the pitch or application you usually work with and I can send the closest spec.",
-        "We cover a broad LED display range from fine-pitch to outdoor. If a project comes "
-        "up, send me the use case and size and I'll send only the relevant specs instead "
-        "of a full catalogue.",
+        "We supply LED displays across fine-pitch, indoor, rental and outdoor fixed. If LED is "
+        "in your pipeline, send me the application, pitch, size or specs you need and I can "
+        "recommend the suitable option and prepare a detailed quotation.",
+        "We work with LED display buyers across rental and installation projects. Send me the "
+        "application, pitch or screen size and I can suggest a suitable configuration and "
+        "prepare a quotation.",
+        "We supply LED display panels for commercial, rental and outdoor projects. Tell me the "
+        "pitch, application or requirements you usually work with and I can recommend the "
+        "closest option and prepare a detailed quotation.",
+        "We cover a broad LED display range from fine-pitch to outdoor. If a project comes up, "
+        "send me the use case, size or specs you need and I can recommend the suitable product "
+        "and prepare a quotation.",
+    ),
+}
+
+_FAMILIES_KO: dict[str, tuple[str, ...]] = {
+    "rental": (
+        "렌탈용은 실내·실외 모두 P2.604 / P2.976 / P3.91 / P4.8 라인업으로 대응하고 있습니다. "
+        "필요하신 피치나 제품 사양을 알려주시면 용도에 맞는 구성과 상세 견적을 보내드리겠습니다.",
+        "렌탈 LED는 P2.604 / P2.976 / P3.91 / P4.8까지 실내·실외 모두 가능합니다. "
+        "검토 중인 사양을 알려주시면 맞는 구성으로 안내드리고 견적도 함께 보내드리겠습니다.",
+        "렌탈·행사용 다이캐스팅 LED 캐비닛을 공급하고 있습니다. 필요한 피치와 사양을 "
+        "보내주시면 용도에 맞는 제품 구성과 상세 견적을 정리해 드리겠습니다.",
+        "렌탈 LED가 주요 제품군 중 하나입니다. 피치, 화면 크기 또는 필요한 사양을 알려주시면 "
+        "적합한 구성으로 추천드리고 견적도 보내드리겠습니다.",
+    ),
+    "install": (
+        "고정 설치용은 실내부터 실외까지 다양한 사양으로 대응하고 있습니다. 피치, 화면 크기 또는 "
+        "필요한 조건을 알려주시면 용도에 맞는 제품 구성과 상세 견적을 보내드리겠습니다.",
+        "고정 설치 프로젝트 검토 중이시면 사용 용도와 화면 크기를 알려주세요. 맞는 피치와 제품 "
+        "구성을 추천드리고 견적도 함께 보내드리겠습니다.",
+        "AV·시스템 통합 프로젝트용 고정 설치 LED를 공급하고 있습니다. 필요한 피치와 화면 크기, "
+        "사양을 보내주시면 적합한 구성과 상세 견적을 정리해 드리겠습니다.",
+        "고정 설치 LED는 전·후면 유지보수 옵션으로 대응 가능합니다. 프로젝트 조건을 알려주시면 "
+        "맞는 제품을 추천드리고 견적도 보내드리겠습니다.",
+    ),
+    "general": (
+        "파인피치부터 실내, 렌탈, 실외 고정형까지 LED 제품군을 공급하고 있습니다. 사용 용도, "
+        "피치, 화면 크기 또는 필요한 사양을 알려주시면 맞는 제품과 상세 견적을 보내드리겠습니다.",
+        "렌탈과 고정 설치 프로젝트 모두 대응하고 있습니다. 검토 중인 용도와 화면 크기를 알려주시면 "
+        "적합한 제품 구성을 추천드리고 견적도 함께 보내드리겠습니다.",
+        "상업용, 렌탈용, 실외용 LED 디스플레이를 공급하고 있습니다. 주로 보시는 피치나 필요한 "
+        "사양을 알려주시면 가장 적합한 제품과 상세 견적을 안내드리겠습니다.",
+        "파인피치부터 실외까지 다양한 LED 제품군을 대응하고 있습니다. 프로젝트 용도, 크기 또는 "
+        "필요한 사양을 보내주시면 맞는 제품을 추천드리고 견적도 보내드리겠습니다.",
     ),
 }
 
 
-def sentence_for(segment: str, nth: int) -> str:
-    """The short social message family for this customer segment."""
-    family = _FAMILIES[segment]
+def sentence_for(segment: str, nth: int, *, korean: bool = False) -> str:
+    """The short social message family for this customer segment and market."""
+    families = _FAMILIES_KO if korean else _FAMILIES
+    family = families[segment]
     return family[nth % len(family)]
 
 
@@ -203,12 +243,13 @@ def _channel_for(conn, lead: dict, taken: set[str]) -> tuple[str, str] | None:
 def _compose(lead: dict) -> str:
     from app import copy_segments
 
-    hook = str(lead.get("hook") or "").strip()
+    hook = str(lead.get("hook") or lead.get("hook_ko") or "").strip()
     no = int(lead.get("no") or 0)
-    sentence = sentence_for(copy_segments.segment_of(lead), no)
+    korean = is_korean_customer(lead)
+    sentence = sentence_for(copy_segments.segment_of(lead), no, korean=korean)
     parts = ["{greeting}"]
     if hook:
-        parts.append("{hook}")
+        parts.append("{hook_ko}" if korean else "{hook}")
     parts.append(sentence)
     return render(" ".join(parts), lead).strip()
 
