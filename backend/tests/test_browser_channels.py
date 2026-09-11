@@ -135,9 +135,9 @@ def test_no_scheduler_can_reach_a_channel_that_opens_a_window(monkeypatch):
 
     monkeypatch.setattr(ds, "SOURCES", {
         "quiet": ds.Source(name="quiet", label="q", kind="page",
-                           fetch=lambda q, n: [{"domain": "a.com"}]),
-        "window": ds.Source(name="window", label="w", kind="browser", fetch=explode,
-                            engines=("browser",), unattended=False, optional=True),
+                           readers={"http": lambda q, n: [{"domain": "a.com"}]}),
+        "window": ds.Source(name="window", label="w", kind="browser",
+                            readers={"browser": explode}, unattended=False, optional=True),
     })
     out = ds.gather(["led"], only=None)
     assert [row["name"] for row in out["sources"]] == ["quiet"]
@@ -146,8 +146,8 @@ def test_no_scheduler_can_reach_a_channel_that_opens_a_window(monkeypatch):
 def test_naming_a_browser_channel_explicitly_is_allen_pressing_the_button(monkeypatch):
     calls = []
     monkeypatch.setitem(ds.SOURCES, "google", ds.Source(
-        name="google", label="g", kind="browser", engines=("browser",), unattended=False,
-        fetch=lambda q, n: calls.append(q) or []))
+        name="google", label="g", kind="browser", unattended=False,
+        readers={"browser": lambda q, n: calls.append(q) or []}))
     ds.gather(["led"], only=["google"])
     assert calls == ["led"]
 
@@ -162,7 +162,10 @@ def test_every_browser_channel_declares_itself_attended_and_optional():
 def test_a_channel_reports_how_it_can_be_read():
     by_name = {row["name"]: row for row in ds.status()}
     assert by_name["duckduckgo"]["engines"] == ["http"]
-    assert by_name["google"]["engines"] == ["browser"]
+    # docs/128: Google declares both browsers, cheapest first. Measured 2026-09-11,
+    # neither of them gets past the wall from this machine — but the wall is the IP, so
+    # the readers stay declared and the channel reports what happened instead.
+    assert by_name["google"]["engines"] == ["playwright", "browser"]
     assert by_name["google"]["unattended"] is False
 
 

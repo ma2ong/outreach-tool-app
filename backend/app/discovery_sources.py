@@ -27,12 +27,16 @@ Candidate = dict
 
 @dataclass
 class Source:
-    """One place to look for customers."""
+    """One place to look for customers, and the ways it can be read."""
 
     name: str
     label: str
-    kind: str                      # api | page | browser
-    fetch: Callable[[str, int], list[Candidate]]
+    kind: str                      # api | page | browser | social
+    # How this channel is read (docs/126 R1, docs/128 R5): http is a plain fetch,
+    # playwright drives a headless or logged-in Chromium, browser is browser-use driving
+    # a real Chrome. Declared cheapest first — the first one is what an unqualified
+    # request gets — so the API can refuse a reader a channel does not have.
+    readers: dict[str, Callable[[str, int], list[Candidate]]] = field(default_factory=dict)
     # Why this channel cannot run right now, or "" when it can. Being unconfigured and
     # being broken are different states and the report must not merge them (docs/70 R4).
     unavailable: Callable[[], str] = field(default=lambda: "")
@@ -41,13 +45,21 @@ class Source:
     # Platform wants Korean real-name verification — while the page channel already
     # covers the same market.
     optional: bool = False
-    # How this channel is read (docs/126 R1): http is a plain fetch, browser is
-    # browser-use driving a real Chrome. Declared rather than inferred, so the API can
-    # refuse a reader a channel does not have.
-    engines: tuple[str, ...] = ("http",)
-    # False when reading this channel opens a window on Allen's screen. docs/126 R5:
-    # a scheduler must not be able to reach it, so `gather` skips it unless named.
+    # False when reading this channel opens a window on Allen's screen or needs a login
+    # that only he can give. docs/126 R5: a scheduler must not be able to reach it, so
+    # `gather` skips it unless named.
     unattended: bool = True
+
+    @property
+    def engines(self) -> tuple[str, ...]:
+        return tuple(self.readers)
+
+    def fetch(self, query: str, limit: int = 20, engine: str | None = None) -> list[Candidate]:
+        """Read this channel. An undeclared reader is refused rather than substituted."""
+        if engine and engine not in self.readers:
+            raise ValueError(
+                f"{self.name} 没有「{engine}」这种读法，它声明的是：{'/'.join(self.engines)}")
+        return self.readers[engine or self.engines[0]](query, limit)
 
     def available(self) -> bool:
         return not self.unavailable()
@@ -240,6 +252,36 @@ def _browser_search(name: str, url: str, allow: tuple[str, ...],
     return fetch
 
 
+# ------------------------------------------------------- playwright channels
+
+def _scrape_unavailable(channel: str) -> str:
+    from app import scrape_browser
+
+    return scrape_browser.unavailable(channel)
+
+
+# Which country a channel's results are known to be about. A search engine reached from
+# Shenzhen returns whatever it returns; Naver is Korea by construction, and the social
+# channels are not, so only the ones that know say so.
+def _playwright_search(name: str, country: str | None = None
+                       ) -> Callable[[str, int], list[Candidate]]:
+    """A results page read by Playwright: free, headless where it can be, one selector.
+
+    Whatever this raises — a wall, a login that expired, a browser that died — travels
+    up to `gather`, which reports it as that channel's failure with its reason attached.
+    Swallowing it here would turn being turned away into "this keyword has no customers"
+    (docs/128 R2).
+    """
+    def fetch(query: str, limit: int = 20) -> list[Candidate]:
+        from app import scrape_browser
+
+        return [{"domain": host, "website": host, "source": name,
+                 **({"country": country} if country else {})}
+                for host in scrape_browser.read_hosts(name, query, limit)
+                if is_company_site(f"http://{host}")]
+    return fetch
+
+
 # How many names one blog run may spend on lookups. Each is a fetch of its own, and a
 # blog page that mentions forty companies is mentioning them, not listing them.
 _MAX_PROSE_NAMES = 12
@@ -323,37 +365,52 @@ def naver_blog_browser(query: str, limit: int = 20) -> list[Candidate]:
 
 SOURCES: dict[str, Source] = {
     "duckduckgo": Source(
-        name="duckduckgo", label="搜索引擎", kind="page", fetch=duckduckgo_search),
+        name="duckduckgo", label="搜索引擎", kind="page",
+        readers={"http": duckduckgo_search}),
     "naver-web": Source(
         name="naver-web", label="Naver 搜索（韩国）", kind="page",
-        fetch=naver_page_search),
+        readers={"http": naver_page_search}),
     # Kept for the day the account exists: the API returns cleaner results and the local
     # endpoint carries addresses and phone numbers the page does not.
     "naver": Source(
-        name="naver", label="Naver API 网页搜索", kind="api", fetch=naver_search,
+        name="naver", label="Naver API 网页搜索", kind="api",
+        readers={"http": naver_search},
         unavailable=_naver_unavailable, optional=True),
     "naver-local": Source(
         name="naver-local", label="Naver API 本地商户", kind="api",
-        fetch=naver_local, unavailable=_naver_unavailable, optional=True),
-    # The three below open a Chrome window, so none of them is unattended (docs/126 R5)
-    # and all three are optional: an unconfigured browser route must not be reported as
-    # a channel that broke today.
+        readers={"http": naver_local},
+        unavailable=_naver_unavailable, optional=True),
+    # Everything below opens a window or needs a login Allen has to give, so none of it
+    # is unattended (docs/126 R5), and all of it is optional: an unconfigured browser
+    # route must not be reported as a channel that broke today.
+    #
+    # Google declares both browsers, cheapest first. Measured 2026-09-11: all three
+    # readers got the unusual-traffic page, the real Chrome window included, with the
+    # machine's own IP printed on it — the wall is the address we come from, not the
+    # reader. The channel stays registered because an IP changes; what it must not do is
+    # answer "0 家" while being turned away (docs/128 R2).
     "google": Source(
         name="google", label="Google 搜索（浏览器）", kind="browser",
-        fetch=_browser_search("google", "https://www.google.com/search?q={q}",
-                              ("*.google.com",)),
-        unavailable=_browser_unavailable, optional=True,
-        engines=("browser",), unattended=False),
-    "bing": Source(
-        name="bing", label="Bing 搜索（浏览器）", kind="browser",
-        fetch=_browser_search("bing", "https://www.bing.com/search?q={q}",
-                              ("*.bing.com",)),
-        unavailable=_browser_unavailable, optional=True,
-        engines=("browser",), unattended=False),
+        readers={"playwright": _playwright_search("google"),
+                 "browser": _browser_search("google", "https://www.google.com/search?q={q}",
+                                            ("*.google.com",))},
+        unavailable=_browser_unavailable, optional=True, unattended=False),
     "naver-blog": Source(
         name="naver-blog", label="Naver 博客（浏览器读正文）", kind="browser",
-        fetch=naver_blog_browser, unavailable=_browser_unavailable, optional=True,
-        engines=("browser",), unattended=False),
+        readers={"browser": naver_blog_browser},
+        unavailable=_browser_unavailable, optional=True, unattended=False),
+    # docs/128 R4. Registered now so the channels page can say how to switch them on;
+    # until a collection account is logged in they report 未启用 and read nothing.
+    "instagram": Source(
+        name="instagram", label="Instagram 搜索（采集账号）", kind="social",
+        readers={"playwright": _playwright_search("instagram")},
+        unavailable=lambda: _scrape_unavailable("instagram"),
+        optional=True, unattended=False),
+    "facebook": Source(
+        name="facebook", label="Facebook 主页搜索（采集账号）", kind="social",
+        readers={"playwright": _playwright_search("facebook")},
+        unavailable=lambda: _scrape_unavailable("facebook"),
+        optional=True, unattended=False),
 }
 
 
@@ -371,7 +428,7 @@ def status() -> list[dict]:
 
 
 def gather(queries: list[str], limit_per_query: int = 20,
-           only: list[str] | None = None) -> dict:
+           only: list[str] | None = None, engine: str | None = None) -> dict:
     """Ask every usable channel, and report each one's outcome separately.
 
     One channel failing must never take the day's prospecting with it (docs/70 R2):
@@ -396,7 +453,7 @@ def gather(queries: list[str], limit_per_query: int = 20,
         errors: list[str] = []
         for query in queries:
             try:
-                for candidate in source.fetch(query, limit_per_query):
+                for candidate in source.fetch(query, limit_per_query, engine):
                     key = candidate.get("domain")
                     if key and key not in results:
                         results[key] = candidate

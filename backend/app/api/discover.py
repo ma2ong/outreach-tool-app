@@ -19,6 +19,11 @@ class DiscoverRequest(BaseModel):
     limit: int = 10                   # per query
     exclude_countries: list[str] = []
     exclude_peers: bool = True        # drop Chinese peers/suppliers by default
+    # Which channels to ask, and how to read them (docs/128). Empty means the channels
+    # that can run with nobody watching; naming one is Allen pressing the button, which
+    # is the only way a channel that opens a window is ever reached.
+    channels: list[str] | None = None
+    engine: str | None = None
 
 
 class PageDiscoverRequest(BaseModel):
@@ -59,25 +64,57 @@ class ImportRequest(BaseModel):
     candidates: list[Candidate]
 
 
+def _search_fn_for(req: "DiscoverRequest", report: list[dict]):
+    """The reader for this request, and a place to put what each channel reported.
+
+    A channel that was turned away says so (docs/128 R2), and that sentence has to reach
+    the panel: "0 家" and "Google 判定本机为异常流量" look identical in a candidate list
+    and mean opposite things.
+    """
+    if SEARCH_FN:
+        return SEARCH_FN
+    from app import discovery_sources
+
+    def search(query: str, limit: int):
+        out = discovery_sources.gather([query], limit, only=req.channels, engine=req.engine)
+        report.extend(out["sources"])
+        return out["candidates"]
+    return search
+
+
 def _run(job_id: str, queries: list[str], limit: int, req: "DiscoverRequest"):
     conn = connect(DB_PATH)
+    report: list[dict] = []
     try:
         seen: set[str] = set()
         merged: list[dict] = []
         for qi, query in enumerate(queries):
             cands = discovery.run_discovery(
-                conn, query, limit, search_fn=SEARCH_FN, enrich_fn=ENRICH_FN,
+                conn, query, limit, search_fn=_search_fn_for(req, report), enrich_fn=ENRICH_FN,
                 on_progress=lambda done, total, qi=qi: jobs.update(job_id, qi * limit + done),
                 exclude_countries=req.exclude_countries, exclude_peers=req.exclude_peers)
             for c in cands:
                 if c["domain"] not in seen:
                     seen.add(c["domain"])
                     merged.append(c)
-        jobs.finish(job_id, {"candidates": merged})
+        jobs.finish(job_id, {"candidates": merged, "sources": _merge_report(report)})
     except Exception as exc:  # noqa: BLE001
         jobs.fail(job_id, str(exc))
     finally:
         conn.close()
+
+
+def _merge_report(report: list[dict]) -> list[dict]:
+    """One line per channel for the whole run, not one per keyword."""
+    merged: dict[str, dict] = {}
+    for row in report:
+        prev = merged.setdefault(row["name"], {**row, "found": 0})
+        prev["found"] += row.get("found", 0)
+        # A channel that worked on one keyword and was walled on the next is worth
+        # knowing about, so a failure wins over an ok that came before it.
+        if row.get("status") != "ok" and prev.get("status") == "ok":
+            prev["status"], prev["reason"] = row.get("status"), row.get("reason", "")
+    return list(merged.values())
 
 
 def _harvest_fn_for(engine: str):
@@ -103,11 +140,34 @@ def _run_page(job_id: str, url: str, limit: int, req: "PageDiscoverRequest"):
         conn.close()
 
 
+def _check_channels(req: "DiscoverRequest") -> None:
+    """Refuse an unknown channel or a reader it never declared (docs/128 R5).
+
+    Silently falling back to the default reader would answer a different question than
+    the one asked — the same failure mode Bing was dropped for.
+    """
+    from app import discovery_sources
+
+    for name in req.channels or []:
+        source = discovery_sources.SOURCES.get(name)
+        if source is None:
+            raise HTTPException(status_code=400, detail=f"没有这条渠道：{name}")
+        if req.engine and req.engine not in source.engines:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{name} 没有「{req.engine}」这种读法，它声明的是："
+                       f"{'/'.join(source.engines)}")
+        reason = source.unavailable()
+        if reason:
+            raise HTTPException(status_code=400, detail=f"{source.label}：{reason}")
+
+
 @router.post("/discover")
 def discover(req: DiscoverRequest, background: BackgroundTasks):
     queries = [q.strip() for q in (req.queries or ([req.query] if req.query else [])) if q and q.strip()]
     if not queries:
         raise HTTPException(status_code=400, detail="query required")
+    _check_channels(req)
     job_id = jobs.create(total=req.limit * len(queries))
     background.add_task(_run, job_id, queries, req.limit, req)
     return {"job_id": job_id}

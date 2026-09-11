@@ -252,7 +252,10 @@ def _enrich_candidates(conn, domains: list[dict], enrich_fn: Callable,
             "hook": info.get("hook") or None,
             "email_source": info.get("email_source"),
             "buying_signals": info.get("buying_signals") or [],
-            "source": source,
+            # The channel that found this one, when it said (docs/128 R1). One label for
+            # a whole batch cannot answer "which channel produces buyers", and that is
+            # the question the channel table exists to settle.
+            "source": d.get("source") or source,
         }
         # Re-screen with the enriched phone/email: +86 in the contact details is the
         # strongest peer signal and only shows up after enrich.
@@ -294,12 +297,27 @@ def _enrich_candidates(conn, domains: list[dict], enrich_fn: Callable,
     return out
 
 
+def _channel_search(query: str, limit: int = 10) -> list[dict]:
+    """Ask the channel table, not one hard-coded search engine (docs/128 R1).
+
+    `discovery_sources.gather` was written by docs/70 and, until this spec, had no
+    caller: every keyword search in the product went straight to DuckDuckGo, so Naver —
+    the one free channel measured to return Korean buyers rather than Chinese
+    competitors — was declared and never asked. Passing no channel list leaves
+    `gather`'s own guard in charge, and that guard only lets through the channels that
+    can run with nobody watching (docs/126 R5).
+    """
+    from app import discovery_sources
+
+    return discovery_sources.gather([query], limit)["candidates"]
+
+
 def run_discovery(conn, query: str, limit: int = 10,
                   search_fn: Callable = None, enrich_fn: Callable = None,
                   on_progress: Callable[[int, int], None] | None = None,
                   exclude_countries: list[str] | None = None,
                   exclude_peers: bool = True) -> list[dict]:
-    search_fn = search_fn or (lambda q, lim: search_domains(q, lim, fetch=_bounded_fetch))
+    search_fn = search_fn or _channel_search
     enrich_fn = enrich_fn or (lambda d: enrich_domain(d, fetch=_bounded_fetch))
     domains = search_fn(query, limit)
     return _enrich_candidates(conn, domains, enrich_fn, "搜索", on_progress,

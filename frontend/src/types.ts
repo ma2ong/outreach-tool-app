@@ -422,7 +422,25 @@ export interface DiscoverJob {
   status: string;
   done: number;
   total: number;
-  result: { candidates: Candidate[] } | { error: string } | null;
+  result: { candidates: Candidate[]; sources?: SourceReport[] } | { error: string } | null;
+}
+// 一条渠道这一轮的结果。docs/128 R2：被搜索引擎挡住和「这个关键词没有客户」
+// 在候选列表里长得一模一样，所以渠道要自己说。
+export interface SourceReport {
+  name: string;
+  found: number;
+  status: string;
+  reason: string;
+}
+export interface DiscoverySource {
+  name: string;
+  label: string;
+  kind: string;
+  available: boolean;
+  reason: string;
+  optional: boolean;
+  engines: string[];
+  unattended: boolean;
 }
 export interface IntelligenceComponent {
   key: "fit" | "contact" | "intent" | "engagement" | "freshness";

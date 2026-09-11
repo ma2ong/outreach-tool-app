@@ -1,4 +1,4 @@
-import type { Lead, Stats, SendJob, DiscoverJob } from "./types";
+import type { Lead, Stats, SendJob, DiscoverJob, DiscoverySource } from "./types";
 
 export async function fetchAuthStatus(): Promise<{ enabled: boolean; authed: boolean }> {
   const r = await fetch("/api/auth/status");
@@ -200,13 +200,27 @@ export async function fetchJob(id: string): Promise<SendJob> {
 
 export interface ScreenOpts { exclude_countries?: string[]; exclude_peers?: boolean }
 
-export async function startDiscover(queries: string[], limit = 10, screen: ScreenOpts = {}): Promise<{ job_id: string }> {
+export async function startDiscover(
+  queries: string[], limit = 10, screen: ScreenOpts = {},
+  channels?: string[], engine?: string,
+): Promise<{ job_id: string }> {
   const r = await fetch("/api/discover", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ queries, limit, ...screen }),
+    body: JSON.stringify({ queries, limit, ...screen, channels: channels?.length ? channels : null, engine: engine || null }),
   });
-  if (!r.ok) throw new Error(`discover ${r.status}`);
+  // 渠道没开通 / 读法这条渠道没有，后端回的是「缺什么」而不是一个状态码。docs/128 R5
+  if (!r.ok) {
+    const detail = await r.json().then((b) => b?.detail).catch(() => null);
+    throw new Error(detail || `discover ${r.status}`);
+  }
+  return r.json();
+}
+
+// 哪几条渠道现在能跑，哪几条没配好、为什么。docs/70 R4
+export async function fetchDiscoverySources(): Promise<{ sources: DiscoverySource[] }> {
+  const r = await fetch("/api/discover/sources");
+  if (!r.ok) throw new Error(`sources ${r.status}`);
   return r.json();
 }
 
