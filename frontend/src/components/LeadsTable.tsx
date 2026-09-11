@@ -93,7 +93,7 @@ export function LeadsTable({ leads, selected, onToggle, onToggleAll, onReply, on
           <col style={{ width: "6.5%" }} /><col style={{ width: "8%" }} />
           <col style={{ width: "8.5%" }} /><col style={{ width: "10.5%" }} />
           <col style={{ width: "11%" }} /><col style={{ width: "11.5%" }} />
-          <col style={{ width: "12.5%" }} /><col style={{ width: "7.7%" }} />
+          <col style={{ width: "12.2%" }} /><col style={{ width: "8%" }} />
         </colgroup>
         <thead><tr>
           <th><input type="checkbox" checked={allChecked} onChange={(e) => onToggleAll(e.target.checked)} /></th>

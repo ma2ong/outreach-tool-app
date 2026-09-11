@@ -252,8 +252,9 @@ link to the exact existing screen that can resolve them.
 At the supported 1100px viewport the customer table must not gain a horizontal scroll
 bar on either Windows or Linux Chromium. Its visible outline must not consume two pixels
 from the scroll container's client width while the percentage table is sized from the
-outer border box. Native checkbox margins and cell padding in the selector column must
-also fit inside that column instead of increasing the table's intrinsic minimum width.
+outer border box. The terminal channel-status column must reserve enough content width
+for Linux CJK fallback glyph metrics, so its non-wrapping header cannot paint beyond the
+table's right edge.
 
 ## G1: learning is evidence, approval and scope — not prompt drift
 
