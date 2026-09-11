@@ -183,6 +183,11 @@ textarea.input { width: 100%; resize: vertical; }
 /* 一屏塞十二列，边距每列省 6px 就是 72px，够多放一列 */
 .table-fixed td { padding: 7px 6px; }
 .table-fixed th { padding: 8px 6px; }
+/* Chromium 的原生 checkbox 在 Linux 有默认 margin；第一列只有 2.4%，margin 加单元格
+   padding 会反过来撑宽整张 fixed table。这里把选择控件的盒模型固定在分配到的列内。 */
+.table-fixed th:first-child, .table-fixed td:first-child { padding-left: 2px; padding-right: 2px; text-align: center; }
+.table-fixed th:first-child input[type="checkbox"],
+.table-fixed td:first-child input[type="checkbox"] { display: block; margin: 0 auto; }
 
 /* IG 和 FB 合成一列：各自大半是空的，合起来才填得满一列 */
 .social-line { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
