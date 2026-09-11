@@ -81,6 +81,22 @@ Rules:
 - Skip the blog author unless the post is a company's own blog.""" + _RULES + """
 Return only JSON: {{"companies": [{{"name": "회사 이름"}}]}}
 """,
+    # The same social channel a selector reads, read by a model instead — for the day
+    # Meta changes the markup underneath the selector (docs/128 R8). The session is
+    # already logged in; nothing here logs in, follows, likes or messages anyone.
+    "social": """Open {url}
+
+Use the site's own search box to search for: {query}
+
+Open the company accounts in the results one at a time. On each profile, read the
+website link in the bio and collect that WEBSITE DOMAIN.
+
+Rules:
+- Only report a domain shown on that profile as its own website link.
+- Skip personal accounts, news accounts and accounts with no website in the bio.
+- Do not guess a domain from an account name.""" + _RULES + """
+Return only JSON: {{"companies": [{{"domain": "example.com"}}]}}
+""",
 }
 
 

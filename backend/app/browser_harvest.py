@@ -94,7 +94,8 @@ def _subprocess_run(argv: list[str], timeout: int) -> str:
 # The one field each task may hand back (docs/124 R1, docs/126 R2). A task that reads
 # prose returns names because the companies it finds have no link to return; a name is
 # then spent as a search query and never stored, which is what keeps R1 intact.
-TASK_FIELD = {"directory": "domain", "search": "domain", "prose": "name"}
+TASK_FIELD = {"directory": "domain", "search": "domain", "prose": "name",
+              "social": "domain"}
 
 MAX_NAME = 80
 # A name that carries a dot, an @ or a scheme is a domain wearing a name's clothes.
@@ -104,7 +105,7 @@ _NOT_A_NAME = re.compile(r"https?://|@|\.[a-z]{2,}(?:$|[/\s])", re.I)
 
 def read_with_browser(url: str, *, task: str = "directory", query: str = "",
                       limit: int = 40, allow: Sequence[str] | None = None,
-                      run=None) -> list[str]:
+                      profile_dir=None, run=None) -> list[str]:
     """Read one page with a real browser and return domains, or names for `prose`.
 
     Whatever goes wrong out there — a captcha the browser cannot pass, a step budget
@@ -122,9 +123,11 @@ def read_with_browser(url: str, *, task: str = "directory", query: str = "",
     reason = unavailable()
     if reason:
         raise Unavailable(reason)
+    # A channel with a login of its own passes its collecting profile; everything else
+    # shares the anonymous one. The sending profiles are reachable from neither.
     argv = [str(VENV_PYTHON), str(RUNNER), "--url", url, "--task", task,
             "--max-steps", str(MAX_STEPS), "--limit", str(limit),
-            "--profile-dir", str(PROFILE_DIR)]
+            "--profile-dir", str(profile_dir or PROFILE_DIR)]
     if query:
         argv += ["--query", query]
     # Never from the task text: an allowlist a prompt can name is not an allowlist.

@@ -57,12 +57,41 @@ class Source:
     def engines(self) -> tuple[str, ...]:
         return tuple(self.readers)
 
-    def fetch(self, query: str, limit: int = 20, engine: str | None = None) -> list[Candidate]:
-        """Read this channel. An undeclared reader is refused rather than substituted."""
+    def fetch(self, query: str, limit: int = 20, engine: str | None = None,
+              *, unattended: bool = False) -> list[Candidate]:
+        """Read this channel, cheapest reader first, falling through on nothing (R8).
+
+        A reader stops being the answer in three ways — it throws, it gets walled, or it
+        comes back empty because a selector moved under it — and none of those mean the
+        market is empty. docs/124 R4 already handled this by hand: a page that harvested
+        zero companies is exactly where the browser button appeared. The only thing that
+        needed a person in it was the decision, and the decision is always the same.
+
+        Naming a reader means that reader and no other: a request that asked for `http`
+        and quietly got a Chrome window is not an answer to the question asked.
+
+        `unattended` is what keeps docs/126 R5 intact. A fallback is precisely how a
+        timer ends up opening Chrome at 3am, so on that path the window-opening readers
+        are not in the list at all.
+        """
         if engine and engine not in self.readers:
             raise ValueError(
                 f"{self.name} 没有「{engine}」这种读法，它声明的是：{'/'.join(self.engines)}")
-        return self.readers[engine or self.engines[0]](query, limit)
+        if engine:
+            return self.readers[engine](query, limit)
+        chain = [e for e in self.engines if not (unattended and e == "browser")]
+        failure: Exception | None = None
+        for name in chain:
+            try:
+                rows = self.readers[name](query, limit)
+            except Exception as exc:  # noqa: BLE001 — the next reader is the recovery
+                failure = exc
+                continue
+            if rows:
+                return rows
+        if failure is not None:
+            raise failure
+        return []
 
     def reason(self, engine: str | None = None) -> str:
         selected = engine or next(iter(self.readers), "")
@@ -283,10 +312,11 @@ def _playwright_search(name: str, country: str | None = None
     def fetch(query: str, limit: int = 20) -> list[Candidate]:
         from app import scrape_browser
 
-        return [{"domain": host, "website": host, "source": name,
+        rows = [{"domain": host, "website": host, "source": name,
                  **({"country": country} if country else {})}
                 for host in scrape_browser.read_hosts(name, query, limit)
                 if is_company_site(f"http://{host}")]
+        return rows[:limit]
     return fetch
 
 
@@ -329,6 +359,27 @@ def instagram_accounts(query: str, limit: int = 20) -> list[Candidate]:
             candidate["instagram"] = row["handle"]
         out.append(candidate)
     return out
+
+
+def instagram_browser(query: str, limit: int = 20) -> list[Candidate]:
+    """The same channel read by a model instead of a selector (docs/128 R8).
+
+    Instagram's search endpoint and its profile markup are Meta's to change, and the day
+    they do, `instagram_accounts` returns nothing at all. browser-use is the reader that
+    does not care what the DOM looks like — it costs a model call per step and a visible
+    window, which is why it is second and why a timer never reaches it.
+
+    It drives the collecting profile, not the sending one, and it never leaves
+    instagram.com.
+    """
+    from app import browser_harvest, scrape_browser
+
+    hosts = browser_harvest.read_with_browser(
+        "https://www.instagram.com/", task="social",
+        query=instagram_query(query), limit=min(limit, MAX_INSTAGRAM_PROFILES),
+        allow=("*.instagram.com",), profile_dir=scrape_browser.profile_dir("instagram"))
+    return [{"domain": host, "website": host, "source": "instagram"}
+            for host in hosts if is_company_site(f"http://{host}")]
 
 
 def facebook_public_pages(query: str, limit: int = 20) -> list[Candidate]:
@@ -517,9 +568,14 @@ SOURCES: dict[str, Source] = {
     "duckduckgo": Source(
         name="duckduckgo", label="搜索引擎", kind="page",
         readers={"http": duckduckgo_search}),
+    # Two legs, and the second one is not a luxury: the first goes through jina, which
+    # is a service someone else runs. Measured 2026-09-11, a headless browser reads the
+    # same results page and finds the same kind of company (docs/128 R8).
     "naver-web": Source(
         name="naver-web", label="Naver 搜索（韩国）", kind="page",
-        readers={"http": naver_page_search}),
+        readers={"http": naver_page_search,
+                 "playwright": _playwright_search("naver-web", country="South Korea")},
+        reader_unavailable={"playwright": lambda: _scrape_unavailable("naver-web")}),
     # Kept for the day the account exists: the API returns cleaner results and the local
     # endpoint carries addresses and phone numbers the page does not.
     "naver": Source(
@@ -559,8 +615,10 @@ SOURCES: dict[str, Source] = {
     # makes it possible is one he would rather not replace (docs/128 R7).
     "instagram": Source(
         name="instagram", label="Instagram 搜索（采集小号）", kind="social",
-        readers={"playwright": instagram_accounts},
+        readers={"playwright": instagram_accounts, "browser": instagram_browser},
         unavailable=lambda: _scrape_unavailable("instagram"),
+        reader_unavailable={"playwright": lambda: _scrape_unavailable("instagram"),
+                            "browser": _browser_unavailable},
         optional=True, unattended=True),
     # The one channel that needs a browser and still runs with nobody there: public
     # pages, a logged-out headless reader, no account to lose (docs/128 R4).
@@ -611,7 +669,8 @@ def gather(queries: list[str], limit_per_query: int = 20,
         errors: list[str] = []
         for query in queries:
             try:
-                for candidate in source.fetch(query, limit_per_query, engine):
+                for candidate in source.fetch(query, limit_per_query, engine,
+                                              unattended=not only):
                     key = candidate.get("domain")
                     if key and key not in results:
                         results[key] = candidate

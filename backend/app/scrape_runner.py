@@ -202,6 +202,9 @@ def instagram_users(text: str, limit: int, status: int = 200) -> list[str]:
 # (docs/126 R1), and the ones whose answers are not worth having are in neither.
 SEARCH_URL = {
     "google": "https://www.google.com/search?q={q}&num=30",
+    # The second leg of the channel that produces Korean buyers. jina reads this page
+    # today; this reader exists for the day jina does not (docs/128 R8).
+    "naver-web": "https://search.naver.com/search.naver?where=web&query={q}",
     # The search happens through `SEARCH_JS` once this page is open; the keyword route
     # renders 607 bytes and no results.
     "instagram": "https://www.instagram.com/",
@@ -217,6 +220,14 @@ _LINKS_JS = "() => [...document.querySelectorAll('a[href]')].map(a => a.href)"
 # of the two reasons Bing is not here (docs/128).
 _GOOGLE_JS = ("() => [...document.querySelectorAll('div#search a[href^=\"http\"]')]"
               ".map(a => a.href)")
+# Channels whose results are plain links on the page, and the selector that finds them.
+# Naver puts its results in ordinary anchors; Google keeps its own inside div#search.
+LINK_CHANNELS = {"google": _GOOGLE_JS, "naver-web": _LINKS_JS}
+# The first links on a results page belong to the search engine itself — Naver's answer
+# to a keyword opens with eight of its own nav links. This process does not know what a
+# company is (that lives in `discovery_sources.is_company_site`), so it hands back more
+# than was asked for and lets the side that knows do the cutting.
+_LINK_OVERFETCH = 6
 
 
 def _profile_url(channel: str, handle: str) -> str:
@@ -317,12 +328,12 @@ def _read(args) -> dict:
                 out["pages"] = _read_about(page, args.pages or [])
                 out["hosts"] = [r["domain"] for r in out["pages"] if r["domain"]]
                 return out
-            if channel == "google":
-                for href in page.evaluate(_GOOGLE_JS):
+            if channel in LINK_CHANNELS:
+                for href in page.evaluate(LINK_CHANNELS[channel]):
                     host = _host(href)
                     if host and host not in out["hosts"]:
                         out["hosts"].append(host)
-                out["hosts"] = out["hosts"][:args.limit]
+                out["hosts"] = out["hosts"][:args.limit * _LINK_OVERFETCH]
                 return out
             # Instagram: its own search endpoint, called from inside the logged-in page.
             # A name is not a company, so each account is opened once and what crosses is

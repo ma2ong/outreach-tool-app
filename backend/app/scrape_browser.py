@@ -354,7 +354,10 @@ def read_search(channel: str, query: str, limit: int = 20, *,
     headed = False if headless is None else not headless
     argv = _argv(channel, limit, headed) + ["--query", query]
     payload = _run_runner(argv, channel, run)
-    payload["hosts"] = [h for h in payload.get("hosts") or [] if h][:limit]
+    # No cap here: the caller filters out the search engine's own hosts first, and
+    # cutting before that filter is how a request for 8 companies came back as eight
+    # naver.com links (docs/128 R8).
+    payload["hosts"] = [h for h in payload.get("hosts") or [] if h]
     return payload
 
 

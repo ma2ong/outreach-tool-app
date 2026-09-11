@@ -35,13 +35,21 @@ def test_a_candidate_keeps_the_channel_that_found_it(monkeypatch, conn):
 def test_an_unattended_search_never_reaches_a_channel_that_opens_a_window(monkeypatch):
     """docs/126 R5 lives in `gather`, so wiring a caller must not be able to undo it."""
     opened: list[str] = []
-    for name, source in ds.SOURCES.items():
-        monkeypatch.setitem(ds.SOURCES, name, source)
-        for engine, reader in source.readers.items():
-            def spy(q, lim, _n=name, _r=reader):
-                opened.append(_n)
-                return []
-            source.readers[engine] = spy
+
+    def spy_source(source):
+        """A copy that records instead of reading. The real Source must not be touched:
+        mutating `readers` in place is not something monkeypatch can undo, and every
+        later test in this file then sees a channel that reads nothing."""
+        def spy(query, limit, _name=source.name):
+            opened.append(_name)
+            return []
+        return ds.Source(name=source.name, label=source.label, kind=source.kind,
+                         readers={engine: spy for engine in source.engines},
+                         unavailable=lambda: "", optional=source.optional,
+                         unattended=source.unattended)
+
+    monkeypatch.setattr(ds, "SOURCES",
+                        {name: spy_source(s) for name, s in ds.SOURCES.items()})
     ds.gather(["led"], 5)
     assert all(ds.SOURCES[n].unattended for n in opened), opened
 
@@ -85,7 +93,8 @@ def test_collecting_never_opens_the_profile_that_sends():
 def test_instagram_is_registered_and_says_how_to_turn_it_on(monkeypatch):
     monkeypatch.setattr(scrape_browser, "logged_in", lambda channel: False)
     row = {r["name"]: r for r in ds.status()}["instagram"]
-    assert row["engines"] == ["playwright"]
+    # docs/128 R8: 选择器读不动的那天，模型还能读。
+    assert row["engines"] == ["playwright", "browser"]
     assert row["available"] is False
     assert "未启用" in row["reason"] and "采集" in row["reason"]
     assert row["optional"]
@@ -640,3 +649,123 @@ def test_a_korean_keyword_does_not_get_an_english_market_stapled_to_it():
     assert executors.market_query("led display", "USA") == "led display USA"
     assert executors.market_query("led전광판", "USA") == "led전광판"
     assert executors.market_query("led display", None) == "led display"
+
+
+# ================= docs/128 R8 — a channel is a list of readers, tried in order
+
+def _source(readers, **kw):
+    return ds.Source(name="t", label="t", kind="page", readers=readers, **kw)
+
+
+def test_the_cheap_reader_is_tried_first_and_the_expensive_one_is_not_touched():
+    calls: list[str] = []
+    source = _source({"http": lambda q, n: calls.append("http") or [{"domain": "a.com"}],
+                      "browser": lambda q, n: calls.append("browser") or []})
+    assert source.fetch("led", 5) == [{"domain": "a.com"}]
+    assert calls == ["http"]
+
+
+def test_a_reader_that_fails_hands_over_to_the_next_one():
+    def explode(q, n):
+        raise RuntimeError("selector moved")
+
+    source = _source({"playwright": explode,
+                      "browser": lambda q, n: [{"domain": "b.com"}]})
+    assert source.fetch("led", 5) == [{"domain": "b.com"}]
+
+
+def test_a_reader_that_finds_nothing_also_hands_over():
+    """docs/124 R4 already worked this way by hand: a page that harvested 0 companies is
+    where the browser button appeared. Nothing about that needed a person in it."""
+    source = _source({"http": lambda q, n: [], "browser": lambda q, n: [{"domain": "b.com"}]})
+    assert source.fetch("led", 5) == [{"domain": "b.com"}]
+
+
+def test_when_every_reader_fails_the_channel_says_why():
+    def explode(q, n):
+        raise RuntimeError("selector moved")
+
+    source = _source({"playwright": explode, "browser": explode})
+    with pytest.raises(RuntimeError):
+        source.fetch("led", 5)
+
+
+def test_an_unattended_run_never_falls_back_onto_a_window(monkeypatch):
+    """The whole point of docs/126 R5: a timer must not open Chrome at 3am, and a
+    fallback is exactly how that rule gets broken by accident."""
+    calls: list[str] = []
+    source = _source({"http": lambda q, n: calls.append("http") or [],
+                      "browser": lambda q, n: calls.append("browser") or [{"domain": "b.com"}]},
+                     unattended=True)
+    assert source.fetch("led", 5, unattended=True) == []
+    assert calls == ["http"]
+    # 同一条渠道，Allen 自己点的时候可以一路退到浏览器
+    assert source.fetch("led", 5) == [{"domain": "b.com"}]
+
+
+def test_naming_one_reader_means_that_reader_and_no_other():
+    calls: list[str] = []
+    source = _source({"http": lambda q, n: calls.append("http") or [],
+                      "browser": lambda q, n: calls.append("browser") or [{"domain": "b.com"}]})
+    assert source.fetch("led", 5, engine="http") == []
+    assert calls == ["http"], "指定了读法就是指定了，不该悄悄换一个"
+
+
+def test_the_scheduler_path_is_the_unattended_path(monkeypatch):
+    seen: list[bool] = []
+
+    class Spy(ds.Source):
+        def fetch(self, query, limit=20, engine=None, *, unattended=False):
+            seen.append(unattended)
+            return []
+
+    monkeypatch.setattr(ds, "SOURCES", {
+        "s": Spy(name="s", label="s", kind="page", readers={"http": lambda q, n: []})})
+    ds.gather(["led"], 5)
+    assert seen == [True], "gather 不点名渠道时就是定时器在跑"
+    ds.gather(["led"], 5, only=["s"])
+    assert seen == [True, False], "点名一条渠道就是 Allen 按了按钮"
+
+
+def test_instagram_declares_a_second_reader_for_when_the_first_one_stops_working():
+    assert ds.SOURCES["instagram"].engines == ("playwright", "browser")
+
+
+def test_the_best_free_channel_does_not_stand_on_one_third_party_service():
+    """naver-web goes through jina, which is somebody else's service. Measured
+    2026-09-11: a headless browser reads the same page and finds 14 Korean companies,
+    so the channel has a second leg — and it opens no window, so a timer may use it."""
+    assert ds.SOURCES["naver-web"].engines == ("http", "playwright")
+
+
+def test_duckduckgo_is_left_with_one_reader_on_purpose():
+    """Measured the same day: html.duckduckgo.com answers a headless browser with 205
+    bytes and no results. A reader that does not work is not a fallback."""
+    assert ds.SOURCES["duckduckgo"].engines == ("http",)
+
+
+def test_a_results_page_is_over_collected_because_the_filtering_happens_later(monkeypatch):
+    """Measured: asking naver-web for 8 hosts returned eight naver.com nav links and no
+    companies at all — the cap had been applied before anything was filtered."""
+    captured: list[list[str]] = []
+
+    def fake_run(argv, timeout):
+        captured.append(argv)
+        import json as _json
+        return _json.dumps({"hosts": ["naver.com", "help.naver.com", "koledsign.com",
+                                      "nid.naver.com", "ricaled.com"], "pages": []})
+
+    monkeypatch.setattr(scrape_browser, "unavailable", lambda channel="": "")
+    hosts = scrape_browser.read_hosts("naver-web", "led전광판", 3, run=fake_run)
+    assert hosts == ["naver.com", "help.naver.com", "koledsign.com",
+                     "nid.naver.com", "ricaled.com"], "截断留给知道什么是公司的那一层"
+    assert scrape_runner._LINK_OVERFETCH > 1, "读的时候要多拿一些：页面前几条永远是搜索引擎自己"
+
+
+def test_the_channel_filters_first_and_caps_after(monkeypatch):
+    monkeypatch.setattr(scrape_browser, "read_hosts",
+                        lambda ch, q, n: ["naver.com", "koledsign.com", "ricaled.com",
+                                          "nkled.co.kr"])
+    rows = ds.SOURCES["naver-web"].fetch("led전광판", 2, engine="playwright")
+    assert [r["domain"] for r in rows] == ["koledsign.com", "ricaled.com"]
+    assert rows[0]["country"] == "South Korea"
