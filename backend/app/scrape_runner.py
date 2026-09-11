@@ -15,8 +15,11 @@ a collection account in (docs/128 R4).
 """
 import argparse
 import json
+import os
 import re
+import subprocess
 import sys
+import time
 import urllib.parse
 
 _STDOUT = sys.stdout
@@ -182,6 +185,64 @@ def _read_about(page, handles: list[str]) -> list[dict]:
     return rows
 
 
+# A browser that announces it is automated gets treated as one. Measured 2026-09-11:
+# Playwright's bundled Chromium reports `navigator.webdriver === true` and brands itself
+# "Chromium", and Instagram answered Allen's login with its captcha page — which then
+# never drew the captcha, leaving a blank screen with a Meta logo on it. Real Chrome
+# with `--enable-automation` removed reports false and brands itself "Google Chrome".
+_QUIET_ARGS = ["--window-position=80,80", "--window-size=1120,920",
+               "--disable-blink-features=AutomationControlled"]
+
+
+def kill_stale(profile_dir: str) -> int:
+    """Kill a browser still holding this profile, so the next launch is not refused.
+
+    The sending engine carries the same routine and the same scar: an orphaned Chromium
+    keeps the profile locked and every later launch dies. Matching on the profile path
+    alone is safe here in a way it is not there — this path is ours by construction and
+    Allen's own Chrome never opens it.
+    """
+    if os.name != "nt":
+        return 0
+    ps = ("Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+          "Where-Object { $_.CommandLine -like '*" + str(profile_dir) + "*' } | "
+          "ForEach-Object { Stop-Process -Id $_.ProcessId -Force; $_.ProcessId }")
+    try:
+        done = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                              capture_output=True, text=True, timeout=25)
+    except Exception:  # noqa: BLE001 — nothing to kill is not an error
+        return 0
+    return len([line for line in done.stdout.split() if line.strip()])
+
+
+def launch_quiet(play, profile_dir: str, headless: bool):
+    """A browser window that does not announce itself, on this profile.
+
+    Headed means a person is going to look at it or type into it, and that is exactly
+    when the automation flags cost something — so those runs get the real Chrome build.
+    The headless readers keep Playwright's own Chromium, which is what Facebook's public
+    pages were measured with and what works there today.
+    """
+    options = {"headless": headless, "args": list(_QUIET_ARGS),
+               "ignore_default_args": ["--enable-automation"]}
+    channels = ("chrome", None) if not headless else (None,)
+    last: Exception | None = None
+    for attempt, channel in enumerate(channels):
+        kw = {**options, **({"channel": channel} if channel else {})}
+        try:
+            return play.chromium.launch_persistent_context(profile_dir, **kw)
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            # Only a lock is worth clearing; a missing Chrome just means the next channel.
+            if "already in use" in str(exc) or "ProcessSingleton" in str(exc):
+                if kill_stale(profile_dir):
+                    time.sleep(2)
+                    return play.chromium.launch_persistent_context(profile_dir, **kw)
+            if attempt == len(channels) - 1:
+                raise last
+    raise last  # type: ignore[misc]
+
+
 def open_login_page(page, url: str, attempts: int = 2) -> str:
     """Navigate, and never let a bad response take the window down.
 
@@ -212,9 +273,7 @@ def _login(args) -> dict:
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as play:
-        browser = play.chromium.launch_persistent_context(
-            args.profile_dir, headless=False,
-            args=["--window-position=80,80", "--window-size=1100,900"])
+        browser = launch_quiet(play, args.profile_dir, headless=False)
         page = browser.pages[0] if browser.pages else browser.new_page()
         failed = open_login_page(page, LOGIN_URL[args.channel])
         if failed:
@@ -242,10 +301,7 @@ def _read(args) -> dict:
     url = (ABOUT_URL.format(h=(args.pages or ["facebook"])[0]) if channel == "facebook"
            else SEARCH_URL[channel].format(q=urllib.parse.quote(args.query)))
     with sync_playwright() as play:
-        browser = play.chromium.launch_persistent_context(
-            args.profile_dir, headless=args.headless,
-            viewport={"width": 1360, "height": 900},
-            args=["--window-position=80,80", "--window-size=1200,900"])
+        browser = launch_quiet(play, args.profile_dir, headless=args.headless)
         try:
             page = browser.pages[0] if browser.pages else browser.new_page()
             page.goto(url, wait_until="domcontentloaded", timeout=45000)

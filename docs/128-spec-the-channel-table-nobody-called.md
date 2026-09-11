@@ -145,6 +145,15 @@ Instagram 的搜索页未登录只有一面登录墙（811 字节），没有 Fa
 `~/.outreach-tool/scrape/instagram` 上的浏览器窗口，Allen 在窗口里自己登录，
 关掉窗口时登录态落盘。服务器不收任何凭据，也没有任何接口接受凭据。
 
+登录窗口用的是**真实 Chrome**，并去掉 `--enable-automation`。实测 2026-09-11：
+Playwright 自带的 Chromium 在页面里 `navigator.webdriver === true`、
+品牌报 "Chromium"，Instagram 因此把登录挡进验证码页——而那个验证码**根本不渲染**，
+屏幕上只剩一个 Meta logo。真实 Chrome 去掉自动化标记后 `navigator.webdriver === false`、
+品牌报 "Google Chrome"。recaptcha 的资源本身是通的（实测 200），挡人的不是网络。
+
+headless 的读法保持原样（Facebook 公共主页就是用自带 Chromium 测通的）：
+**有人要看、要打字的窗口才需要这身衣服**。
+
 「登录了没有」的判据是**平台的 session cookie**，不是目录里有没有东西：
 Chromium 一启动就写 `Default/`，按目录判断会把每一个开过一次的 profile 都算成已登录。
 状态分三种——已登录 / 等待登录（窗口开着，cookie 还没落盘）/ 未登录——

@@ -346,3 +346,61 @@ def test_a_navigation_that_works_is_not_retried():
 
     assert scrape_runner.open_login_page(Page(), "https://www.instagram.com/") == ""
     assert Page.calls == 1
+
+
+# ------------------------------ R5 a window that says "I am a robot" gets no captcha
+
+class FakePlay:
+    """Stands in for sync_playwright()'s chromium, remembering how it was launched."""
+
+    def __init__(self, fail_channels=(), fail_once=False):
+        self.calls: list[dict] = []
+        self.fail_channels = fail_channels
+        self.fail_once = fail_once
+        self.chromium = self
+
+    def launch_persistent_context(self, profile, **kw):
+        self.calls.append({"profile": profile, **kw})
+        if kw.get("channel") in self.fail_channels:
+            raise RuntimeError("Executable doesn't exist: chrome")
+        if self.fail_once and len(self.calls) == 1:
+            raise RuntimeError("ProcessSingleton: profile is already in use")
+        return f"ctx{len(self.calls)}"
+
+
+def test_a_headed_window_is_a_real_chrome_with_the_automation_flag_off():
+    """Measured 2026-09-11: Playwright's own Chromium reports navigator.webdriver=true
+    and brands itself Chromium, and Meta answered Allen's login with a captcha page that
+    never drew the captcha. Real Chrome with --enable-automation removed reports false
+    and brands itself Google Chrome."""
+    play = FakePlay()
+    scrape_runner.launch_quiet(play, "C:/prof", headless=False)
+    call = play.calls[0]
+    assert call["channel"] == "chrome"
+    assert "--enable-automation" in call["ignore_default_args"]
+    assert any("AutomationControlled" in a for a in call["args"])
+    assert call["headless"] is False
+
+
+def test_a_machine_without_chrome_still_gets_a_window():
+    play = FakePlay(fail_channels=("chrome",))
+    scrape_runner.launch_quiet(play, "C:/prof", headless=False)
+    assert [c.get("channel") for c in play.calls] == ["chrome", None]
+
+
+def test_the_headless_readers_keep_the_browser_they_were_measured_with():
+    """Facebook's public pages are read headless today and work; nothing to fix there."""
+    play = FakePlay()
+    scrape_runner.launch_quiet(play, "C:/prof", headless=True)
+    assert play.calls[0].get("channel") is None
+
+
+def test_a_leftover_window_holding_the_profile_is_cleared_and_the_launch_retried(monkeypatch):
+    """The sending engine already carries this scar: an orphan keeps the profile locked
+    and every later launch dies (`playwright_engine._kill_stale_browser`)."""
+    killed: list[str] = []
+    monkeypatch.setattr(scrape_runner, "kill_stale", lambda prof: killed.append(prof))
+    monkeypatch.setattr(scrape_runner.time, "sleep", lambda *_: None)
+    play = FakePlay(fail_once=True)
+    assert scrape_runner.launch_quiet(play, "C:/prof", headless=False) == "ctx2"
+    assert killed == ["C:/prof"]
