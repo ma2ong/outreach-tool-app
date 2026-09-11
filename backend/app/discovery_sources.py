@@ -289,6 +289,86 @@ def _browser_search(name: str, url: str, allow: tuple[str, ...],
     return fetch
 
 
+# --------------------------------------------------------------- google
+
+# Google's own door, the one it leaves open. Measured 2026-09-11, eight attempts at the
+# front door — jina, headless Chromium, a headed real Chrome, the same with every
+# automation flag stripped and `navigator.webdriver` false, and a profile warmed by an
+# undriven Chrome — produced one momentary pass and seven "unusual traffic" walls. The
+# wall is this machine's address as far as the public search page is concerned, and the
+# Programmable Search API does not have one: 100 queries a day, free, no browser.
+_GOOGLE_CSE_FILE = "google_cse.txt"
+_GOOGLE_URL = "https://www.googleapis.com/customsearch/v1"
+_GOOGLE_HOWTO = (
+    "没有配置 Google 搜索 API。两个值，都免费，五分钟拿到："
+    "① 到 https://programmablesearchengine.google.com/ 新建一个搜索引擎，"
+    "打开「搜索整个网络」，复制它的「搜索引擎 ID」（cx）；"
+    "② 到 https://developers.google.com/custom-search/v1/introduction 点「Get a Key」"
+    "拿 API key。把两行写进 backend/google_cse.txt：第一行 key，第二行 cx。"
+    "（每天 100 次免费，超出才收费）")
+
+
+def _google_cse() -> tuple[str, str]:
+    """The API key and the search engine id, from the environment or the key file."""
+    key = os.environ.get("GOOGLE_CSE_KEY", "")
+    cx = os.environ.get("GOOGLE_CSE_ID", "")
+    if key and cx:
+        return key, cx
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        _GOOGLE_CSE_FILE)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            lines = [line.strip() for line in handle if line.strip()]
+    except OSError:
+        return key, cx
+    return (key or (lines[0] if lines else ""), cx or (lines[1] if len(lines) > 1 else ""))
+
+
+def _google_unavailable() -> str:
+    key, cx = _google_cse()
+    return "" if key and cx else _GOOGLE_HOWTO
+
+
+def _google_call(key: str, cx: str, query: str, count: int) -> dict:
+    import json as _json
+    import urllib.error
+    import urllib.request
+
+    url = f"{_GOOGLE_URL}?" + urllib.parse.urlencode(
+        {"key": key, "cx": cx, "q": query, "num": min(max(count, 1), 10)})
+    try:
+        with urllib.request.urlopen(url, timeout=25) as response:
+            return _json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        # 429 is the daily quota, 403 is usually the API not enabled yet. Both are
+        # sentences Allen can act on; a bare status code is not (docs/128 R2).
+        detail = exc.read().decode("utf-8", "replace")[:200]
+        raise RuntimeError(f"Google {exc.code}: {detail}") from exc
+
+
+def google_api_search(query: str, limit: int = 20) -> list[Candidate]:
+    """Google, asked the way Google is willing to answer (docs/128 R9)."""
+    key, cx = _google_cse()
+    if not (key and cx):
+        raise RuntimeError(_GOOGLE_HOWTO)
+    payload = _google_call(key, cx, query, limit)
+    out: list[Candidate] = []
+    seen: set[str] = set()
+    for item in payload.get("items") or []:
+        link = item.get("link") or ""
+        if not is_company_site(link):
+            continue
+        host = host_of(link)
+        if not host or host in seen:
+            continue
+        seen.add(host)
+        out.append({"domain": host, "website": host, "source": "google",
+                    "title": str(item.get("title") or "").strip()})
+        if len(out) >= limit:
+            break
+    return out
+
+
 # ------------------------------------------------------- playwright channels
 
 def _scrape_unavailable(channel: str) -> str:
@@ -597,12 +677,14 @@ SOURCES: dict[str, Source] = {
     # answer "0 家" while being turned away (docs/128 R2).
     "google": Source(
         name="google", label="Google 搜索（浏览器）", kind="browser",
-        readers={"playwright": _playwright_search("google"),
+        readers={"http": google_api_search,
+                 "playwright": _playwright_search("google"),
                  "browser": _browser_search("google", "https://www.google.com/search?q={q}",
                                             ("*.google.com",))},
-        reader_unavailable={"playwright": lambda: _scrape_unavailable("google"),
+        reader_unavailable={"http": _google_unavailable,
+                            "playwright": lambda: _scrape_unavailable("google"),
                             "browser": _browser_unavailable},
-        optional=True, unattended=False),
+        optional=True, unattended=True),
     # Cheapest first: the prose is free to fetch and one model call reads it. The
     # browser-use route stays declared for a page the fetch cannot open (docs/128 R7).
     "naver-blog": Source(

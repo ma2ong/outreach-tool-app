@@ -23,12 +23,18 @@ DEFAULT = {
 # `LED video wall installer contact` matches no Instagram account at all while
 # `led video wall` matches four, and the search engines recall more on the short term
 # too. The Korean pair carries its own market and never takes a country suffix.
+# No `contact`, no `distributor`, no `billboard`. The keyword's job is to find the
+# company; the contact details come from `enrich_domain` reading its own site. Words
+# like distributor or reseller describe what we hope a company is and return peers and
+# marketplaces instead, and billboard returns advertising agencies — which run LED
+# occasionally and buy it rarely. Allen's call, 2026-09-11: rather miss those.
 _SEARCHES = (
     "led display",
+    "led wall",
     "led video wall",
     "led screen rental",
+    "led rental",
     "led signage",
-    "digital billboard",
     "pantallas led",
     "led전광판",
     "led디스플레이",

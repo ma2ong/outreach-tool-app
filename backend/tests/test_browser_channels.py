@@ -180,8 +180,10 @@ def test_a_channel_reports_how_it_can_be_read():
     # docs/128: Google declares both browsers, cheapest first. Measured 2026-09-11,
     # neither of them gets past the wall from this machine — but the wall is the IP, so
     # the readers stay declared and the channel reports what happened instead.
-    assert by_name["google"]["engines"] == ["playwright", "browser"]
-    assert by_name["google"]["unattended"] is False
+    # docs/128 R9: 前门被墙挡了八次，Google 自己的 API 排到了最前面。
+    assert by_name["google"]["engines"] == ["http", "playwright", "browser"]
+    # 第一条读法是 API，不开窗口；会开窗口的那条在无人值守时不进链（docs/128 R8）。
+    assert by_name["google"]["engines"][0] != "browser"
 
 
 # ------------------------------------------------------------- R4 isolation

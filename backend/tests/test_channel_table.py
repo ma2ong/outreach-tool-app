@@ -171,7 +171,8 @@ def test_a_handle_is_only_worth_the_domain_it_leads_to():
 
 def test_a_channel_declares_its_readers_cheapest_first():
     assert ds.SOURCES["duckduckgo"].engines == ("http",)
-    assert ds.SOURCES["google"].engines == ("playwright", "browser")
+    # docs/128 R9: Google 自己的 API 排在两个浏览器前面。
+    assert ds.SOURCES["google"].engines == ("http", "playwright", "browser")
     # docs/128 R7: the prose was never behind the browser, so the free reader goes first.
     assert ds.SOURCES["naver-blog"].engines == ("http", "browser")
 
@@ -769,3 +770,54 @@ def test_the_channel_filters_first_and_caps_after(monkeypatch):
     rows = ds.SOURCES["naver-web"].fetch("led전광판", 2, engine="playwright")
     assert [r["domain"] for r in rows] == ["koledsign.com", "ricaled.com"]
     assert rows[0]["country"] == "South Korea"
+
+
+# ================= docs/128 R9 — Google, through the door Google leaves open
+
+def test_google_asks_its_own_api_before_it_asks_a_browser():
+    """Measured 2026-09-11 across eight attempts: jina, headless Chromium, a headed real
+    Chrome, the same with every automation flag removed, and a profile warmed by an
+    undriven Chrome — one momentary pass and seven unusual-traffic walls. The browsers
+    stay declared because an IP changes; they are no longer the first thing tried."""
+    assert ds.SOURCES["google"].engines == ("http", "playwright", "browser")
+
+
+def test_without_a_key_the_google_api_reader_says_what_is_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(ds, "_google_cse", lambda: ("", ""))
+    reason = ds.SOURCES["google"].reason("http")
+    assert "GOOGLE" in reason or "google_cse" in reason
+    assert "programmablesearchengine" in reason, "说清楚去哪儿拿，不是只说缺什么"
+
+
+def test_an_unconfigured_api_leg_falls_through_to_the_browsers(monkeypatch):
+    """A missing key is not a failure of the channel: it is one reader that cannot run,
+    and the chain is what the other readers are for (docs/128 R8)."""
+    monkeypatch.setattr(ds, "_google_cse", lambda: ("", ""))
+    monkeypatch.setitem(ds.SOURCES["google"].readers, "playwright",
+                        lambda q, n: [{"domain": "arrow.com"}])
+    assert ds.SOURCES["google"].fetch("led display", 5) == [{"domain": "arrow.com"}]
+
+
+def test_the_google_api_returns_company_domains(monkeypatch):
+    payload = {"items": [
+        {"link": "https://www.avientek.com/led", "title": "Avientek"},
+        {"link": "https://www.google.com/about", "title": "Google"},
+        {"link": "https://www.alibaba.com/x", "title": "Alibaba"},
+        {"link": "https://syscom.mx/pantallas", "title": "Syscom"}]}
+    monkeypatch.setattr(ds, "_google_cse", lambda: ("k", "cx"))
+    monkeypatch.setattr(ds, "_google_call", lambda key, cx, query, count: payload)
+    rows = ds.google_api_search("led display distributor", 5)
+    assert [r["domain"] for r in rows] == ["avientek.com", "syscom.mx"]
+    assert rows[0]["source"] == "google"
+
+
+def test_the_google_api_quota_is_reported_as_a_quota(monkeypatch):
+    """docs/128 R2 again: 429 means "not today", which is not "no customers"."""
+    def over(key, cx, query, count):
+        raise RuntimeError("Google 429: Quota exceeded")
+
+    monkeypatch.setattr(ds, "_google_cse", lambda: ("k", "cx"))
+    monkeypatch.setattr(ds, "_google_call", over)
+    with pytest.raises(RuntimeError) as caught:
+        ds.google_api_search("led", 5)
+    assert "429" in str(caught.value)

@@ -291,6 +291,30 @@ Instagram 的 browser-use 读法用的是**采集身份那份 profile**（`~/.ou
 不是 browser-use 自己那份匿名 profile，也永远不是发送身份（docs/126 R4 不变），
 并且白名单只放行 `*.instagram.com`。
 
+## R9 Google：前门被墙拦了八次，那就走 Google 自己留的那扇门
+
+2026-09-11 把前门试穿了：
+
+| 读法 | 结果 |
+|---|---|
+| jina | 704 字节 `This page maybe requiring CAPTCHA` |
+| headless Chromium | 异常流量页 |
+| 有头的真实 Chrome | 异常流量页 |
+| 真实 Chrome + 去掉 `--enable-automation`、`navigator.webdriver=false` | 异常流量页 |
+| 先用**完全没被驱动**的普通 Chrome 打开一次 google 预热过的 profile | **一次通过（5641 字节真实结果页）**，随后两次又被墙 |
+| 预热时让普通 Chrome 自己搜一次，再驱动 | 两次都被墙 |
+
+八次里一次侥幸。冷 profile 确实是诱因之一，但预热不是解药——**这台机器的地址在
+Google 的公开搜索页上是被限的**，多试只会把限得更紧。
+
+Google 自己留了另一扇门：Programmable Search Engine 的 JSON API，**每天 100 次免费**，
+没有反爬页，不需要浏览器。所以这条渠道的读法顺序变成 `http → playwright → browser`：
+配了 key 就走 API，没配就沿着 docs/128 R8 的链掉进浏览器，行为和今天一模一样。
+
+两个值要 Allen 自己去拿（都免费，五分钟）：一个搜索引擎 ID（cx，建的时候打开
+「搜索整个网络」），一个 API key。两行写进 `backend/google_cse.txt`。没配的时候
+渠道报的不是「坏了」，是**这两步怎么做**——docs/70 R4 的规矩在这里的样子。
+
 ## R6 读法由渠道声明，API 按声明校验
 
 `/api/discover` 和 `/api/discover/page` 收到一条渠道没有声明的读法时报 400，
