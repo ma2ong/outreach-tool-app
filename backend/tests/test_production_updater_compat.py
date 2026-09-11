@@ -9,6 +9,25 @@ def test_windows_updater_is_ascii_and_has_no_inline_python_command():
     assert "production_acceptance.py" in script
 
 
+def test_the_updater_proves_the_code_before_it_touches_production():
+    """2026-09-11: a commit whose tests were red reached production because this script
+    installs, builds and restarts without ever running them. One of those failures was
+    Korean customers vanishing from the DM queue - silently, in the market this product
+    is mostly aimed at. Building is not proving.
+    """
+    repo = Path(__file__).resolve().parents[2]
+    script = (repo / "scripts" / "update_production.ps1").read_text(encoding="utf-8")
+    assert "pytest" in script, "deploy does not run the backend tests"
+    assert "run typecheck" in script, "vite build does not typecheck; nothing else would"
+    assert script.index("pytest") < script.index("Restart local service"),         "tests must run before the service is touched, not after"
+
+
+def test_the_frontend_has_a_typecheck_script():
+    repo = Path(__file__).resolve().parents[2]
+    package = (repo / "frontend" / "package.json").read_text(encoding="utf-8")
+    assert '"typecheck"' in package
+
+
 def test_production_acceptance_module_imports():
     import production_acceptance
 
