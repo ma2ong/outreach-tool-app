@@ -314,7 +314,8 @@ def instagram_accounts(query: str, limit: int = 20) -> list[Candidate]:
     """
     from app import scrape_browser
 
-    payload = scrape_browser.read_search("instagram", query, limit)
+    payload = scrape_browser.read_search(
+        "instagram", instagram_query(query), min(limit, MAX_INSTAGRAM_PROFILES))
     rows = payload.get("pages") or [{"domain": h} for h in payload.get("hosts") or []]
     out: list[Candidate] = []
     seen: set[str] = set()
@@ -406,6 +407,80 @@ def _domain_for_name(name: str, search=None, fetch=None) -> str:
     return ""
 
 
+# How many profiles one unattended Instagram run may walk. `gather` asks for 20 by
+# default, and twenty profile visits per keyword on a spare account, every night, is how
+# a spare account stops working.
+MAX_INSTAGRAM_PROFILES = 8
+
+# Instagram matches account names, not descriptions: measured 2026-09-11,
+# `LED video wall installer contact` matches nothing at all while `led video wall`
+# matches four accounts. The unattended path inherits Allen's keyword lines, which are
+# written as descriptions, so the head of the phrase is what gets asked.
+_INSTAGRAM_WORDS = 3
+
+
+def instagram_query(query: str) -> str:
+    return " ".join(str(query or "").split()[:_INSTAGRAM_WORDS])
+
+
+_BLOG_SYSTEM = (
+    "你在读韩国博客的搜索结果页。找出正文里被提到的公司（LED 显示屏的供应商、安装商、"
+    "经销商、制造商）。只回公司名字本身，按页面上的写法原样输出，不要网址、不要邮箱、"
+    "不要电话。返回 JSON：{\"companies\":[{\"name\":\"회사 이름\"}]}")
+# The page is 85KB of markdown and the names sit in the posts' own text. Sending more
+# than this buys nothing: the results below the fold are the same blogs paginated.
+_BLOG_CHARS = 40000
+
+
+def _blog_text(query: str) -> str:
+    from app.jina import fetch
+
+    return fetch("https://search.naver.com/search.naver?where=blog&query="
+                 + urllib.parse.quote(query), timeout=60)
+
+
+def _names_from_prose(text: str, limit: int) -> list[str]:
+    """One cheap model call over text that was fetched for free (docs/128 R7)."""
+    from app.agent import llm
+
+    data = llm.deepseek_json(_BLOG_SYSTEM, text[:_BLOG_CHARS])
+    out: list[str] = []
+    for row in data.get("companies") or []:
+        name = " ".join(str((row or {}).get("name") or "").split())[:80]
+        if name and name not in out:
+            out.append(name)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def naver_blog_prose(query: str, limit: int = 20) -> list[Candidate]:
+    """Korean blogs, read the cheap way: free text plus one model call.
+
+    docs/126 gave this channel to browser-use because the companies are named in prose
+    with no link. That was the right reader for the wrong reason — the prose was never
+    behind the browser. `jina` already returned 85,749 characters of it, and pulling the
+    names out is one DeepSeek call of 1.6 seconds against browser-use's 85-121 and a
+    window on Allen's screen.
+
+    docs/126 R2 is unchanged and is what keeps this honest: a name is spent as a query
+    and only kept when the site it resolves to says that name itself.
+    """
+    names = _names_from_prose(_blog_text(query), _MAX_PROSE_NAMES)
+    out: list[Candidate] = []
+    seen: set[str] = set()
+    for name in names:
+        host = _domain_for_name(name)
+        if not host or host in seen:
+            continue
+        seen.add(host)
+        out.append({"domain": host, "website": host,
+                    "country": "South Korea", "source": "naver-blog"})
+        if len(out) >= limit:
+            break
+    return out
+
+
 def naver_blog_browser(query: str, limit: int = 20) -> list[Candidate]:
     """Korean blogs, where the company is named in the prose and never linked.
 
@@ -472,17 +547,21 @@ SOURCES: dict[str, Source] = {
         reader_unavailable={"playwright": lambda: _scrape_unavailable("google"),
                             "browser": _browser_unavailable},
         optional=True, unattended=False),
+    # Cheapest first: the prose is free to fetch and one model call reads it. The
+    # browser-use route stays declared for a page the fetch cannot open (docs/128 R7).
     "naver-blog": Source(
-        name="naver-blog", label="Naver 博客（浏览器读正文）", kind="browser",
-        readers={"browser": naver_blog_browser},
-        unavailable=_browser_unavailable, optional=True, unattended=False),
+        name="naver-blog", label="Naver 博客（读正文）", kind="page",
+        readers={"http": naver_blog_prose, "browser": naver_blog_browser},
+        optional=True, unattended=True),
     # docs/128 R4. Registered now so the channels page can say how to switch them on;
     # until a collection account is logged in they report 未启用 and read nothing.
+    # Headless, so nothing opens on Allen's screen; capped, because the account that
+    # makes it possible is one he would rather not replace (docs/128 R7).
     "instagram": Source(
         name="instagram", label="Instagram 搜索（采集小号）", kind="social",
         readers={"playwright": instagram_accounts},
         unavailable=lambda: _scrape_unavailable("instagram"),
-        optional=True, unattended=False),
+        optional=True, unattended=True),
     # The one channel that needs a browser and still runs with nobody there: public
     # pages, a logged-out headless reader, no account to lose (docs/128 R4).
     "facebook": Source(

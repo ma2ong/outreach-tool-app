@@ -347,9 +347,11 @@ def read_search(channel: str, query: str, limit: int = 20, *,
     reason = unavailable(channel)
     if reason:
         raise Unavailable(reason)
-    # Logged-in channels run headed: a social network's bot checks are far harder on a
-    # headless session, and these channels are attended anyway (docs/126 R5).
-    headed = channel in NEEDS_LOGIN if headless is None else not headless
+    # Headless by default, including the logged-in channels. That was an assumption
+    # until 2026-09-11; measured, a headless browser on the same profile reads the same
+    # accounts and the same bio links. Nothing here opens on Allen's screen any more —
+    # the one window left is the login, and that is an ordinary Chrome (docs/128 R7).
+    headed = False if headless is None else not headless
     argv = _argv(channel, limit, headed) + ["--query", query]
     payload = _run_runner(argv, channel, run)
     payload["hosts"] = [h for h in payload.get("hosts") or [] if h][:limit]

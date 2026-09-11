@@ -12,29 +12,35 @@ const MARKETS = ["USA", "Canada", "Mexico", "Brazil", "Chile", "Argentina", "Col
   "UAE", "Saudi Arabia", "South Korea", "Japan", "Australia", "South Africa",
   "India", "Thailand", "Vietnam", "Indonesia", "Philippines", "Turkey"];
 
+// 全部默认填好。以前这里只有三行、另外五个角度要他一条条点「加一条」，
+// 而那五条每次都会被点 —— 每次都会被点的东西就是默认值。
 const DEFAULT_QUERIES = `LED video wall installer contact
 LED display rental company contact
-AV integrator LED screen contact`;
+AV integrator LED screen contact
+LED signage company
+stage production LED screen rental
+church AV LED wall
+LED screen distributor
+digital billboard company`;
 
-// One click appends a proven angle as an extra search line.
-const PRESET_QUERIES = ["LED signage company", "stage production LED screen rental",
-  "church AV LED wall", "LED screen distributor", "digital billboard company"];
-
-// 低客单价/低转化市场，一键排除；中国/香港/台湾（同行）由"排除同行"开关单独管
+// 低客单价/低转化市场，默认全部排除；中国/香港/台湾（同行）由「排除同行」开关单独管。
+// 越南和印尼 2026-09-11 按 Allen 的判断移出这份名单——那两个市场他要做。
 const EXCLUDABLE = ["India", "Pakistan", "Bangladesh", "Sri Lanka", "Nepal",
-  "Nigeria", "Kenya", "Ghana", "Myanmar", "Cambodia", "Vietnam", "Indonesia"];
+  "Nigeria", "Kenya", "Ghana", "Myanmar", "Cambodia"];
 
 export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
   const [mode, setMode] = useState<"search" | "page">("search");
   const [query, setQuery] = useState(DEFAULT_QUERIES);
   const [url, setUrl] = useState("");
-  const [country, setCountry] = useState("USA");
+  // 多选：一次搜可以同时铺几个市场，每条关键词会和每个国家组合成一条搜索。
+  const [countries, setCountries] = useState<Set<string>>(new Set(["USA"]));
+  const [countryOpen, setCountryOpen] = useState(false);
   const [cands, setCands] = useState<Candidate[]>([]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [excludePeers, setExcludePeers] = useState(true);
-  const [excluded, setExcluded] = useState<Set<string>>(new Set(["India", "Pakistan"]));
+  const [excluded, setExcluded] = useState<Set<string>>(new Set(EXCLUDABLE));
   const [showExcluded, setShowExcluded] = useState(false);
   // 一个名录页抓出 0 家，几乎总是因为公司名单在 JS 里（docs/124）。这时候才提议开浏览器：
   // 它会弹出一个真的 Chrome 窗口，所以由他按，不由系统替他按。
@@ -45,11 +51,21 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
   const [channels, setChannels] = useState<Set<string>>(new Set());
   const [report, setReport] = useState<SourceReport[]>([]);
 
-  useEffect(() => { fetchDiscoverySources().then((r) => setSources(r.sources)).catch(() => {}); }, []);
+  // 渠道默认全选（能跑的那些）。让他每次搜索前先去勾一遍，等于每次都问他同一个问题。
+  // 没开通的渠道不进默认：后端会为一条未启用的渠道直接拒掉整个请求。
+  useEffect(() => {
+    fetchDiscoverySources().then((r) => {
+      setSources(r.sources);
+      setChannels(new Set(r.sources.filter((s) => s.available).map((s) => s.name)));
+    }).catch(() => {});
+  }, []);
 
   const queryLines = query.split("\n").map((l) => l.trim()).filter(Boolean);
   // 一条渠道声明了几种读法，最便宜的排在前面；只勾一条渠道时按它自己的第一种读法跑。
   const engineFor = (name: string) => sources.find((s) => s.name === name)?.engines[0];
+  const toggleCountry = (name: string) => setCountries((s) => {
+    const n = new Set(s); if (n.has(name)) { n.delete(name); } else { n.add(name); } return n;
+  });
   const toggleChannel = (name: string) => setChannels((s) => {
     const n = new Set(s); if (n.has(name)) { n.delete(name); } else { n.add(name); } return n;
   });
@@ -62,7 +78,10 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
       : mode === "page" ? "抓取名录中…" : "搜索深挖中…");
     try {
       // 每行一条搜索；选了国家自动拼进关键词，结果按域名合并去重
-      const composed = queryLines.map((l) => (country.trim() ? `${l} ${country.trim()}` : l));
+      const targets = [...countries];
+      const composed = targets.length
+        ? queryLines.flatMap((l) => targets.map((c) => `${l} ${c}`))
+        : queryLines;
       const screen = { exclude_countries: [...excluded], exclude_peers: excludePeers };
       const { job_id } = mode === "page"
         ? await startPageDiscover(url.trim(), 40, screen, undefined, undefined, engine)
@@ -108,7 +127,7 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
     const chosen = cands.filter((c) => picked.has(c.domain));
     if (chosen.length === 0) { setMsg("请先勾选要导入的候选"); return; }
     try {
-      const res = await importLeads(country, chosen.map((c) => ({
+      const res = await importLeads([...countries][0] || "", chosen.map((c) => ({
         // 探测到的国家更准（搜韩国也会混进别国公司）；"USA/Canada" 这类模糊值退回面板国家
         country: c.country && !c.country.includes("/") ? c.country : undefined,
         company_en: c.title, website: c.domain, email: c.email,
@@ -162,22 +181,30 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
           <textarea className="input" style={{ width: "100%", height: 74, marginBottom: 6 }}
             value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder={"一行一条，如：\nLED video wall installer contact\nLED display rental company contact"} />
-          <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <span className="muted" style={{ fontSize: 12 }}>加一条：</span>
-            {PRESET_QUERIES.map((p) => (
-              <button key={p} className="btn btn-sm" disabled={query.includes(p)}
-                onClick={() => setQuery((q) => (q.trim() ? q.trimEnd() + "\n" : "") + p)}>＋{p}</button>
-            ))}
-          </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
             <label className="muted" style={{ fontSize: 13 }}>目标国家</label>
-            <input className="input" list="market-list" style={{ width: 150 }} value={country}
-              onChange={(e) => setCountry(e.target.value)} placeholder="选择或输入国家" />
-            <datalist id="market-list">
-              {MARKETS.map((m) => <option key={m} value={m} />)}
-            </datalist>
+            <div style={{ position: "relative" }}>
+              <button className="btn btn-sm" onClick={() => setCountryOpen((v) => !v)}>
+                {countries.size ? `已选 ${countries.size} 个：${[...countries].slice(0, 3).join("、")}${countries.size > 3 ? "…" : ""}` : "选择国家"} ▾
+              </button>
+              {countryOpen && (
+                <div className="card" style={{ position: "absolute", zIndex: 20, top: 30, left: 0,
+                  width: 340, maxHeight: 280, overflowY: "auto", padding: 8 }}>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {MARKETS.map((m) => (
+                      <button key={m} className={`btn btn-sm${countries.has(m) ? " btn-primary" : ""}`}
+                        onClick={() => toggleCountry(m)}>{countries.has(m) ? "✓ " : ""}{m}</button>
+                    ))}
+                  </div>
+                  <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
+                    <button className="btn btn-sm" onClick={() => setCountries(new Set())}>清空</button>
+                    <button className="btn btn-sm" onClick={() => setCountryOpen(false)}>收起</button>
+                  </div>
+                </div>
+              )}
+            </div>
             <button className="btn btn-primary" onClick={() => run()} disabled={busy}>
-              {busy ? "搜索中…" : `搜索深挖（${queryLines.length} 条）`}
+              {busy ? "搜索中…" : `搜索深挖（${queryLines.length * Math.max(1, countries.size)} 条）`}
             </button>
           </div>
           {channels.has("instagram") && (
@@ -211,7 +238,9 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
           </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
             <input className="input" style={{ flex: 1, minWidth: 260 }} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…  经销商页 / 参展商名录 URL" />
-            <input className="input" style={{ width: 90 }} value={country} onChange={(e) => setCountry(e.target.value)} placeholder="国家" />
+            <input className="input" style={{ width: 110 }} value={[...countries][0] || ""}
+              onChange={(e) => setCountries(new Set(e.target.value ? [e.target.value] : []))}
+              placeholder="国家" />
             <button className="btn btn-primary" onClick={() => run()} disabled={busy}>{busy ? "抓取中…" : "抓取名录"}</button>
           </div>
           {browserOffer && (

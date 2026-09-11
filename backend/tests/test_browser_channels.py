@@ -158,11 +158,20 @@ def test_naming_a_browser_channel_explicitly_is_allen_pressing_the_button(monkey
     assert calls == ["led"]
 
 
-def test_every_browser_channel_declares_itself_attended_and_optional():
+def test_every_browser_channel_declares_itself_optional_and_never_opens_on_a_timer():
+    """docs/126 R5, restated by docs/128 R7 in terms of what actually opens a window.
+
+    The rule was written as "a channel that declares browser-use is attended". Then the
+    Naver blog channel gained a free reader that needs no browser at all, so the channel
+    can run alone while still declaring browser-use for the pages the fetch cannot open.
+    What must stay true is that a timer never reaches the window-opening reader — and
+    an unqualified call always takes the first declared one.
+    """
     for source in ds.SOURCES.values():
         if "browser" in source.engines:
-            assert source.unattended is False, f"{source.name} would pop a window on a timer"
             assert source.optional, f"{source.name} would be reported as broken when unset"
+            if source.unattended:
+                assert source.engines[0] != "browser",                     f"{source.name} would pop a window on a timer"
 
 
 def test_a_channel_reports_how_it_can_be_read():

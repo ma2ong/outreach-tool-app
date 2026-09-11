@@ -232,6 +232,16 @@ def _call_backend(conn, backend: str, task: str, system: str, user: str,
     raise LLMUnavailable(f"未知后端 {backend}")
 
 
+def deepseek_json(system: str, user: str, timeout: int = 120) -> dict:
+    """One DeepSeek call with no database behind it.
+
+    The agent's tasks go through `complete_json`, which counts calls against a daily
+    quota and can fall back to Claude. A discovery channel has neither a connection nor
+    a quota to spend: it reads a page, asks one cheap question about it, and is done.
+    """
+    return extract_json(_call_deepseek(system, user, timeout))
+
+
 def _backend_chain(task: str, primary: str) -> list[str]:
     # Classification must not silently consume Allen's Claude Code subscription. Draft
     # and planning prefer Claude, but DeepSeek keeps replies moving during its reset

@@ -88,7 +88,7 @@ def test_instagram_is_registered_and_says_how_to_turn_it_on(monkeypatch):
     assert row["engines"] == ["playwright"]
     assert row["available"] is False
     assert "未启用" in row["reason"] and "采集" in row["reason"]
-    assert row["optional"] and row["unattended"] is False
+    assert row["optional"]
 
 
 # ------------------------------- R4 facebook needs no account: the pages are public
@@ -163,7 +163,8 @@ def test_a_handle_is_only_worth_the_domain_it_leads_to():
 def test_a_channel_declares_its_readers_cheapest_first():
     assert ds.SOURCES["duckduckgo"].engines == ("http",)
     assert ds.SOURCES["google"].engines == ("playwright", "browser")
-    assert ds.SOURCES["naver-blog"].engines == ("browser",)
+    # docs/128 R7: the prose was never behind the browser, so the free reader goes first.
+    assert ds.SOURCES["naver-blog"].engines == ("http", "browser")
 
 
 def test_asking_a_channel_for_a_reader_it_never_declared_is_refused():
@@ -567,3 +568,57 @@ def test_an_account_arrives_carrying_the_handle_its_dms_would_go_to(monkeypatch)
     out = ds.instagram_accounts("pantallas led", 5)
     assert out == [{"domain": "exctecled.com", "website": "exctecled.com",
                     "source": "instagram", "instagram": "pantallasledperu"}]
+
+
+# ================= docs/128 R7 — the two channels that no longer need a person
+
+def test_the_blog_channel_reads_prose_without_opening_a_browser(monkeypatch):
+    """Measured 2026-09-11: jina returns 85,749 characters of blog text in 12s and one
+    DeepSeek call pulls the company names out of it in 1.6s. browser-use spent 85-121s
+    and a visible window doing the same job."""
+    monkeypatch.setattr(ds, "_blog_text", lambda query: "…한빛테크… 아바비젼 …")
+    monkeypatch.setattr(ds, "_names_from_prose",
+                        lambda text, limit: ["아바비젼", "키다LED"])
+    monkeypatch.setattr(ds, "_domain_for_name",
+                        lambda name: "avavision.co.kr" if name == "아바비젼" else "")
+    assert ds.naver_blog_prose("LED 전광판 유통업체", 5) == [
+        {"domain": "avavision.co.kr", "website": "avavision.co.kr",
+         "country": "South Korea", "source": "naver-blog"}]
+
+
+def test_the_blog_channel_declares_the_cheap_reader_first_and_may_run_alone():
+    source = ds.SOURCES["naver-blog"]
+    assert source.engines == ("http", "browser")
+    assert source.unattended is True
+
+
+def test_instagram_may_run_alone_because_headless_opens_no_window():
+    """docs/126 R5 kept every logged-in reader attended on the assumption that it would
+    pop a window. Measured: headless reads the same accounts and the same bio links."""
+    assert ds.SOURCES["instagram"].unattended is True
+
+
+def test_no_unattended_channel_defaults_to_a_reader_that_opens_a_window():
+    """The invariant docs/126 R5 was protecting, stated in terms of what actually opens
+    a window: browser-use always does, headless Playwright never does."""
+    for source in ds.SOURCES.values():
+        if source.unattended:
+            assert source.engines[0] != "browser", f"{source.name} would pop a window on a timer"
+
+
+def test_a_phrase_instagram_cannot_match_is_trimmed_to_one_it_can():
+    """Measured: `LED video wall installer contact` matches no account at all; `led video
+    wall` matches four and yields churchleds.com and distinctled.com."""
+    assert ds.instagram_query("LED video wall installer contact") == "LED video wall"
+    assert ds.instagram_query("pantallas led") == "pantallas led"
+    assert ds.instagram_query("  led   wall  ") == "led wall"
+
+
+def test_an_unattended_instagram_run_is_capped(monkeypatch):
+    """A nightly run must not walk twenty profiles per keyword on a spare account."""
+    asked: list[int] = []
+    monkeypatch.setattr(scrape_browser, "read_search",
+                        lambda channel, query, limit=20: asked.append(limit) or
+                        {"hosts": [], "pages": []})
+    ds.instagram_accounts("pantallas led", 20)
+    assert asked == [ds.MAX_INSTAGRAM_PROFILES]
