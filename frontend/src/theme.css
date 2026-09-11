@@ -151,7 +151,10 @@ textarea.input { width: 100%; resize: vertical; }
    表头才真的能停在顶上，页码也就一直留在屏幕底部。 */
 /* 填满剩下的高度，而不是猜一个数字：顶栏、筛选栏、工具条的高度都会变，
    写死 250px 的结果就是底部要么被压住，要么留一大片白。 */
-.table-wrap.table-scroll { overflow: auto; flex: 1; min-height: 0; }
+.table-wrap.table-scroll {
+  overflow: auto; flex: 1; min-height: 0; border: 0;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
 /* 客户库这一页整体占满，表格伸缩，页码贴着视口底部 */
 .page-fill { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .pager-bar { position: sticky; bottom: 0; z-index: 6; background: var(--surface);

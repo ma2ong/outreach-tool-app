@@ -247,6 +247,13 @@ the operator is prepared; live Worker/capability health remains a separate runti
 Changing a mailbox password invalidates its prior verification. Empty and failed states
 link to the exact existing screen that can resolve them.
 
+## F3: the customer table fits across browser scrollbar models
+
+At the supported 1100px viewport the customer table must not gain a horizontal scroll
+bar on either Windows or Linux Chromium. Its visible outline must not consume two pixels
+from the scroll container's client width while the percentage table is sized from the
+outer border box.
+
 ## G1: learning is evidence, approval and scope — not prompt drift
 
 Edited drafts remain immutable evidence of what Allen changed, but raw recent examples
