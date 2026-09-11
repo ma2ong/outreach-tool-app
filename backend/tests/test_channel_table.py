@@ -821,3 +821,30 @@ def test_the_google_api_quota_is_reported_as_a_quota(monkeypatch):
     with pytest.raises(RuntimeError) as caught:
         ds.google_api_search("led", 5)
     assert "429" in str(caught.value)
+
+
+def test_the_key_and_the_engine_id_are_recognised_whichever_order_they_are_written(tmp_path, monkeypatch):
+    """Two opaque strings in a text file is a coin flip, and getting it wrong costs a
+    round trip. They are told apart by their shape: a Google API key starts with AIza."""
+    monkeypatch.delenv("GOOGLE_CSE_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_CSE_ID", raising=False)
+    path = tmp_path / "google_cse.txt"
+    monkeypatch.setattr(ds, "_google_cse_path", lambda: str(path))
+
+    path.write_text("AIzaSyFAKEKEY_for_a_test_only_0000000000\n61d659eae9e7f42b0",
+                    encoding="utf-8")
+    assert ds._google_cse() == ("AIzaSyFAKEKEY_for_a_test_only_0000000000", "61d659eae9e7f42b0")
+
+    path.write_text("61d659eae9e7f42b0\nAIzaSyFAKEKEY_for_a_test_only_0000000000",
+                    encoding="utf-8")
+    assert ds._google_cse() == ("AIzaSyFAKEKEY_for_a_test_only_0000000000", "61d659eae9e7f42b0")
+
+
+def test_a_file_with_only_one_value_is_not_half_configured(tmp_path, monkeypatch):
+    monkeypatch.delenv("GOOGLE_CSE_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_CSE_ID", raising=False)
+    path = tmp_path / "google_cse.txt"
+    monkeypatch.setattr(ds, "_google_cse_path", lambda: str(path))
+    path.write_text("61d659eae9e7f42b0", encoding="utf-8")
+    assert ds._google_cse() == ("", "61d659eae9e7f42b0")
+    assert "programmablesearchengine" in ds._google_unavailable()

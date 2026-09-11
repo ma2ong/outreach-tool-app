@@ -313,20 +313,34 @@ _GOOGLE_HOWTO = (
     "（每天 100 次免费，超出才收费）")
 
 
+def _google_cse_path() -> str:
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        _GOOGLE_CSE_FILE)
+
+
 def _google_cse() -> tuple[str, str]:
-    """The API key and the search engine id, from the environment or the key file."""
+    """The API key and the search engine id, in whichever order they were written.
+
+    Two opaque strings in a text file is a coin flip, and a wrong guess costs a whole
+    round trip to discover. Their shapes differ — a Google API key starts with `AIza`
+    and is about forty characters; a search engine id does not — so the file does not
+    have to be written in a particular order to work.
+    """
     key = os.environ.get("GOOGLE_CSE_KEY", "")
     cx = os.environ.get("GOOGLE_CSE_ID", "")
     if key and cx:
         return key, cx
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        _GOOGLE_CSE_FILE)
     try:
-        with open(path, encoding="utf-8") as handle:
+        with open(_google_cse_path(), encoding="utf-8") as handle:
             lines = [line.strip() for line in handle if line.strip()]
     except OSError:
         return key, cx
-    return (key or (lines[0] if lines else ""), cx or (lines[1] if len(lines) > 1 else ""))
+    for line in lines:
+        if line.startswith("AIza"):
+            key = key or line
+        elif not cx or line != key:
+            cx = cx or line
+    return key, cx
 
 
 def _google_unavailable() -> str:
