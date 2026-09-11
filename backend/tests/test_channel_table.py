@@ -417,3 +417,62 @@ def test_chrome_is_found_where_windows_actually_puts_it(monkeypatch):
     seen = {"C:/Program Files/Google/Chrome/Application/chrome.exe"}
     monkeypatch.setattr(scrape_browser.os.path, "isfile", lambda p: p.replace("\\", "/") in seen)
     assert scrape_browser.chrome_path().replace("\\", "/").endswith("chrome.exe")
+
+
+# --------------------- R5 the other way in: a session made in Allen's own Chrome
+
+def _chrome_tree(root, folders):
+    """A Chrome User Data directory, as Windows lays it out."""
+    import json as _json
+
+    (root / "Default").mkdir(parents=True)
+    info = {}
+    for folder, name in folders.items():
+        (root / folder / "Network").mkdir(parents=True, exist_ok=True)
+        (root / folder / "Network" / "Cookies").write_bytes(b"cookiedb")
+        info[folder] = {"name": name}
+    (root / "Local State").write_text(
+        _json.dumps({"profile": {"info_cache": info},
+                     "os_crypt": {"encrypted_key": "x"}}), encoding="utf-8")
+    return root
+
+
+def test_the_chrome_profiles_are_listed_by_the_name_allen_gave_them(tmp_path, monkeypatch):
+    root = _chrome_tree(tmp_path / "User Data", {"Default": "Allen", "Profile 3": "采集小号"})
+    monkeypatch.setattr(scrape_browser, "chrome_user_data", lambda: root)
+    assert {p["folder"]: p["name"] for p in scrape_browser.chrome_profiles()} == {
+        "Default": "Allen", "Profile 3": "采集小号"}
+
+
+def test_importing_a_profile_brings_the_session_and_the_key_that_decrypts_it(tmp_path, monkeypatch):
+    """Measured 2026-09-11: a copied profile carries datr/mid/ig_did and Chrome still
+    decrypts them — but only with `Local State`, which holds the key."""
+    root = _chrome_tree(tmp_path / "User Data", {"Profile 3": "采集小号"})
+    monkeypatch.setattr(scrape_browser, "chrome_user_data", lambda: root)
+    monkeypatch.setattr(scrape_browser, "SCRAPE_DIR", tmp_path / "scrape")
+    monkeypatch.setattr(scrape_browser, "chrome_is_running", lambda: False)
+
+    scrape_browser.import_login("instagram", "Profile 3")
+    target = scrape_browser.profile_dir("instagram")
+    assert (target / "Default" / "Network" / "Cookies").read_bytes() == b"cookiedb"
+    assert (target / "Local State").is_file(), "没有这把钥匙，cookie 解不开"
+
+
+def test_importing_while_chrome_is_open_is_refused_rather_than_half_copied(tmp_path, monkeypatch):
+    root = _chrome_tree(tmp_path / "User Data", {"Profile 3": "采集小号"})
+    monkeypatch.setattr(scrape_browser, "chrome_user_data", lambda: root)
+    monkeypatch.setattr(scrape_browser, "SCRAPE_DIR", tmp_path / "scrape")
+    monkeypatch.setattr(scrape_browser, "chrome_is_running", lambda: True)
+    with pytest.raises(scrape_browser.Unavailable) as caught:
+        scrape_browser.import_login("instagram", "Profile 3")
+    assert "关掉 Chrome" in str(caught.value)
+
+
+def test_importing_an_unknown_profile_is_refused(tmp_path, monkeypatch):
+    root = _chrome_tree(tmp_path / "User Data", {"Profile 3": "采集小号"})
+    monkeypatch.setattr(scrape_browser, "chrome_user_data", lambda: root)
+    monkeypatch.setattr(scrape_browser, "SCRAPE_DIR", tmp_path / "scrape")
+    monkeypatch.setattr(scrape_browser, "chrome_is_running", lambda: False)
+    for bad in ("Profile 9", "../../Windows", ""):
+        with pytest.raises(ValueError):
+            scrape_browser.import_login("instagram", bad)

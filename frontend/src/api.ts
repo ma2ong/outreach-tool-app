@@ -236,6 +236,28 @@ export async function startScrapeLogin(channel: string): Promise<{ status: strin
   return r.json();
 }
 
+export interface ChromeProfile { folder: string; name: string }
+
+export async function fetchChromeProfiles(): Promise<{ profiles: ChromeProfile[]; chrome_running: boolean }> {
+  const r = await fetch("/api/channels/scrape/chrome-profiles");
+  if (!r.ok) throw new Error(`chrome profiles ${r.status}`);
+  return r.json();
+}
+
+// Meta 不让在被程序驱动的窗口里建立会话，所以登录在 Allen 自己的 Chrome 里做，
+// 这里只是把那份个人资料接过来给采集用。docs/128 R5
+export async function importScrapeLogin(channel: string, folder: string): Promise<{ logged_in: boolean; detail: string }> {
+  const r = await fetch(`/api/channels/scrape/${channel}/import`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ folder }),
+  });
+  if (!r.ok) {
+    const detail = await r.json().then((b) => b?.detail).catch(() => null);
+    throw new Error(detail || `import ${r.status}`);
+  }
+  return r.json();
+}
+
 // 哪几条渠道现在能跑，哪几条没配好、为什么。docs/70 R4
 export async function fetchDiscoverySources(): Promise<{ sources: DiscoverySource[] }> {
   const r = await fetch("/api/discover/sources");

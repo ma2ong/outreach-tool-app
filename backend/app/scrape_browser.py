@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -172,6 +173,74 @@ def login_state(channel: str) -> str:
         return "已登录"
     proc = _LOGIN_WINDOWS.get(channel)
     return "等待登录" if proc is not None and proc.poll() is None else "未登录"
+
+
+# ---- the other way in: a session Allen made in his own Chrome (docs/128 R5) ----
+
+def chrome_user_data() -> Path:
+    return Path(os.environ.get("LOCALAPPDATA", "")) / "Google" / "Chrome" / "User Data"
+
+
+def chrome_profiles() -> list[dict]:
+    """Chrome's profiles on this machine, under the names Allen gave them.
+
+    `Local State` keeps the folder-to-name map, which is the only way "Profile 3" and
+    "采集小号" ever meet.
+    """
+    state = chrome_user_data() / "Local State"
+    if not state.is_file():
+        return []
+    try:
+        cache = json.loads(state.read_text(encoding="utf-8", errors="replace")
+                           ).get("profile", {}).get("info_cache", {})
+    except ValueError:
+        return []
+    return [{"folder": folder, "name": (info or {}).get("name") or folder}
+            for folder, info in sorted(cache.items())]
+
+
+def chrome_is_running() -> bool:
+    if os.name != "nt":
+        return False
+    try:
+        done = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-Process chrome -ErrorAction SilentlyContinue | Measure-Object).Count"],
+            capture_output=True, text=True, timeout=20)
+    except Exception:  # noqa: BLE001 — not being able to look is not a reason to copy
+        return True
+    return done.stdout.strip() not in ("", "0")
+
+
+def import_login(channel: str, folder: str) -> bool:
+    """Take over a session Allen logged in himself, by copying that Chrome profile.
+
+    Measured 2026-09-11: a copied profile hands its cookies to the next browser that
+    opens it — datr, mid and the rest were all there before the copy visited a single
+    page — but only when `Local State` comes along, because that file holds the key the
+    cookie store is encrypted with.
+
+    This exists because Instagram would not let a session be made in our own window and
+    would in his. The rule it does not break: what arrives is a collecting identity, and
+    Allen picks which profile that is (docs/126 R4).
+    """
+    if channel not in LOGIN_URL:
+        raise ValueError(f"{channel} 不需要登录采集账号")
+    known = {p["folder"] for p in chrome_profiles()}
+    if folder not in known:
+        raise ValueError(f"Chrome 里没有这个个人资料：{folder or '（空）'}")
+    if chrome_is_running():
+        raise Unavailable(
+            "请先关掉 Chrome（全部窗口）再导入 —— Chrome 开着时 cookie 文件是锁住的，"
+            "复制过来会是半份")
+    source = chrome_user_data() / folder
+    target = profile_dir(channel)
+    if target.exists():
+        shutil.rmtree(target, ignore_errors=True)
+    (target / "Default").parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, target / "Default")
+    shutil.copy2(chrome_user_data() / "Local State", target / "Local State")
+    return logged_in(channel)
 
 
 def _subprocess_run(argv: list[str], timeout: int) -> str:

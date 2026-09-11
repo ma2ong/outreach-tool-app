@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { fetchChannels, connectChannel, channelStatus, fetchScrapeChannels, startScrapeLogin } from "../api";
-import type { ScrapeChannel } from "../api";
+import { fetchChannels, connectChannel, channelStatus, fetchScrapeChannels, startScrapeLogin,
+  fetchChromeProfiles, importScrapeLogin } from "../api";
+import type { ScrapeChannel, ChromeProfile } from "../api";
 
 const LABELS: Record<string, string> = { whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook" };
 
@@ -26,6 +27,28 @@ export function ConnectionPanel() {
     const t = setInterval(loadScrape, 4000);
     return () => clearInterval(t);
   }, [scrape]);
+
+  const [profiles, setProfiles] = useState<ChromeProfile[]>([]);
+  const [chromeRunning, setChromeRunning] = useState(false);
+  const [picked, setPicked] = useState("");
+
+  async function loadProfiles() {
+    setScrapeErr("");
+    try {
+      const r = await fetchChromeProfiles();
+      setProfiles(r.profiles);
+      setChromeRunning(r.chrome_running);
+    } catch (e) { setScrapeErr(String(e)); }
+  }
+
+  async function doImport(ch: string) {
+    setScrapeErr("");
+    try {
+      const r = await importScrapeLogin(ch, picked);
+      if (!r.logged_in) setScrapeErr(r.detail);
+      await loadScrape();
+    } catch (e) { setScrapeErr(String(e instanceof Error ? e.message : e)); }
+  }
 
   async function scrapeLogin(ch: string) {
     setScrapeErr("");
@@ -121,6 +144,28 @@ export function ConnectionPanel() {
               )}
             </div>
           ))}
+          {scrape.some((s) => !s.logged_in) && (
+            <div style={{ marginTop: 8, fontSize: 12 }}>
+              <div className="muted" style={{ marginBottom: 4 }}>
+                登不进去？Instagram 有时不接受在这里新建的会话。那就在<b>你自己的 Chrome</b> 里
+                「添加个人资料」、在里面登好小号，然后把那份资料接过来——登录整个过程发生在你的浏览器里。
+              </div>
+              {profiles.length === 0 ? (
+                <button className="btn btn-sm" onClick={loadProfiles}>列出我的 Chrome 个人资料</button>
+              ) : (
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                  <select className="input" style={{ width: 200 }} value={picked}
+                    onChange={(e) => setPicked(e.target.value)}>
+                    <option value="">选一个个人资料…</option>
+                    {profiles.map((p) => <option key={p.folder} value={p.folder}>{p.name}（{p.folder}）</option>)}
+                  </select>
+                  <button className="btn btn-sm" disabled={!picked}
+                    onClick={() => doImport(scrape.find((s) => !s.logged_in)!.name)}>接过来</button>
+                  {chromeRunning && <span style={{ color: "var(--warn)" }}>请先关掉 Chrome 全部窗口再接</span>}
+                </div>
+              )}
+            </div>
+          )}
           {scrapeErr && <div style={{ color: "var(--red)", fontSize: 12 }}>{scrapeErr}</div>}
         </div>
       )}

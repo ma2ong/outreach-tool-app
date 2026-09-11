@@ -80,6 +80,31 @@ def scrape_login(channel: str):
     return {"status": "等待登录"}
 
 
+@router.get("/scrape/chrome-profiles")
+def chrome_profiles():
+    """Allen's own Chrome profiles, so he can hand one over instead of logging in here."""
+    from app import scrape_browser
+
+    return {"profiles": scrape_browser.chrome_profiles(),
+            "chrome_running": scrape_browser.chrome_is_running()}
+
+
+@router.post("/scrape/{channel}/import")
+def scrape_import(channel: str, body: dict):
+    from app import scrape_browser
+
+    try:
+        ok = scrape_browser.import_login(channel, str(body.get("folder") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except scrape_browser.Unavailable as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"导入失败：{str(exc)[:200]}") from exc
+    return {"logged_in": ok,
+            "detail": "" if ok else "复制过来了，但这份资料里没有登录态 —— 选错个人资料了？"}
+
+
 @router.get("/{channel}/status")
 def status(channel: str):
     _check(channel)
