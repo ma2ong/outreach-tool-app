@@ -358,9 +358,15 @@ def google_hint(status: int, body: str) -> str:
     """
     text = str(body or "")[:300]
     if status == 403 and "does not have the access" in text:
-        return ("这个项目还没启用 Custom Search API。到 "
+        # 两种原因，第二种是 2026-09-11 实测出来的：全新项目、API 确认已启用、
+        # key 就在该项目里且限制只放行 Custom Search，依然被拒——账号那条
+        # 「免费试用需要支付预付款」横幅是跨项目的，免费额度不发给这种状态的账号。
+        return ("Google 拒绝了这把 key。两种可能：① Custom Search API 没有在**这把 key "
+                "所在的项目**里启用（到 "
                 "https://console.cloud.google.com/apis/library/customsearch.googleapis.com "
-                "把顶部项目切换成**这把 key 所在的项目**，点「启用」，等一两分钟生效再试")
+                "切到那个项目点「启用」）；② 这个 Google 账号的结算/试用状态拿不到免费额度"
+                "——控制台顶部若挂着「免费试用需要支付预付款」，换项目也没用，要么处理结算，"
+                "要么就别用这条渠道（其余渠道不受影响）")
     if status == 429 or "Quota exceeded" in text:
         return "今天的 100 次免费额度用完了，明天自动恢复（超额才收费，系统不会替你付钱）"
     return f"Google {status}: {text}"
