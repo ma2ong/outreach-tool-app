@@ -329,6 +329,19 @@ def _import_skip_reason(skipped: dict) -> str:
     return "导入时被安全规则跳过"
 
 
+def market_query(query: str, country: str | None) -> str:
+    """Add the market to a keyword, unless the keyword already names one.
+
+    `led전광판 USA` is a query nobody wants: a Korean or Spanish term is written by the
+    market it belongs to, and stapling an English country onto it narrows the search to
+    nothing (docs/128 R7).
+    """
+    text = str(query or "").strip()
+    if not country or not text.isascii():
+        return text
+    return f"{text} {country}".strip()
+
+
 def discover_run(conn, p: dict) -> str:
     """Search and preserve every candidate; auto-import only in autonomous mode.
 
@@ -351,7 +364,7 @@ def discover_run(conn, p: dict) -> str:
         conn.commit()
 
     for query_index, query in enumerate(queries, 1):
-        text = f"{query} {country}".strip() if country else query
+        text = market_query(query, country)
         persist_progress({"status": "searching", "query": query,
                           "query_index": query_index, "query_total": len(queries),
                           "done": 0, "total": 0, "candidates": len(found)})

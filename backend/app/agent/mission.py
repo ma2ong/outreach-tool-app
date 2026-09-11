@@ -19,11 +19,19 @@ DEFAULT = {
     "auto_enroll": True,
 }
 
+# Short terms, not descriptions (docs/128 R7). Measured 2026-09-11:
+# `LED video wall installer contact` matches no Instagram account at all while
+# `led video wall` matches four, and the search engines recall more on the short term
+# too. The Korean pair carries its own market and never takes a country suffix.
 _SEARCHES = (
-    "LED screen rental company stage events",
-    "AV integrator LED video wall installation",
-    "digital signage company LED display installer",
-    "LED display reseller distributor",
+    "led display",
+    "led video wall",
+    "led screen rental",
+    "led signage",
+    "digital billboard",
+    "pantallas led",
+    "led전광판",
+    "led디스플레이",
 )
 
 

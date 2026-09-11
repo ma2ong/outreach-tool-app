@@ -622,3 +622,21 @@ def test_an_unattended_instagram_run_is_capped(monkeypatch):
                         {"hosts": [], "pages": []})
     ds.instagram_accounts("pantallas led", 20)
     assert asked == [ds.MAX_INSTAGRAM_PROFILES]
+
+
+def test_the_nightly_keywords_are_short_terms_not_sentences():
+    """docs/128 R7: a description matches no Instagram account and narrows every other
+    channel too. The nightly fallback used four sentences; it now uses short terms."""
+    from app.agent import mission
+
+    for phrase in mission._SEARCHES:
+        assert len(phrase.split()) <= 3, f"{phrase} 是一句描述，不是一个词"
+
+
+def test_a_korean_keyword_does_not_get_an_english_market_stapled_to_it():
+    """`led전광판 USA` is a query nobody wants: a Korean term already names its market."""
+    from app.agent import executors
+
+    assert executors.market_query("led display", "USA") == "led display USA"
+    assert executors.market_query("led전광판", "USA") == "led전광판"
+    assert executors.market_query("led display", None) == "led display"
