@@ -98,3 +98,70 @@ def test_a_merge_never_costs_the_company_its_email(tmp_path):
     kept = conn.execute("SELECT email, phone FROM leads WHERE no=361").fetchone()
     assert kept["email"] == "support@displayhub.com"
     assert kept["phone"] == "+82 2-546-3288"
+
+
+# ------------------------------------------------ docs/129: what counts as the same company
+
+def _lead(conn, no, **f):
+    cols = {"company_en": None, "company_local": None, "country": None, "website": None,
+            "email": None, "phone": None, "instagram": None, "do_not_contact": 0, **f}
+    conn.execute(f"INSERT INTO leads(no, {', '.join(cols)}) VALUES (?, {', '.join('?' * len(cols))})",
+                 [no, *cols.values()])
+    conn.commit()
+
+
+def _pairs(conn):
+    return {(g["keep"], tuple(g["dups"])) for g in dedupe.find_duplicate_groups(conn)}
+
+
+def test_a_shared_contact_email_makes_one_company(conn):
+    from app import contacts
+    _lead(conn, 10, company_en="Shown Probe", country="South Korea", website="shownprove.co.kr")
+    _lead(conn, 11, company_en="Shownprove", website="shownprove.com", email="snp@shownprove.com")
+    contacts.create(conn, 10, {"email": "snp@shownprove.com"})
+    assert (10, (11,)) in _pairs(conn)
+
+
+def test_the_legal_form_is_not_part_of_the_name(conn):
+    _lead(conn, 10, company_en="SNTech", company_local="에스엔테크", country="South Korea")
+    _lead(conn, 11, company_en="Sntls", company_local="(주)에스엔테크", country="South Korea",
+          website="sntls.co.kr")
+    assert (10, (11,)) in _pairs(conn)
+
+
+def test_the_same_name_in_two_countries_is_two_companies(conn):
+    _lead(conn, 10, company_en="LED Solutions Canada", company_local="LED Solutions",
+          country="Canada", website="ledsolutions.ca")
+    _lead(conn, 11, company_en="Ledsolutions", country="Finland", website="ledsolutions.fi")
+    assert not any(10 in (k, *d) for k, d in _pairs(conn))
+    assert any(g["keep"] == 10 for g in dedupe.find_possible_duplicates(conn))
+
+
+def test_a_blog_host_shared_by_everyone_proves_nothing(conn):
+    _lead(conn, 10, company_en="A", country="South Korea", website="blog.naver.com/a")
+    _lead(conn, 11, company_en="B", country="South Korea", website="blog.naver.com/b")
+    assert not any(10 in (k, *d) for k, d in _pairs(conn))
+
+
+def test_one_phone_two_websites_is_for_a_person_to_decide(conn):
+    _lead(conn, 10, company_en="ATH Productions", country="USA", website="athproductions.com",
+          phone="+14098605551")
+    _lead(conn, 11, company_en="Bounce Multimedia", country="USA", website="bouncemultimedia.com",
+          phone="+14098605551")
+    assert not any(10 in (k, *d) for k, d in _pairs(conn))
+    assert any(g["keep"] == 10 for g in dedupe.find_possible_duplicates(conn))
+
+
+def test_but_a_stub_with_only_that_phone_is_the_same_company(conn):
+    _lead(conn, 10, company_en="RDL LED", country="USA", phone="+19096800141")
+    _lead(conn, 11, company_en="Reddotlogics", country="USA", website="reddotlogics.com",
+          phone="+19096800141")
+    assert (10, (11,)) in _pairs(conn)
+
+
+def test_do_not_contact_survives_the_merge(conn):
+    _lead(conn, 10, company_en="Ailed", country="South Korea", website="ailed.co.kr")
+    _lead(conn, 11, company_en="Ailed Co., Ltd", country="South Korea", website="ailed.co.kr",
+          do_not_contact=1)
+    dedupe.merge_leads(conn, 10, [11])
+    assert conn.execute("SELECT do_not_contact FROM leads WHERE no=10").fetchone()[0] == 1
