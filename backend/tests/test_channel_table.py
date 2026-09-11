@@ -153,10 +153,9 @@ def test_a_handle_is_only_worth_the_domain_it_leads_to():
     assert scrape_runner.handles_from_hrefs(
         ["https://www.instagram.com/ledworld_mx/", "https://www.instagram.com/p/C123/",
          "https://www.instagram.com/explore/tags/led/"], "instagram") == ["ledworld_mx"]
-    assert scrape_runner.external_host(
+    assert scrape_runner.bio_host(
         ["https://www.instagram.com/ledworld_mx/", "https://help.instagram.com/x",
-         "https://ledworld.mx/contacto"], "instagram") == "ledworld.mx"
-    assert scrape_runner.external_host(["https://www.facebook.com/x"], "facebook") == ""
+         "https://ledworld.mx/contacto"]) == "ledworld.mx"
 
 
 # --------------------------------------------------- R5 the reader must be declared
@@ -216,9 +215,10 @@ def test_the_api_refuses_a_channel_that_does_not_exist(tmp_path):
     assert r.status_code == 400
 
 
-def test_a_channel_that_is_not_switched_on_is_refused_before_the_job_exists(tmp_path):
+def test_a_channel_that_is_not_switched_on_is_refused_before_the_job_exists(tmp_path, monkeypatch):
     """docs/124 R5: an unconfigured channel is something to say now, not a job that
     finishes empty."""
+    monkeypatch.setattr(scrape_browser, "logged_in", lambda channel: False)
     client = _client(tmp_path)
     r = client.post("/api/discover", json={"query": "led", "channels": ["instagram"]})
     assert r.status_code == 400
@@ -476,3 +476,94 @@ def test_importing_an_unknown_profile_is_refused(tmp_path, monkeypatch):
     for bad in ("Profile 9", "../../Windows", ""):
         with pytest.raises(ValueError):
             scrape_browser.import_login("instagram", bad)
+
+
+def test_a_collecting_profile_never_offers_to_fill_a_password(tmp_path, monkeypatch):
+    """Chrome saved a wrong password into the collecting profile and then filled it in
+    on every attempt, so the account it kept submitting was not the one Allen meant."""
+    monkeypatch.setattr(scrape_browser, "SCRAPE_DIR", tmp_path)
+    monkeypatch.setattr(scrape_browser, "_LOGIN_WINDOWS", {})
+    monkeypatch.setattr(scrape_browser, "chrome_path", lambda: "C:/Chrome/chrome.exe")
+    monkeypatch.setattr(scrape_browser, "_spawn", lambda argv: None)
+    scrape_browser.start_login("instagram")
+
+    import json as _json
+    prefs = _json.loads((scrape_browser.profile_dir("instagram") / "Default" / "Preferences")
+                        .read_text(encoding="utf-8"))
+    assert prefs["credentials_enable_service"] is False
+    assert prefs["profile"]["password_manager_enabled"] is False
+    assert prefs["autofill"]["profile_enabled"] is False
+
+
+def test_seeding_leaves_a_profile_that_is_already_logged_in_alone(tmp_path, monkeypatch):
+    """Rewriting the preferences of a working profile would be a way to break one."""
+    monkeypatch.setattr(scrape_browser, "SCRAPE_DIR", tmp_path)
+    monkeypatch.setattr(scrape_browser, "_LOGIN_WINDOWS", {})
+    monkeypatch.setattr(scrape_browser, "chrome_path", lambda: "C:/Chrome/chrome.exe")
+    monkeypatch.setattr(scrape_browser, "_spawn", lambda argv: None)
+    monkeypatch.setattr(scrape_browser, "logged_in", lambda ch: True)
+    target = scrape_browser.profile_dir("instagram") / "Default"
+    target.mkdir(parents=True)
+    (target / "Preferences").write_text('{"mine": 1}', encoding="utf-8")
+    scrape_browser.start_login("instagram")
+    assert (target / "Preferences").read_text(encoding="utf-8") == '{"mine": 1}'
+
+
+# ---------------------------- R5 reading Instagram with the session Allen handed over
+
+# Measured 2026-09-11 on the real profiles: the bio link is wrapped in Instagram's own
+# redirector, and Meta's footer links sit on every page below it.
+_REAL_HREFS = [
+    "https://l.instagram.com/?u=https%3A%2F%2Fwww.pantallasledlemon.com%2F%3Futm_source"
+    "%3Dig%26utm_medium%3Dsocial%26fbclid%3DPAcGRvZg&e=AUCzL-6ugMjXBqR2",
+    "https://about.meta.com/", "https://developers.facebook.com/docs/instagram",
+    "https://www.meta.ai/?utm_source=foa_web_footer", "https://muse.ai/",
+    "https://www.threads.com/",
+]
+
+
+def test_the_bio_link_is_unwrapped_from_instagrams_redirector():
+    assert scrape_runner.bio_host(_REAL_HREFS) == "pantallasledlemon.com"
+
+
+def test_metas_own_footer_is_never_a_company():
+    """about.meta.com, muse.ai and threads.com are on every profile page there is."""
+    assert scrape_runner.bio_host(_REAL_HREFS[1:]) == ""
+
+
+def test_the_search_reads_the_accounts_instagram_returned():
+    payload = ('{"users": [{"user": {"username": "pantallasledlemon", "full_name": "LedLemon"}},'
+               ' {"user": {"username": "pantallasledperu", "full_name": "Pantallas Led Peru"}}],'
+               ' "places": [{"place": {"title": "x"}}]}')
+    assert scrape_runner.instagram_users(payload, 5) == ["pantallasledlemon", "pantallasledperu"]
+
+
+def test_a_search_that_matches_no_account_name_is_empty_not_broken():
+    """Measured: Instagram matches account names, not descriptions — `led display
+    distributor` returns nothing while `pantallas led` returns five real companies."""
+    assert scrape_runner.instagram_users('{"users": []}', 5) == []
+
+
+def test_being_rate_limited_is_reported_rather_than_returned_as_no_companies():
+    """docs/128 R2: 429 is Instagram saying "not now", not the market saying "nobody"."""
+    with pytest.raises(RuntimeError) as caught:
+        scrape_runner.instagram_users("<!DOCTYPE html><html>...", 5, status=429)
+    assert "429" in str(caught.value)
+
+
+def test_a_chat_shortcut_in_the_bio_is_not_a_company_site():
+    """Measured: `pantallas led` returned wa.link alongside two real company sites —
+    a WhatsApp shortcut is a way to reach someone, not an address to enrich."""
+    assert scrape_runner.bio_host(["https://l.instagram.com/?u=https%3A%2F%2Fwa.link%2Fabc"]) == ""
+    assert scrape_runner.bio_host(["https://wa.me/34600111222"]) == ""
+
+
+def test_an_account_arrives_carrying_the_handle_its_dms_would_go_to(monkeypatch):
+    monkeypatch.setattr(scrape_browser, "read_search",
+                        lambda channel, query, limit=20: {
+                            "hosts": ["exctecled.com"],
+                            "pages": [{"handle": "pantallasledperu", "domain": "exctecled.com"},
+                                      {"handle": "noSite", "domain": ""}]})
+    out = ds.instagram_accounts("pantallas led", 5)
+    assert out == [{"domain": "exctecled.com", "website": "exctecled.com",
+                    "source": "instagram", "instagram": "pantallasledperu"}]

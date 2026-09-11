@@ -138,6 +138,41 @@ def chrome_path() -> str:
     return ""
 
 
+# A collecting browser has no business remembering a password. Chrome saved a wrong one
+# into this profile on 2026-09-11 and then filled it in on every attempt, so Instagram
+# kept being handed an account Allen had not chosen — and answered, accurately,
+# 「你输入的登录信息有误」.
+_NO_AUTOFILL = {
+    "credentials_enable_service": False,
+    "credentials_enable_autosignin": False,
+    "profile": {"password_manager_enabled": False},
+    "autofill": {"profile_enabled": False, "credit_card_enabled": False},
+}
+
+
+def _merge(into: dict, patch: dict) -> dict:
+    for key, value in patch.items():
+        if isinstance(value, dict) and isinstance(into.get(key), dict):
+            _merge(into[key], value)
+        else:
+            into[key] = value
+    return into
+
+
+def _seed_preferences(profile: Path) -> None:
+    """Turn the password manager off before Chrome's first run on this profile."""
+    default = profile / "Default"
+    default.mkdir(parents=True, exist_ok=True)
+    prefs = default / "Preferences"
+    current: dict = {}
+    if prefs.is_file():
+        try:
+            current = json.loads(prefs.read_text(encoding="utf-8", errors="replace"))
+        except ValueError:
+            current = {}
+    prefs.write_text(json.dumps(_merge(current, _NO_AUTOFILL)), encoding="utf-8")
+
+
 def start_login(channel: str):
     """Open an ordinary Chrome on the collecting profile, with nothing driving it.
 
@@ -161,8 +196,12 @@ def start_login(channel: str):
             "登不进 Instagram（Meta 的验证码不渲染）。请先安装 Google Chrome")
     profile = profile_dir(channel)
     profile.mkdir(parents=True, exist_ok=True)
+    # Only while there is nothing to lose: rewriting a working profile's preferences is
+    # a way to break one.
+    if not logged_in(channel):
+        _seed_preferences(profile)
     proc = _spawn([chrome, f"--user-data-dir={profile}", "--no-first-run",
-                   "--no-default-browser-check", LOGIN_URL[channel]])
+                   "--no-default-browser-check", "--disable-sync", LOGIN_URL[channel]])
     _LOGIN_WINDOWS[channel] = proc
     return proc
 
@@ -294,8 +333,8 @@ def read_pages(channel: str, handles: list[str], limit: int = 20, *, run=None) -
     return _run_runner(argv, channel, run).get("pages") or []
 
 
-def read_hosts(channel: str, query: str, limit: int = 20, *,
-               headless: bool | None = None, run=None) -> list[str]:
+def read_search(channel: str, query: str, limit: int = 20, *,
+                headless: bool | None = None, run=None) -> dict:
     """Company domains this channel shows for this query. Raises rather than lying.
 
     An empty list here means the page had nothing on it. Everything else — a wall, a
@@ -313,4 +352,10 @@ def read_hosts(channel: str, query: str, limit: int = 20, *,
     headed = channel in NEEDS_LOGIN if headless is None else not headless
     argv = _argv(channel, limit, headed) + ["--query", query]
     payload = _run_runner(argv, channel, run)
-    return [h for h in payload.get("hosts") or [] if h][:limit]
+    payload["hosts"] = [h for h in payload.get("hosts") or [] if h][:limit]
+    return payload
+
+
+def read_hosts(channel: str, query: str, limit: int = 20, **kw) -> list[str]:
+    """Just the domains, for a channel whose results carry nothing else."""
+    return read_search(channel, query, limit, **kw)["hosts"]

@@ -206,6 +206,31 @@ Chromium 一启动就写 `Default/`，按目录判断会把每一个开过一次
 真实选择器等 Allen 登录一个可以赔的账号之后按实测改。在那之前渠道是「未启用」，
 一行未验证的选择器也执行不到。
 
+### 登进去之后：会话在被驱动的浏览器里是有效的
+
+这是这条链上最后一个未知数，2026-09-11 实测答了：Allen 在普通 Chrome 里登好、
+系统用 Playwright 打开同一个 profile，**首页是他的信息流，导航和自己的主页链接都在，
+没有登录表单**。所以那条界线很清楚——
+
+> **建立会话必须在没有程序驱动的浏览器里；带着会话去浏览没有这个限制。**
+
+Instagram 的读法由此确定，两步都是实测出来的：
+
+| 想读什么 | 能用的路 | 不能用的路 |
+|---|---|---|
+| 搜账号 | 页面内调 `/api/v1/web/search/topsearch/`（带 `X-IG-App-ID`） | `/explore/search/keyword/?q=` 只渲染 607 字节，没有结果 |
+| 拿官网 | 打开主页读 bio 外链，解开 `l.instagram.com/?u=` 那层跳板 | `/api/v1/users/web_profile_info/` 直接 **429**，五个账号全被限流 |
+
+还有一条必须写下来，否则这条渠道看起来像坏的：**Instagram 搜的是账号名，不是描述。**
+`led display distributor` 返回 **0 个账号**；`pantallas led` 返回五家真实的拉美 LED 公司
+（LedLemon、Pantallas LED Scherm、Pantallas Led Peru、CGS Chile、Pantallas Led Venezuela）。
+所以这条渠道要喂**短的、像名字的词**，长句子在这里天生无效——那是空结果，不是故障。
+
+跑通的产出（同日实测）：`pantallas led` → pantallasledlemon.com、exctecled.com；
+`led screen rental` → ledscreenrental.ae。和 Facebook 一样只有域名过界，
+账号 handle 跟着进库，这家公司一入库就带着私信地址。
+429 按 docs/128 R2 处理：报「被限流」，不报 0 家。
+
 ## R6 读法由渠道声明，API 按声明校验
 
 `/api/discover` 和 `/api/discover/page` 收到一条渠道没有声明的读法时报 400，

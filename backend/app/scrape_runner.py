@@ -56,8 +56,14 @@ _NOT_A_HANDLE = {"p", "reel", "reels", "explore", "stories", "direct", "accounts
                  "groups", "marketplace", "watch", "events", "search", "login"}
 _HANDLE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,29}$")
 # A link-in-bio page is a redirect, not an address: enriching it reads the shortener.
+# A redirect or a chat shortcut is a way to reach someone, not an address to enrich.
 _REDIRECTORS = ("linktr.ee", "bit.ly", "lnkd.in", "linkin.bio", "beacons.ai",
-                "taplink.cc", "l.instagram.com", "l.facebook.com")
+                "taplink.cc", "l.instagram.com", "l.facebook.com",
+                "wa.link", "wa.me", "api.whatsapp.com", "t.me", "m.me")
+# Meta's own footer, on every profile page: about.meta.com, muse.ai, threads.com and
+# the developer docs are not companies anyone can sell an LED screen to.
+_META_FOOTER = ("about.meta.com", "muse.ai", "threads.com", "developers.facebook.com",
+                "meta.ai", "about.instagram.com", "help.instagram.com")
 
 
 def _host(url: str) -> str:
@@ -81,25 +87,6 @@ def handles_from_hrefs(hrefs, channel: str) -> list[str]:
         if handle not in out:
             out.append(handle)
     return out
-
-
-def external_host(hrefs, channel: str) -> str:
-    """The company's own site, as linked from its profile — the only field that crosses.
-
-    docs/124 R1 and docs/126 R2 both land here: a handle is not a company we can write
-    to, and a company name read off a profile is a guess. The link in the bio is the one
-    thing on that page that is a fact about the company, and `enrich_domain` checks even
-    that by reading the site itself.
-    """
-    platform = _PLATFORM_HOSTS.get(channel, ())
-    for href in hrefs or []:
-        host = _host(href)
-        if not host or any(host == p or host.endswith("." + p) for p in platform):
-            continue
-        if host in _REDIRECTORS:
-            continue
-        return host
-    return ""
 
 
 # Facebook's About tab prints the fields it has under their own labels: a phone under
@@ -140,12 +127,84 @@ def site_from_about(text: str) -> str:
     return ""
 
 
+def decode_redirect(href: str) -> str:
+    """Unwrap Instagram's `l.instagram.com/?u=<encoded>`, or return the link unchanged.
+
+    The bio link — the one field on a profile that is a fact about the company — is
+    always wrapped, so a reader that skips redirectors skips the only link worth having.
+    """
+    parsed = urllib.parse.urlparse(str(href or ""))
+    if parsed.netloc.lower().lstrip("l.") and parsed.netloc.lower() in (
+            "l.instagram.com", "l.facebook.com", "lm.facebook.com"):
+        target = urllib.parse.parse_qs(parsed.query).get("u")
+        return target[0] if target else ""
+    return str(href or "")
+
+
+def bio_host(hrefs) -> str:
+    """The site a profile links to in its bio, as a bare host.
+
+    Measured 2026-09-11: pantallasledlemon links pantallasledlemon.com and
+    pantallasledperu links exctecled.com, both through the redirector, both above the
+    Meta footer that every profile carries.
+    """
+    for href in hrefs or []:
+        host = _host(decode_redirect(href))
+        if not host or host in _REDIRECTORS:
+            continue
+        if any(host == bad or host.endswith("." + bad)
+               for bad in _META_FOOTER + _PLATFORM_HOSTS["instagram"]):
+            continue
+        return host
+    return ""
+
+
+# Instagram's own web search, called from inside the logged-in page. The DOM route does
+# not exist for this: `/explore/search/keyword/?q=` renders 607 bytes and no results.
+SEARCH_JS = """async (q) => {
+  const r = await fetch('/api/v1/web/search/topsearch/?context=blended&query='
+                        + encodeURIComponent(q),
+                        {headers: {'X-IG-App-ID': '936619743392459'}});
+  return {status: r.status, text: (await r.text()).slice(0, 300000)};
+}"""
+
+
+def instagram_users(text: str, limit: int, status: int = 200) -> list[str]:
+    """The account names Instagram returned, or an exception saying why there are none.
+
+    Note what this search is: Instagram matches **account names**, not descriptions.
+    `led display distributor` returns nothing at all, while `pantallas led` returns five
+    real Latin American LED companies. Empty is a normal answer to a phrase, and
+    429 is Instagram declining — which is not the same as the market being empty
+    (docs/128 R2).
+    """
+    if status == 429:
+        raise RuntimeError("Instagram 限流（429）—— 这个采集账号暂时被限速，过一会儿再试")
+    if status != 200:
+        raise RuntimeError(f"Instagram 搜索返回 {status}")
+    try:
+        payload = json.loads(text)
+    except ValueError as exc:
+        raise RuntimeError("Instagram 没有返回 JSON —— 登录态可能失效了") from exc
+    out: list[str] = []
+    for row in payload.get("users") or []:
+        user = row.get("user") if isinstance(row, dict) else None
+        name = (user or {}).get("username") if isinstance(user, dict) else None
+        if name and name not in out:
+            out.append(name)
+        if len(out) >= max(1, limit):
+            break
+    return out
+
+
 # One entry per channel: where to ask. A channel whose results page is stable enough to
 # be worth a selector is in here; the ones that are not stay with browser-use
 # (docs/126 R1), and the ones whose answers are not worth having are in neither.
 SEARCH_URL = {
     "google": "https://www.google.com/search?q={q}&num=30",
-    "instagram": "https://www.instagram.com/explore/search/keyword/?q={q}",
+    # The search happens through `SEARCH_JS` once this page is open; the keyword route
+    # renders 607 bytes and no results.
+    "instagram": "https://www.instagram.com/",
 }
 # Facebook is not in there: its own search answers a logged-out browser with `Not Found`
 # (9 bytes, measured 2026-09-11). Its pages are public though, so that channel arrives
@@ -265,19 +324,23 @@ def _read(args) -> dict:
                         out["hosts"].append(host)
                 out["hosts"] = out["hosts"][:args.limit]
                 return out
-            # Social: a results page gives account names, and a name is not a company.
-            # Each profile is opened once, to read the site it links to.
-            out["handles"] = handles_from_hrefs(page.evaluate(_LINKS_JS), channel)[:args.limit]
+            # Instagram: its own search endpoint, called from inside the logged-in page.
+            # A name is not a company, so each account is opened once and what crosses is
+            # the site its bio links to (docs/124 R1).
+            answer = page.evaluate(SEARCH_JS, args.query)
+            out["handles"] = instagram_users(answer.get("text") or "", args.limit,
+                                             answer.get("status") or 0)
             for handle in out["handles"]:
                 try:
                     page.goto(_profile_url(channel, handle),
                               wait_until="domcontentloaded", timeout=45000)
-                    page.wait_for_timeout(2500)
-                    host = external_host(page.evaluate(_LINKS_JS), channel)
+                    page.wait_for_timeout(3000)
+                    host = bio_host(page.evaluate(_LINKS_JS))
                 except Exception:  # noqa: BLE001 — one profile, not the channel
                     continue
                 if host and host not in out["hosts"]:
                     out["hosts"].append(host)
+                    out["pages"].append({"handle": handle, "domain": host})
             return out
         finally:
             try:

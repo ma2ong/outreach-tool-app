@@ -301,6 +301,35 @@ def _facebook_page_urls(query: str, limit: int = 10) -> list[str]:
     return search_urls(f"site:facebook.com {query}", limit=max(limit * 3, limit))
 
 
+def instagram_accounts(query: str, limit: int = 20) -> list[Candidate]:
+    """Companies found through their Instagram account (docs/128 R5).
+
+    Instagram's search matches **account names**, not descriptions: `pantallas led`
+    returns five Latin American LED companies and `led display distributor` returns
+    nothing at all. Short, name-like keywords are what this channel is for.
+
+    Only the domain crosses (docs/124 R1) — the bio's phone and email stay on the page —
+    and the handle rides along so the company arrives carrying the address its DMs would
+    go to.
+    """
+    from app import scrape_browser
+
+    payload = scrape_browser.read_search("instagram", query, limit)
+    rows = payload.get("pages") or [{"domain": h} for h in payload.get("hosts") or []]
+    out: list[Candidate] = []
+    seen: set[str] = set()
+    for row in rows:
+        host = (row.get("domain") or "").lower()
+        if not host or host in seen or not is_company_site(f"http://{host}"):
+            continue
+        seen.add(host)
+        candidate: Candidate = {"domain": host, "website": host, "source": "instagram"}
+        if row.get("handle"):
+            candidate["instagram"] = row["handle"]
+        out.append(candidate)
+    return out
+
+
 def facebook_public_pages(query: str, limit: int = 20) -> list[Candidate]:
     """Companies found through their public Facebook page (docs/128 R4).
 
@@ -451,7 +480,7 @@ SOURCES: dict[str, Source] = {
     # until a collection account is logged in they report 未启用 and read nothing.
     "instagram": Source(
         name="instagram", label="Instagram 搜索（采集小号）", kind="social",
-        readers={"playwright": _playwright_search("instagram")},
+        readers={"playwright": instagram_accounts},
         unavailable=lambda: _scrape_unavailable("instagram"),
         optional=True, unattended=False),
     # The one channel that needs a browser and still runs with nobody there: public

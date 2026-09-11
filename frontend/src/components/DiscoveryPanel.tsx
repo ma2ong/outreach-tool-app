@@ -180,6 +180,13 @@ export function DiscoveryPanel({ onImported }: { onImported: () => void }) {
               {busy ? "搜索中…" : `搜索深挖（${queryLines.length} 条）`}
             </button>
           </div>
+          {channels.has("instagram") && (
+            <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+              Instagram 搜的是<b>账号名</b>，不是描述：<code>pantallas led</code>、
+              <code>led screen rental</code> 这种短词能搜到公司，
+              <code>LED video wall installer contact</code> 这种长句一个账号都搜不到。
+            </div>
+          )}
           <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
             <span className="muted" style={{ fontSize: 12 }}>
               渠道{channels.size === 0 ? "（不选＝自动跑免费的那几条）" : ""}：
