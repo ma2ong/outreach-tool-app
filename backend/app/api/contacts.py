@@ -19,6 +19,14 @@ class ContactCreate(BaseModel):
     is_primary: bool = False
 
 
+# docs/114：同一个人的另一个信箱 / 另一个号码。
+class ChannelCreate(BaseModel):
+    kind: str
+    value: str
+    # 地址已属于同公司另一个联系人时，前端确认「是同一个人」后带这个再来一次。
+    merge: bool = False
+
+
 class ContactUpdate(BaseModel):
     name: str | None = None
     title: str | None = None
@@ -63,6 +71,58 @@ def update_contact(contact_id: int, req: ContactUpdate, conn=Depends(get_conn)):
         _bad(exc)
     if result is None:
         raise HTTPException(status_code=404, detail="联系人不存在")
+    return result
+
+
+@router.post("/{contact_id}/channels")
+def add_channel(contact_id: int, req: ChannelCreate, conn=Depends(get_conn)):
+    try:
+        return contacts.add_channel(conn, contact_id, req.kind, req.value)
+    except contacts.ContactConflict as exc:
+        if not req.merge:
+            # 409 带上占着这个地址的是谁，前端才问得出「把他并过来吗」。
+            raise HTTPException(status_code=409, detail={
+                "message": str(exc), "contact_id": exc.contact_id,
+                "contact_name": exc.contact_name,
+            })
+        try:
+            merged = contacts.fold_into(conn, contact_id, exc.contact_id)
+        except contacts.ContactValidation as bad:
+            _bad(bad)
+        if merged is None:
+            raise HTTPException(status_code=404, detail="联系人不存在")
+        return merged
+    except contacts.ContactValidation as exc:
+        _bad(exc)
+
+
+class ChannelUpdate(BaseModel):
+    value: str
+
+
+@router.patch("/channels/{channel_id}")
+def update_channel(channel_id: int, req: ChannelUpdate, conn=Depends(get_conn)):
+    try:
+        result = contacts.update_channel(conn, channel_id, req.value)
+    except contacts.ContactValidation as exc:
+        _bad(exc)
+    if result is None:
+        raise HTTPException(status_code=404, detail="联系方式不存在")
+    return result
+
+
+@router.delete("/channels/{channel_id}")
+def delete_channel(channel_id: int, conn=Depends(get_conn)):
+    if not contacts.delete_channel(conn, channel_id):
+        raise HTTPException(status_code=404, detail="联系方式不存在")
+    return {"ok": True}
+
+
+@router.post("/channels/{channel_id}/primary")
+def promote_channel(channel_id: int, conn=Depends(get_conn)):
+    result = contacts.promote_channel(conn, channel_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="联系方式不存在")
     return result
 
 

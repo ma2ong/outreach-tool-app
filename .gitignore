@@ -44,3 +44,11 @@ backend/xiaoman_survey.json
 
 # 只读探测的产物：含主页名和账号名，属于一次性诊断数据
 backend/fb_dock.json
+
+# 两个 agent 的工具留下的临时目录。部署脚本要求工作树全干净（未跟踪文件也算），
+# 这些留在原地会挡住 update_production.ps1。
+.pytest-codex-temp/
+.playwright-mcp/
+
+# Allen 手工维护的客户资料表（docs/118 读的就是它）：客户联系方式，42MB，永远不进仓库
+/*.xlsx

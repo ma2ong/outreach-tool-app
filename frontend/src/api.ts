@@ -1,4 +1,4 @@
-import type { Lead, Stats, SendJob, DiscoverJob } from "./types";
+import type { Lead, Stats, SendJob, DiscoverJob, DiscoverySource } from "./types";
 
 export async function fetchAuthStatus(): Promise<{ enabled: boolean; authed: boolean }> {
   const r = await fetch("/api/auth/status");
@@ -200,13 +200,68 @@ export async function fetchJob(id: string): Promise<SendJob> {
 
 export interface ScreenOpts { exclude_countries?: string[]; exclude_peers?: boolean }
 
-export async function startDiscover(queries: string[], limit = 10, screen: ScreenOpts = {}): Promise<{ job_id: string }> {
+export async function startDiscover(
+  queries: string[], limit = 10, screen: ScreenOpts = {},
+  channels?: string[], engine?: string,
+): Promise<{ job_id: string }> {
   const r = await fetch("/api/discover", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ queries, limit, ...screen }),
+    body: JSON.stringify({ queries, limit, ...screen, channels: channels?.length ? channels : null, engine: engine || null }),
   });
-  if (!r.ok) throw new Error(`discover ${r.status}`);
+  // 渠道没开通 / 读法这条渠道没有，后端回的是「缺什么」而不是一个状态码。docs/128 R5
+  if (!r.ok) {
+    const detail = await r.json().then((b) => b?.detail).catch(() => null);
+    throw new Error(detail || `discover ${r.status}`);
+  }
+  return r.json();
+}
+
+// 采集账号：只有真的需要登录的渠道会出现在这里（FB 公共主页不需要账号）。docs/128 R5
+export interface ScrapeChannel { name: string; state: string; logged_in: boolean; hint: string }
+
+export async function fetchScrapeChannels(): Promise<{ channels: ScrapeChannel[] }> {
+  const r = await fetch("/api/channels/scrape");
+  if (!r.ok) throw new Error(`scrape channels ${r.status}`);
+  return r.json();
+}
+
+// 密码不经过服务器：这里只是让后端弹出一个浏览器窗口，Allen 在窗口里自己登录。
+export async function startScrapeLogin(channel: string): Promise<{ status: string }> {
+  const r = await fetch(`/api/channels/scrape/${channel}/login`, { method: "POST" });
+  if (!r.ok) {
+    const detail = await r.json().then((b) => b?.detail).catch(() => null);
+    throw new Error(detail || `login ${r.status}`);
+  }
+  return r.json();
+}
+
+export interface ChromeProfile { folder: string; name: string }
+
+export async function fetchChromeProfiles(): Promise<{ profiles: ChromeProfile[]; chrome_running: boolean }> {
+  const r = await fetch("/api/channels/scrape/chrome-profiles");
+  if (!r.ok) throw new Error(`chrome profiles ${r.status}`);
+  return r.json();
+}
+
+// Meta 不让在被程序驱动的窗口里建立会话，所以登录在 Allen 自己的 Chrome 里做，
+// 这里只是把那份个人资料接过来给采集用。docs/128 R5
+export async function importScrapeLogin(channel: string, folder: string): Promise<{ logged_in: boolean; detail: string }> {
+  const r = await fetch(`/api/channels/scrape/${channel}/import`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ folder }),
+  });
+  if (!r.ok) {
+    const detail = await r.json().then((b) => b?.detail).catch(() => null);
+    throw new Error(detail || `import ${r.status}`);
+  }
+  return r.json();
+}
+
+// 哪几条渠道现在能跑，哪几条没配好、为什么。docs/70 R4
+export async function fetchDiscoverySources(): Promise<{ sources: DiscoverySource[] }> {
+  const r = await fetch("/api/discover/sources");
+  if (!r.ok) throw new Error(`sources ${r.status}`);
   return r.json();
 }
 
@@ -233,14 +288,18 @@ export async function fetchCustomerTypes(): Promise<{ options: string[]; known: 
 
 export async function startPageDiscover(
   url: string, limit = 40, screen: ScreenOpts = {},
-  show?: string, year?: number,
+  show?: string, year?: number, engine: "jina" | "browser" = "jina",
 ): Promise<{ job_id: string }> {
   const r = await fetch("/api/discover/page", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, limit, ...screen, show: show || null, year: year || null }),
+    body: JSON.stringify({ url, limit, ...screen, show: show || null, year: year || null, engine }),
   });
-  if (!r.ok) throw new Error(`discover ${r.status}`);
+  // 浏览器引擎没装时后端回的是「缺什么」，不是一个状态码。docs/124 R5
+  if (!r.ok) {
+    const detail = await r.json().then((b) => b?.detail).catch(() => null);
+    throw new Error(detail || `discover ${r.status}`);
+  }
   return r.json();
 }
 
@@ -514,6 +573,60 @@ export async function deleteContact(id: number): Promise<void> {
   if (!r.ok) throw new Error(`contact ${r.status}`);
 }
 
+// docs/114：这个地址已经是同公司另一个联系人的——是不是同一个人，只有 Allen 知道。
+export class ContactAddressTaken extends Error {
+  constructor(readonly contactId: number, readonly contactName: string | null, message: string) {
+    super(message);
+  }
+}
+
+export async function addContactChannel(
+  id: number, kind: "email" | "phone", value: string, merge = false,
+): Promise<import("./types").Contact | import("./types").ContactChannel> {
+  const r = await fetch(`/api/contacts/${id}/channels`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, value, merge }),
+  });
+  if (r.status === 409) {
+    const d = (await r.json().catch(() => null))?.detail;
+    throw new ContactAddressTaken(d?.contact_id, d?.contact_name ?? null,
+      d?.message || "这个联系方式已被占用");
+  }
+  if (!r.ok) {
+    const detail = (await r.json().catch(() => null))?.detail;
+    throw new Error(detail || `contact channel ${r.status}`);
+  }
+  return r.json();
+}
+
+export async function promoteContactChannel(
+  channelId: number,
+): Promise<import("./types").Contact> {
+  const r = await fetch(`/api/contacts/channels/${channelId}/primary`, { method: "POST" });
+  if (!r.ok) throw new Error(`contact channel ${r.status}`);
+  return r.json();
+}
+
+export async function updateContactChannel(
+  channelId: number, value: string,
+): Promise<import("./types").ContactChannel> {
+  const r = await fetch(`/api/contacts/channels/${channelId}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  if (!r.ok) {
+    const detail = (await r.json().catch(() => null))?.detail;
+    throw new Error(typeof detail === "string" ? detail
+      : detail?.message || `contact channel ${r.status}`);
+  }
+  return r.json();
+}
+
+export async function deleteContactChannel(channelId: number): Promise<void> {
+  const r = await fetch(`/api/contacts/channels/${channelId}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(`contact channel ${r.status}`);
+}
+
 export async function fetchOpportunities(params: {
   stage?: string; lead_no?: number; attention?: boolean;
 } = {}): Promise<import("./types").Opportunity[]> {
@@ -635,12 +748,18 @@ export async function fetchCleanable(): Promise<{ leads: HealthLead[]; count: nu
   return r.json();
 }
 
-export async function bulkDeleteLeads(nos: number[], block = false): Promise<{ deleted: number; blocked_domains: string[] }> {
+export async function bulkDeleteLeads(nos: number[], block = false): Promise<{ deleted: number; blocked_domains: string[]; failed: number[] }> {
   const r = await fetch("/api/leads/bulk_delete", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nos, block }),
   });
   if (!r.ok) throw new Error(`bulk delete ${r.status}`);
   return r.json();
+}
+
+// 批量删除可能只成功一半：后台任务占着写锁时，那几条会被跳过（docs/124 R2）。三个调用点
+// 说同一句话，而且这句话要给出下一步——重点在「再点一次就行」，不在「失败」。
+export function busyTail(failed: number[]): string {
+  return failed.length ? `；${failed.length} 家因数据库正忙没删掉，稍后再点一次删除即可` : "";
 }
 
 export async function fixHealth(issues: string[]): Promise<Record<string, number>> {

@@ -60,10 +60,13 @@ def test_apply_to_lead_sets_fit_and_replaces_icp_tag(conn):
     icp.apply_to_lead(conn, 1, {"icp_type": "rental", "fit_score": 92})
     row = conn.execute("SELECT target_fit, tags FROM leads WHERE no=1").fetchone()
     assert row["target_fit"] == "租赁公司 (92)"
-    assert row["tags"] == "vip,icp:rental"  # old icp tag replaced, others kept
+    assert row["tags"] == "Rental,vip,icp:rental"  # canonical route + classifier verdict
 
 
-def test_apply_unknown_is_noop(conn):
+def test_apply_unknown_writes_the_verdict_down(conn):
+    """An explicit unknown verdict is still information: it distinguishes "
+    "'checked and unclear' from 'never classified'."""
     icp.apply_to_lead(conn, 1, {"icp_type": "unknown", "fit_score": 0})
-    row = conn.execute("SELECT target_fit FROM leads WHERE no=1").fetchone()
-    assert row["target_fit"] is None
+    row = conn.execute("SELECT target_fit, tags FROM leads WHERE no=1").fetchone()
+    assert row["target_fit"] == "未知 (0)"
+    assert "icp:unknown" in row["tags"]

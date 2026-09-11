@@ -175,6 +175,9 @@ _TABLE_COLUMNS = {
         "next_action": "TEXT",
         "email_status": "TEXT",
         "do_not_contact": "INTEGER DEFAULT 0",
+        # 不再对这家发冷启动开发信/冷私信，但跟进、报价、手动发信、回信全部照常
+        # （docs/122 R1）。老客户复购和「同行，闭嘴」是两件事，两个字段。
+        "no_cold_outreach": "INTEGER DEFAULT 0",
         "brief": "TEXT",
         "hook": "TEXT",
         "email_source": "TEXT",

@@ -1,8 +1,11 @@
-// Agent 今日报告，按段落拆成卡片。
+// Agent 今日报告，按段落拆成「标签 + 值」的行。
 //
 // 报告本身是一段文本，因为它同时要发到 WhatsApp 和企业微信——那两个地方只能收文本，
 // 所以文本是这份报告的唯一真相。这里不另建一个结构化接口去重复算一遍，而是就地把
-// 「■ 段名 + 缩进行」拆开：格式变了，卡片跟着变，不会出现两份对不上的报告。
+// 「■ 段名 + 缩进行」拆开：格式变了，显示跟着变，不会出现两份对不上的报告。
+//
+// 排版跟 Agent 回答同一套：段名当左边的标签，内容跟在右边。日报是一眼扫完的东西，
+// 卡片网格把六七段话撑成一屏，反而要人一格一格找。
 import { useState } from "react";
 
 type Section = { title: string; lines: string[]; bullets: string[] };
@@ -12,7 +15,7 @@ const LEAD_SECTIONS = ["等你定的事", "客户那边的动静", "今天发出
 
 export function parseReport(text: string): { date: string; sections: Section[] } {
   const lines = (text || "").split("\n");
-  // 标题行是「【2026-08-31 客户开发日报】」，只取日期——「客户开发日报」和卡片上方的
+  // 标题行是「【2026-08-31 客户开发日报】」，只取日期——「客户开发日报」和上方的
   // 「今天做了什么」说的是同一件事，写两遍是噪音。
   const date = (lines[0]?.match(/【\s*([\d-]+)/)?.[1] ?? "").trim();
   const sections: Section[] = [];
@@ -36,57 +39,52 @@ export function parseReport(text: string): { date: string; sections: Section[] }
   return { date, sections: sections.sort((a, b) => rank(a) - rank(b)) };
 }
 
-// 「没有」「没有真人回复」这类是空段：卡片留着（今天确实查过了），但不喊。
+// 「没有」「没有真人回复」这类是空段：行留着（今天确实查过了），但不喊。
 const isQuiet = (s: Section) =>
   s.lines.length === 0 || (s.lines.length === 1 && /^没有/.test(s.lines[0]));
 
-function Card({ section }: { section: Section }) {
+function Row({ section }: { section: Section }) {
   const [open, setOpen] = useState(false);
   const quiet = isQuiet(section);
-  // 「等你定的事」有内容时是今天唯一需要他动手的地方，给个边框；其余一视同仁。
+  // 「等你定的事」有内容时是今天唯一需要他动手的地方，标出来；其余一视同仁。
   const needsHim = section.title === "等你定的事" && !quiet;
   const shown = open ? section.bullets : section.bullets.slice(0, 3);
   return (
-    <div className="card" style={{
-      padding: "10px 12px", margin: 0,
-      borderColor: needsHim ? "var(--warn)" : undefined,
-      opacity: quiet ? 0.65 : 1,
-    }}>
-      <div className="stat-label" style={{ marginBottom: 5 }}>
+    <div style={{ display: "flex", gap: 10, fontSize: 13, padding: "3px 0",
+                  opacity: quiet ? 0.65 : 1 }}>
+      <span className="muted" style={{ flex: "none", width: 96 }}>
         {needsHim ? "⚠ " : ""}{section.title}
+      </span>
+      <div style={{ minWidth: 0 }}>
+        {section.lines.length === 0 && <div className="muted">没有</div>}
+        {section.lines.map((line, i) => (
+          <div key={i} style={{ lineHeight: 1.55, color: needsHim ? "var(--warn)" : undefined }}>
+            {line}
+          </div>
+        ))}
+        {shown.map((b, i) => (
+          <div key={i} className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>· {b}</div>
+        ))}
+        {section.bullets.length > 3 && (
+          <button className="btn btn-sm" style={{ marginTop: 4 }} onClick={() => setOpen((v) => !v)}>
+            {open ? "收起" : `还有 ${section.bullets.length - 3} 条`}
+          </button>
+        )}
       </div>
-      {section.lines.length === 0 && <div className="muted" style={{ fontSize: 13 }}>没有</div>}
-      {section.lines.map((line, i) => (
-        <div key={i} style={{ fontSize: 13, lineHeight: 1.55 }}>{line}</div>
-      ))}
-      {shown.map((b, i) => (
-        <div key={i} className="muted" style={{ fontSize: 12, lineHeight: 1.5, marginTop: 3 }}>· {b}</div>
-      ))}
-      {section.bullets.length > 3 && (
-        <button className="btn btn-sm" style={{ marginTop: 6 }} onClick={() => setOpen((v) => !v)}>
-          {open ? "收起" : `还有 ${section.bullets.length - 3} 条`}
-        </button>
-      )}
     </div>
   );
 }
 
-export function DailyReportCards({ text }: { text: string }) {
+export function DailyReport({ text }: { text: string }) {
   const { date, sections } = parseReport(text);
   if (sections.length === 0) return null;
   return (
     <div className="card" style={{ marginBottom: 16 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
-        <h3 style={{ margin: 0, fontSize: 15 }}>今天做了什么</h3>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
+        <b style={{ fontSize: 14 }}>今天做了什么</b>
         <span className="muted" style={{ fontSize: 12 }}>{date}</span>
       </div>
-      {/* 自动列：窄屏一列，宽屏铺开。段落长短差得远，所以按内容排而不是固定几列。 */}
-      <div style={{
-        display: "grid", gap: 10,
-        gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))",
-      }}>
-        {sections.map((s) => <Card key={s.title} section={s} />)}
-      </div>
+      {sections.map((s) => <Row key={s.title} section={s} />)}
     </div>
   );
 }

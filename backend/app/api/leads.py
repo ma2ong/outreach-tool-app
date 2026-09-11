@@ -185,20 +185,37 @@ def merge_selected(req: MergeRequest, conn=Depends(get_conn)):
 @router.post("/leads/bulk_delete")
 def bulk_delete(req: BulkDeleteRequest, conn=Depends(get_conn)):
     """Delete the leads Allen ticked, in one go. Ids that are already gone are skipped
-    rather than failing the batch — the list he ticked may be a minute out of date."""
+    rather than failing the batch — the list he ticked may be a minute out of date.
+
+    A row the write lock is busy on is skipped the same way (docs/120). The background
+    verifier writes to the same file, and losing the lock on row six used to fail the
+    whole request after rows one to five were already committed: the screen said
+    "删除失败" about a batch that was half gone."""
+    import sqlite3
+
     from app import blocklist
-    deleted, blocked = 0, []
+    deleted, blocked, failed = 0, [], []
     for no in req.nos:
         lead = repo.get_lead(conn, no)
         if lead is None:
             continue
+        try:
+            repo.delete_lead(conn, no)
+        except sqlite3.OperationalError as exc:
+            # Only the lock. A foreign key or a typo is a bug, and filing a bug as
+            # "this one did not delete" is how it stays hidden.
+            if "locked" not in str(exc) and "busy" not in str(exc):
+                raise
+            failed.append(no)
+            continue
+        deleted += 1
+        # Blocking the domain after the delete, not before: a row that never got deleted
+        # must not leave its domain on the never-collect-again list (docs/120 R3).
         if req.block:
             row = blocklist.add(conn, lead.website or lead.email or "", f"批量清理 {lead.company_en}")
             if row:
                 blocked.append(row["domain"])
-        repo.delete_lead(conn, no)
-        deleted += 1
-    return {"deleted": deleted, "blocked_domains": sorted(set(blocked))}
+    return {"deleted": deleted, "blocked_domains": sorted(set(blocked)), "failed": failed}
 
 
 @router.get("/leads/{no}", response_model=Lead)

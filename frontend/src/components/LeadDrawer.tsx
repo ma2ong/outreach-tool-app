@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead, fetchActivities, createActivity, completeActivity, fetchLead, fetchContacts, createContact, updateContact, setPrimaryContact, deleteContact, recheckLead } from "../api";
-import type { Activity, Contact, Lead, LeadIntelligence, Opportunity } from "../types";
+import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead, fetchActivities, createActivity, completeActivity, fetchLead, fetchContacts, createContact, updateContact, setPrimaryContact, deleteContact, recheckLead, addContactChannel, promoteContactChannel, deleteContactChannel, updateContactChannel, ContactAddressTaken } from "../api";
+import type { Activity, Contact, ContactChannel, Lead, LeadIntelligence, Opportunity } from "../types";
 import { fetchLeadIntelligence } from "../salesIntelligenceApi";
-import { fetchLeadMemory, writeLeadMemory, forgetLeadMemory, type MemoryItem } from "../agentApi";
-import { takeoverConversation, resumeConversation, scheduleConversation } from "../agentApi";
+import { fetchLeadMemory, writeLeadMemory, forgetLeadMemory, fetchMemoryPresets,
+         applyMemoryPreset, takeoverConversation, resumeConversation, scheduleConversation,
+         type MemoryItem, type MemoryPreset } from "../agentApi";
 import { fetchConversation, type Conversation } from "../conversationApi";
 import { CustomerTypePicker } from "./CustomerTypePicker";
 import { CorrespondencePanel } from "./CorrespondencePanel";
@@ -40,6 +41,108 @@ function localToday(): string {
   const d = new Date();
   const pad = (v: number) => String(v).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// docs/114：一个人可以有多个信箱 / 号码。它们在界面上就是同一列里的第二个、第三个
+// 输入框——默认那个在最上面，下面每个自己带着「设为默认」和「删除」。长得像输入框
+// 就得能改，所以失焦即保存。
+function ExtraChannel({ channel, onRefresh, onError, busy, setBusy }: {
+  channel: ContactChannel; onRefresh: () => Promise<void>;
+  onError: (message: string) => void; busy: boolean; setBusy: (v: boolean) => void;
+}) {
+  const [value, setValue] = useState(channel.value);
+  useEffect(() => setValue(channel.value), [channel.value]);
+  async function act(fn: () => Promise<unknown>, what: string) {
+    setBusy(true); onError("");
+    try { await fn(); await onRefresh(); }
+    catch (e) { onError(`${what}失败：${String(e)}`); setValue(channel.value); }
+    finally { setBusy(false); }
+  }
+  async function save() {
+    const next = value.trim();
+    if (!next || next === channel.value) { setValue(channel.value); return; }
+    await act(() => updateContactChannel(channel.id, next), "修改");
+  }
+  // 两个动作浮在框里，第二个框才和第一个一样宽 —— 并排放会把地址挤掉一截。
+  const icon: React.CSSProperties = {
+    background: "none", border: "none", cursor: "pointer", padding: "0 3px",
+    fontSize: 12, lineHeight: 1, color: "var(--dim)",
+  };
+  return (
+    <div style={{ position: "relative", marginTop: 4 }}>
+      <input className="input" style={{ width: "100%", paddingRight: 42 }} value={value}
+        disabled={busy}
+        title={channel.status === "invalid" ? "这个地址已退信，不会被抄送" : undefined}
+        onChange={(e) => setValue(e.target.value)} onBlur={save}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
+      <span style={{ position: "absolute", right: 5, top: "50%", transform: "translateY(-50%)",
+        display: "flex", gap: 1 }}>
+        <button style={icon} disabled={busy} title="设为默认"
+          onClick={() => act(() => promoteContactChannel(channel.id), "设为默认")}>★</button>
+        <button style={{ ...icon, color: "var(--danger)" }} disabled={busy} title="删除这个联系方式"
+          onClick={() => act(() => deleteContactChannel(channel.id), "删除")}>×</button>
+      </span>
+    </div>
+  );
+}
+
+function ChannelField({ label, kind, contact, value, onValue, onRefresh, onError }: {
+  label: string; kind: "email" | "phone"; contact: Contact; value: string;
+  onValue: (v: string | null) => void; onRefresh: () => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [taken, setTaken] = useState<ContactAddressTaken | null>(null);
+  const extras: ContactChannel[] = (contact.channels ?? []).filter((c) => c.kind === kind);
+
+  function close() { setAdding(false); setDraft(""); setTaken(null); }
+
+  async function add(merge = false) {
+    if (!draft.trim()) return;
+    setBusy(true); onError("");
+    try {
+      await addContactChannel(contact.id, kind, draft.trim(), merge);
+      close();
+      await onRefresh();
+    } catch (e) {
+      if (e instanceof ContactAddressTaken) setTaken(e);
+      else onError(`添加${label}失败：${String(e)}`);
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="field">
+      <label>
+        {label}
+        <button className="btn btn-sm" style={{ marginLeft: 6, padding: "0 6px", lineHeight: 1.6 }}
+          onClick={() => (adding ? close() : setAdding(true))} disabled={busy}
+          title={`添加一个${label}`}>{adding ? "×" : "＋"}</button>
+      </label>
+      <input className="input" value={value} onChange={(e) => onValue(e.target.value || null)} />
+      {extras.map((channel) => (
+        <ExtraChannel key={channel.id} channel={channel} onRefresh={onRefresh}
+          onError={onError} busy={busy} setBusy={setBusy} />
+      ))}
+      {adding && <div style={{ marginTop: 4 }}>
+        <div style={{ display: "flex", gap: 3 }}>
+          <input className="input" style={{ flex: 1, minWidth: 0 }} autoFocus value={draft}
+            disabled={busy} placeholder={kind === "email" ? "另一个邮箱" : "另一个号码"}
+            onChange={(e) => { setDraft(e.target.value); setTaken(null); }}
+            onKeyDown={(e) => { if (e.key === "Enter") add(); }} />
+          <button className="btn btn-primary btn-sm" style={{ padding: "0 8px" }}
+            onClick={() => add()} disabled={busy}>添加</button>
+        </div>
+        {taken && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+          {draft.trim()} 已经是本客户下的另一个联系人
+          {taken.contactName ? `「${taken.contactName}」` : ""}。是同一个人吗？
+          <button className="btn btn-sm" style={{ marginLeft: 6 }} disabled={busy}
+            onClick={() => add(true)}>是，合并过来</button>
+        </div>}
+      </div>}
+    </div>
+  );
 }
 
 function ContactCard({ contact, onRefresh, onError }: {
@@ -87,8 +190,10 @@ function ContactCard({ contact, onRefresh, onError }: {
       <div className="field-grid">
         <div className="field"><label>姓名</label><input className="input" value={draft.name ?? ""} onChange={(e) => set("name", e.target.value || null)} /></div>
         <div className="field"><label>职位</label><input className="input" value={draft.title ?? ""} onChange={(e) => set("title", e.target.value || null)} /></div>
-        <div className="field"><label>邮箱</label><input className="input" value={draft.email ?? ""} onChange={(e) => set("email", e.target.value || null)} /></div>
-        <div className="field"><label>电话 / WhatsApp</label><input className="input" value={draft.phone ?? ""} onChange={(e) => set("phone", e.target.value || null)} /></div>
+        <ChannelField label="邮箱" kind="email" contact={contact} value={draft.email ?? ""}
+          onValue={(v) => set("email", v)} onRefresh={onRefresh} onError={onError} />
+        <ChannelField label="电话 / WhatsApp" kind="phone" contact={contact} value={draft.phone ?? ""}
+          onValue={(v) => set("phone", v)} onRefresh={onRefresh} onError={onError} />
         <div className="field"><label>LinkedIn</label><input className="input" value={draft.linkedin ?? ""} onChange={(e) => set("linkedin", e.target.value || null)} /></div>
         <div className="field"><label>采购角色</label>
           <select className="input" value={draft.role} onChange={(e) => set("role", e.target.value)}>
@@ -127,6 +232,8 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
   const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
   const [memoryDraft, setMemoryDraft] = useState("");
   const [memoryKind, setMemoryKind] = useState<"profile" | "log">("profile");
+  const [presets, setPresets] = useState<MemoryPreset[]>([]);
+  const [presetMsg, setPresetMsg] = useState("");
   const [typeOptions, setTypeOptions] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
   const [blockToo, setBlockToo] = useState(true);
@@ -202,6 +309,7 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
   // 客户类型选项跟着库走，不写死在前端：他新填一个类型，下次就出现在清单里
   useEffect(() => {
     fetchCustomerTypes().then((r) => setTypeOptions(r.options)).catch(() => setTypeOptions([]));
+    fetchMemoryPresets().then((r) => setPresets(r.options)).catch(() => setPresets([]));
   }, []);
 
   async function submitMemory() {
@@ -212,6 +320,17 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
       setMemoryDraft("");
       setMemoryItems((await fetchLeadMemory(lead.no)).items);
     } catch (e) { setErr("记忆保存失败：" + String(e)); }
+  }
+
+  // 预设按一下同时做两件事：写下那句话，改掉真正管发信的开关（docs/122 R3）
+  async function usePreset(p: MemoryPreset) {
+    try {
+      const r = await applyMemoryPreset(lead.no, p.key);
+      setPresetMsg(r.effect);
+      setMemoryItems((await fetchLeadMemory(lead.no)).items);
+      const fresh = await fetchLead(lead.no);
+      setDraft(fresh); onChange(fresh);
+    } catch (e) { setErr("预设写入失败：" + String(e)); }
   }
 
   async function dropMemory(itemId: number) {
@@ -656,6 +775,38 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
             onKeyDown={(e) => { if (e.key === "Enter") submitMemory(); }} />
           <button className="btn btn-sm" onClick={submitMemory}>记住</button>
         </div>
+        {/* 常写的那几句话做成按钮。点一下写进记忆，同时改掉真正管发信的开关 —— 它改了什么
+            必须说出来，一个看不见的开关下次就没人敢信（docs/122 R3、R4）。 */}
+        {presets.length > 0 && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+            {presets.map((p) => (
+              <button key={p.key} className="btn btn-sm" title={`${p.memory}
+
+动作：${p.effect}`}
+                onClick={() => usePreset(p)}>{p.label}</button>
+            ))}
+          </div>
+        )}
+        {(draft.no_cold_outreach || presetMsg) && (
+          <div className="note-item" style={{ marginBottom: 10, borderLeft: "3px solid var(--green)",
+                                              display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              {draft.no_cold_outreach
+                ? "已停冷发：不再自动发冷开发信和冷私信；跟进任务、报价、手动发信、回信都照常。"
+                : presetMsg}
+            </div>
+            {/* 一个只能打开、不能关掉的开关，等于让人不敢按第一下 */}
+            {draft.no_cold_outreach && (
+              <button className="btn btn-sm" title="重新让这家进入自动冷发队列"
+                onClick={async () => {
+                  try {
+                    const fresh = await updateLead(lead.no, { no_cold_outreach: false });
+                    setDraft(fresh); onChange(fresh); setPresetMsg("");
+                  } catch (e) { setErr("恢复冷发失败：" + String(e)); }
+                }}>恢复冷发</button>
+            )}
+          </div>
+        )}
         {memoryItems.length === 0 ? <div className="muted">还没有记忆；Agent 每次收到回复会自己补充。</div> :
           memoryItems.map((m) => (
             <div key={m.id} className="note-item" style={{ display: "flex", gap: 8 }}>

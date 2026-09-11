@@ -36,7 +36,8 @@ def test_classify_job_applies_types(tmp_path):
     assert job["result"]["by_type"]["rental"] == 1
     conn = connect(db)
     assert conn.execute("SELECT target_fit FROM leads WHERE no=1").fetchone()["target_fit"].startswith("租赁公司")
-    assert conn.execute("SELECT target_fit FROM leads WHERE no=2").fetchone()["target_fit"] is None
+    # docs/112 R1：判不出来的那家也留下结论，否则它和从没分过级的长得一样
+    assert conn.execute("SELECT target_fit FROM leads WHERE no=2").fetchone()["target_fit"] == "未知 (0)"
 
 
 def test_classify_background_job_uses_request_database(tmp_path, monkeypatch):

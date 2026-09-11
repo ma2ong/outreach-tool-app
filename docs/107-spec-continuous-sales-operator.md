@@ -74,6 +74,13 @@ reuse it; if another process owns the port they stop with a clear error. No supp
 launcher invokes Uvicorn directly. Local and online launchers verify the application
 identity before opening the dashboard or exposing a tunnel.
 
+## A6: merged discovery readers keep their own availability truth
+
+A discovery channel with several readers evaluates the selected reader's prerequisites,
+not an unrelated reader's. In particular Google Playwright does not require the model
+key used by the browser-use reader. Pure parser tests explicitly stub machine
+prerequisites; merely injecting a runner never bypasses production safety checks.
+
 ## Boundaries
 
 ## B1: sequence delivery intent
@@ -303,11 +310,12 @@ The integrated implementation in `codex/work` now satisfies A-H. This is source 
 test acceptance only; it has not been committed, pushed, merged into the live `main`
 worktree or deployed.
 
-- Python 3.14.2: `python -m pytest backend/tests -q` -> 1,881 passed in 110.29s.
+- After merging current `origin/main` (`210db7a`), Python 3.14.2:
+  `python -m pytest backend/tests -q` -> 2,040 passed in 135.06s.
   Focused decision-maker/runtime fault injection -> 84 passed.
 - `python -m compileall -q backend/app` passed. Exact backend dependency versions and
   GitHub Actions both target Python 3.14.
-- `npm run build` passed: 75 modules; JavaScript 477.62 kB / 139.39 kB gzip.
+- `npm run build` passed: 75 modules; JavaScript 489.89 kB / 143.07 kB gzip.
   Production and complete `npm audit` both reported zero vulnerabilities.
 - The isolated database/server smoke run disabled every external Worker capability;
   all 23 Playwright scenarios passed, including authenticated login, Dashboard,

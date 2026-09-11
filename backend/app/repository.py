@@ -102,6 +102,11 @@ def _lead_filters(country, channel, status, search, has, follow_up, follow_up_da
                     f" AND c.{col} IS NOT NULL AND c.{col} != ''))")
             else:
                 where.append(f"l.{col} IS NOT NULL AND l.{col} != ''")
+    if status == "no_cold":
+        # 他停掉冷发的那批客户是一张需要人跟的名单（docs/122）：自动发信不会再碰它们，
+        # 所以只有他自己想起来才会推进。筛得出来，才谈得上跟。
+        where.append("COALESCE(l.no_cold_outreach, 0) = 1")
+        status = None
     if status == "untouched":
         if channel:
             where.append("l.no NOT IN (SELECT lead_no FROM outreach"
@@ -211,7 +216,7 @@ def get_lead(conn, no: int) -> Lead | None:
 _EDITABLE = {"company_en", "company_local", "country", "region", "city", "contact_name",
              "title", "email", "phone", "website", "instagram", "facebook", "linkedin",
              "business", "target_fit", "stage", "tags", "follow_up_date", "next_action",
-             "do_not_contact", "brief", "hook"}
+             "do_not_contact", "no_cold_outreach", "brief", "hook"}
 
 def update_lead(conn, no: int, fields: dict) -> bool:
     cols = {k: v for k, v in fields.items() if k in _EDITABLE}

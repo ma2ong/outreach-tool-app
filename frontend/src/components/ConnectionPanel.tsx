@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { fetchChannels, connectChannel, channelStatus } from "../api";
+import { fetchChannels, connectChannel, channelStatus, fetchScrapeChannels, startScrapeLogin,
+  fetchChromeProfiles, importScrapeLogin } from "../api";
+import type { ScrapeChannel, ChromeProfile } from "../api";
 
 const LABELS: Record<string, string> = { whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook" };
 
@@ -8,10 +10,51 @@ export function ConnectionPanel() {
   const [active, setActive] = useState<string | null>(null);
   const [qrTick, setQrTick] = useState(0);
   const [err, setErr] = useState("");
+  // 采集账号和上面那些是两套身份：上面是发私信用的，下面是采集用的小号。docs/126 R4
+  const [scrape, setScrape] = useState<ScrapeChannel[]>([]);
+  const [scrapeErr, setScrapeErr] = useState("");
+
+  const loadScrape = () => fetchScrapeChannels().then((r) => setScrape(r.channels)).catch(() => {});
 
   useEffect(() => {
     fetchChannels().then(setStatus).catch((e) => setErr(`渠道状态加载失败：${String(e)}`));
+    loadScrape();
   }, []);
+
+  // 登录窗口开着的时候，登录态要等窗口关掉才落盘，所以这里持续轮询。
+  useEffect(() => {
+    if (!scrape.some((s) => s.state === "等待登录")) return;
+    const t = setInterval(loadScrape, 4000);
+    return () => clearInterval(t);
+  }, [scrape]);
+
+  const [profiles, setProfiles] = useState<ChromeProfile[]>([]);
+  const [chromeRunning, setChromeRunning] = useState(false);
+  const [picked, setPicked] = useState("");
+
+  async function loadProfiles() {
+    setScrapeErr("");
+    try {
+      const r = await fetchChromeProfiles();
+      setProfiles(r.profiles);
+      setChromeRunning(r.chrome_running);
+    } catch (e) { setScrapeErr(String(e)); }
+  }
+
+  async function doImport(ch: string) {
+    setScrapeErr("");
+    try {
+      const r = await importScrapeLogin(ch, picked);
+      if (!r.logged_in) setScrapeErr(r.detail);
+      await loadScrape();
+    } catch (e) { setScrapeErr(String(e instanceof Error ? e.message : e)); }
+  }
+
+  async function scrapeLogin(ch: string) {
+    setScrapeErr("");
+    try { await startScrapeLogin(ch); await loadScrape(); }
+    catch (e) { setScrapeErr(String(e instanceof Error ? e.message : e)); }
+  }
 
   useEffect(() => {
     if (!active) return;
@@ -71,6 +114,59 @@ export function ConnectionPanel() {
         <div className="muted" style={{ marginTop: 14 }}>
           已打开 {LABELS[active]} 窗口。如果里面已经是登录状态，几秒后会自动变「已连接」，你什么都不用做；
           如果显示登录页，请在那个窗口里登录（含验证码），登录后状态自动更新。
+        </div>
+      )}
+      {scrape.length > 0 && (
+        <div style={{ borderTop: "1px solid var(--border)", marginTop: 14, paddingTop: 12 }}>
+          <b style={{ fontSize: 13 }}>采集账号</b>
+          <div className="muted" style={{ fontSize: 12, margin: "4px 0 8px" }}>
+            这是<b>另一套身份</b>，只用来读、不发任何消息，跟上面发私信的账号完全分开存放。
+            请用一个<b>可以赔的小号</b>登录：平台封的是账号，发私信那个账号被封，在谈的对话和联系人会一起没。
+            密码只输在弹出的窗口里，不经过本系统。Facebook 采集读的是公共主页，不需要账号，所以不在这里。
+          </div>
+          {scrape.map((s) => (
+            <div key={s.name} style={{ marginBottom: 6 }}>
+              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 5,
+                background: s.logged_in ? "var(--green)" : s.state === "等待登录" ? "var(--warn)" : "var(--gray)",
+                marginRight: 6 }} />
+              {LABELS[s.name] || s.name} 采集小号：{s.state}
+              {!s.logged_in && (
+                <button className="btn btn-primary btn-sm" style={{ marginLeft: 10 }}
+                  onClick={() => scrapeLogin(s.name)} disabled={s.state === "等待登录"}>
+                  {s.state === "等待登录" ? "窗口已打开，去登录" : "登录采集账号"}
+                </button>
+              )}
+              {s.state === "等待登录" && (
+                <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>
+                  这是一个<b>普通 Chrome 窗口</b>（和你平时用的一样，没有任何程序在驱动它——
+                  被驱动的浏览器登不进 Instagram）。登完把窗口关掉，登录态才会存下来
+                </span>
+              )}
+            </div>
+          ))}
+          {scrape.some((s) => !s.logged_in) && (
+            <div style={{ marginTop: 8, fontSize: 12 }}>
+              <div className="muted" style={{ marginBottom: 4 }}>
+                登不进去？Instagram 有时不接受在这里新建的会话。那就在<b>你自己的 Chrome</b> 里
+                「添加个人资料」、在里面登好小号，然后把那份资料接过来——登录整个过程发生在你的浏览器里。
+              </div>
+              {profiles.length === 0 ? (
+                <button className="btn btn-sm" onClick={loadProfiles}>列出我的 Chrome 个人资料</button>
+              ) : (
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                  <select className="input" style={{ width: 200 }} value={picked}
+                    onChange={(e) => setPicked(e.target.value)}>
+                    <option value="">选一个个人资料…</option>
+                    {profiles.map((p) => <option key={p.folder} value={p.folder}>{p.name}（{p.folder}）</option>)}
+                  </select>
+                  <button className="btn btn-sm" disabled={!picked}
+                    onClick={() => doImport(scrape.find((s) => !s.logged_in)!.name)}>接过来</button>
+                  {chromeRunning && <span style={{ color: "var(--warn)" }}>请先关掉 Chrome 全部窗口再接</span>}
+                </div>
+              )}
+            </div>
+          )}
+          {scrapeErr && <div style={{ color: "var(--red)", fontSize: 12 }}>{scrapeErr}</div>}
         </div>
       )}
     </div>

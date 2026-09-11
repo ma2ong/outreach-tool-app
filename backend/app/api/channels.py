@@ -47,6 +47,64 @@ def connect(channel: str):
     return {"status": ENGINE.status(channel)}
 
 
+# ---- collecting accounts (docs/128 R5) ----
+# A different tree from the one above on purpose: these are the logins used to *read*
+# the platform, and they must never be the account Allen sends from (docs/126 R4).
+
+@router.get("/scrape")
+def scrape_channels():
+    from app import scrape_browser
+
+    return {"channels": [
+        {"name": name, "state": scrape_browser.login_state(name),
+         "logged_in": scrape_browser.logged_in(name),
+         "hint": scrape_browser.LOGIN_HINT.get(name, "")}
+        for name in scrape_browser.NEEDS_LOGIN]}
+
+
+@router.post("/scrape/{channel}/login")
+def scrape_login(channel: str):
+    """Open a browser window for Allen to log a spare account into.
+
+    The password is typed into that window and nowhere else: this endpoint takes no
+    credentials and the server never sees any.
+    """
+    from app import scrape_browser
+
+    try:
+        scrape_browser.start_login(channel)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=_connect_hint(exc)) from exc
+    return {"status": "等待登录"}
+
+
+@router.get("/scrape/chrome-profiles")
+def chrome_profiles():
+    """Allen's own Chrome profiles, so he can hand one over instead of logging in here."""
+    from app import scrape_browser
+
+    return {"profiles": scrape_browser.chrome_profiles(),
+            "chrome_running": scrape_browser.chrome_is_running()}
+
+
+@router.post("/scrape/{channel}/import")
+def scrape_import(channel: str, body: dict):
+    from app import scrape_browser
+
+    try:
+        ok = scrape_browser.import_login(channel, str(body.get("folder") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except scrape_browser.Unavailable as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"导入失败：{str(exc)[:200]}") from exc
+    return {"logged_in": ok,
+            "detail": "" if ok else "复制过来了，但这份资料里没有登录态 —— 选错个人资料了？"}
+
+
 @router.get("/{channel}/status")
 def status(channel: str):
     _check(channel)

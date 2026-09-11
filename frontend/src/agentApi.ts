@@ -336,6 +336,19 @@ export async function writeLeadMemory(leadNo: number, content: string,
   }), "write memory");
 }
 
+// 他反复手写的那几句话，做成按钮。定义在后端：一句话同时是记忆和状态，不能有两份（docs/122 R3）
+export type MemoryPreset = { key: string; label: string; memory: string; effect: string };
+
+export async function fetchMemoryPresets(): Promise<{ options: MemoryPreset[] }> {
+  return jsonOrThrow(await fetch("/api/agent/memory-presets"), "memory presets");
+}
+
+export async function applyMemoryPreset(leadNo: number, key: string):
+    Promise<{ key: string; memory: string; effect: string }> {
+  return jsonOrThrow(await fetch(`/api/agent/memory/${leadNo}/preset/${key}`, { method: "POST" }),
+                     "apply preset");
+}
+
 export async function forgetLeadMemory(leadNo: number, itemId: number): Promise<void> {
   await jsonOrThrow(await fetch(`/api/agent/memory/${leadNo}/${itemId}`, { method: "DELETE" }),
                     "forget memory");

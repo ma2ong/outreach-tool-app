@@ -29,6 +29,8 @@ export interface Lead {
   whatsapp_verified: boolean;
   email_status: string | null;
   do_not_contact: boolean;
+  // 停冷发：不再自动发冷开发信/冷私信，但跟进、报价、手动发信照常（docs/122）
+  no_cold_outreach: boolean;
   business: string | null;
   target_fit: string | null;
   brief: string | null;
@@ -224,6 +226,14 @@ export interface InboxMessage {
   contact_name: string | null;
   country: string | null;
 }
+// docs/114：同一个人的另一个信箱 / 号码。默认那个仍在 Contact.email / phone 上。
+export interface ContactChannel {
+  id: number;
+  contact_id: number;
+  kind: "email" | "phone";
+  value: string;
+  status: string | null;
+}
 export interface Contact {
   id: number;
   lead_no: number;
@@ -241,6 +251,7 @@ export interface Contact {
   updated_at: string;
   company_en: string;
   country: string | null;
+  channels: ContactChannel[];
 }
 export interface Opportunity {
   id: number;
@@ -485,7 +496,25 @@ export interface DiscoverJob {
   status: string;
   done: number;
   total: number;
-  result: { candidates: Candidate[] } | { error: string } | null;
+  result: { candidates: Candidate[]; sources?: SourceReport[] } | { error: string } | null;
+}
+// 一条渠道这一轮的结果。docs/128 R2：被搜索引擎挡住和「这个关键词没有客户」
+// 在候选列表里长得一模一样，所以渠道要自己说。
+export interface SourceReport {
+  name: string;
+  found: number;
+  status: string;
+  reason: string;
+}
+export interface DiscoverySource {
+  name: string;
+  label: string;
+  kind: string;
+  available: boolean;
+  reason: string;
+  optional: boolean;
+  engines: string[];
+  unattended: boolean;
 }
 export interface IntelligenceComponent {
   key: "fit" | "contact" | "intent" | "engagement" | "freshness";

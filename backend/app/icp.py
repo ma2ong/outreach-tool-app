@@ -89,11 +89,90 @@ def label(icp_type: str) -> str:
 
 _TAG_RE = re.compile(r"^icp:", re.I)
 
+# docs/112 R2. 这门生意写在纸上的样子。库里关于一家公司的全部文字里一个都没出现过，
+# 就是「我们手里没有任何一句话说这家跟屏有关」—— 那不是「不是客户」的证明，
+# 是「不知道是不是客户」的证明。
+#
+# 三个词故意不在表里：
+#   `av`   —— 葡语/西语地址里的 "Av. Paulista" 就是它，一条街名会让农产品出口商变成同行；
+#   `sign` —— 网页上的 "Sign up" 到处都是；只收 signage / sign company 这类真说明行当的；
+#   `stage`—— 保留，因为一家搭台的公司确实在这门生意的边上（docs/112 R5 的 Amos）。
+_TRADE_WORDS = (
+    r"led|display|displays|screen|screens|panel|panels|video ?wall|videowall|"
+    r"signage|sign (?:company|shop|maker)|signboard|billboard|marquee|scoreboard|"
+    r"projector|projection|kiosk|rental|rentals|renting|staging|stage|"
+    r"event|events|concert|festival|touring|exhibition|expo|booth|"
+    r"audio ?visual|integrator|integration|broadcast|dooh"
+)
+TRADE_RE = re.compile(
+    rf"\b(?:{_TRADE_WORDS})\b|"
+    r"pantalla|pantallas|painel|pain[eé]is|letrero|letreros|r[oó]tulo|alquiler|loca[cç][aã]o|"
+    r"evento|eventos|palco|"
+    r"전광판|디스플레이|사이니지|렌탈|대여|무대|행사|"
+    r"显示屏|大屏|屏幕|广告牌|舞台|租赁|标识",
+    re.I)
+
+# 客户类别本身也是证据：判成「租赁公司 (90)」的公司，它的类别标签里就写着这一行。
+_EVIDENCE_FIELDS = ("company_en", "company_local", "brief", "hook", "business",
+                    "website", "tags", "target_fit")
+
+
+def evidence_text(lead) -> str:
+    """这家公司在库里的全部文字，接成一段。"""
+    def read(key):
+        try:
+            return lead[key]
+        except (KeyError, IndexError, TypeError):
+            return None
+    return " ".join(str(read(k) or "") for k in _EVIDENCE_FIELDS)
+
+
+def has_buyer_category(lead) -> bool:
+    """分级已经把这家归进了某个买家类别 —— 那是读整个官网得出的结论，比一个词硬。
+
+    「经销商 (80)」这类标签里没有一个显示屏的词，但它恰恰是最强的证据：
+    Thinksign 和 Look DS 的简介只写着 wholesale / reseller，差点因此被判成外行。
+    而 `wholesale` 本身不能进词表 —— EKM 就是个农产品批发出口商。
+    """
+    try:
+        fit = str(lead["target_fit"] or "").strip()
+    except (KeyError, IndexError, TypeError):
+        return False
+    return any(fit.startswith(label(t)) for t in _CATEGORIES)
+
+
+def has_trade_evidence(lead) -> bool:
+    """库里有没有任何一句话说这家跟显示屏这一行有关（docs/112 R2）。"""
+    return has_buyer_category(lead) or bool(TRADE_RE.search(evidence_text(lead)))
+
+
+# 判之前得先有话可判。一家刚采集进来、官网还没读过的公司，库里本来就没有几个字 ——
+# 那是「还没看过」，不是「看过了看不出」，把两者混成一个结论正是 R1 要修的毛病。
+# EKM 那条有 115 个字（一句官网原话 + 两封邮件的往来记录），够判了。
+MIN_JUDGEABLE_CHARS = 40
+_DESCRIBING_FIELDS = ("brief", "hook", "business")
+
+
+def is_off_trade(lead) -> bool:
+    """我们手里有关于这家的实质描述，而其中没有一个字跟这门生意有关（docs/112 R2）。"""
+    def read(key):
+        try:
+            return lead[key]
+        except (KeyError, IndexError, TypeError):
+            return None
+    described = " ".join(str(read(k) or "") for k in _DESCRIBING_FIELDS).strip()
+    if len(described) < MIN_JUDGEABLE_CHARS:
+        return False
+    return not has_trade_evidence(lead)
+
 
 def apply_to_lead(conn, lead_no: int, icp: dict) -> None:
-    """Store classification: target_fit = '类型 (score)', tags get an icp:<type> tag."""
-    if icp["icp_type"] == "unknown":
-        return
+    """Store classification: target_fit = '类型 (score)', tags get an icp:<type> tag.
+
+    docs/112 R1. 「看不出是这一行的」也是一个结论，以前它在这里被扔掉：unknown 直接
+    返回，于是「读过官网看不出来」和「从没分过级」在库里都是一个空的 target_fit，
+    谁也没法拿它做事 —— EKM Exports 那家农产品出口商就是这样一路发到 FB 私信的。
+    """
     fit = f"{label(icp['icp_type'])} ({icp['fit_score']})"
     row = conn.execute("SELECT tags, types_edited_at FROM leads WHERE no=?",
                        (lead_no,)).fetchone()

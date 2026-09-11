@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchLead, fetchLeads, fetchLeadsPage, fetchStats, markReplied, fetchSequences, enrollLeads, startVerify, fetchVerifyJob, startClassify, fetchClassifyJob, fetchDuplicates, mergeDuplicates, fetchInboxPending, quickAddLead, fetchAuthStatus, login, fetchActivityStats, bulkDeleteLeads, mergeLeads } from "./api";
+import { fetchLead, fetchLeads, fetchLeadsPage, fetchStats, markReplied, fetchSequences, enrollLeads, startVerify, fetchVerifyJob, startClassify, fetchClassifyJob, fetchDuplicates, mergeDuplicates, fetchInboxPending, quickAddLead, fetchAuthStatus, login, fetchActivityStats, bulkDeleteLeads, busyTail, mergeLeads } from "./api";
 import type { ActivityStats, Lead, Stats, Sequence } from "./types";
 import { Dashboard } from "./components/Dashboard";
 import { LeadsTable } from "./components/LeadsTable";
@@ -417,6 +417,7 @@ export function App() {
                   <option value="untouched">未触达</option>
                   <option value="messaged">已触达</option>
                   <option value="replied">已回复</option>
+                  <option value="no_cold">已停冷发</option>
                 </select>
                 <select className="input" value={has} onChange={(e) => { setHas(e.target.value); filterReset(); }}>
                   <option value="">全部联系方式</option>
@@ -478,7 +479,7 @@ export function App() {
                   <button className="btn btn-sm" onClick={() => setSelected(new Set())}>清空选择</button>
                 )}
               </div>
-              {healthOpen && <HealthPanel onFixed={reload} />}
+              {healthOpen && <HealthPanel onFixed={reload} onOpenLead={openLead} />}
               {quickOpen && (
                 <div className="card" style={{ marginBottom: 10, padding: 12 }}>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -539,7 +540,7 @@ export function App() {
                         <button className="btn btn-sm btn-danger" onClick={async () => {
                           try {
                             const r = await bulkDeleteLeads([...selected]);
-                            setBulkMsg(`已删除 ${r.deleted} 家`);
+                            setBulkMsg(`已删除 ${r.deleted} 家` + busyTail(r.failed));
                             setSelected(new Set()); setConfirmBulkDelete(false); reload();
                           } catch (e) { setBulkMsg("删除失败：" + String(e)); }
                         }}>确认删除</button>

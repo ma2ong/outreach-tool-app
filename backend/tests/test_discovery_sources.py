@@ -102,10 +102,10 @@ def test_one_channel_failing_does_not_stop_the_others(monkeypatch):
         raise RuntimeError("rate limited")
 
     monkeypatch.setitem(ds.SOURCES, "boom", ds.Source(
-        name="boom", label="炸的", kind="page", fetch=explode))
+        name="boom", label="炸的", kind="page", readers={"http": explode}))
     monkeypatch.setitem(ds.SOURCES, "fine", ds.Source(
         name="fine", label="好的", kind="page",
-        fetch=lambda q, n: [{"domain": "verumav.com", "source": "fine"}]))
+        readers={"http": lambda q, n: [{"domain": "verumav.com", "source": "fine"}]}))
 
     out = ds.gather(["LED rental"], only=["boom", "fine"])
     assert [c["domain"] for c in out["candidates"]] == ["verumav.com"]
@@ -116,10 +116,10 @@ def test_one_channel_failing_does_not_stop_the_others(monkeypatch):
 def test_the_same_company_found_twice_is_one_candidate(monkeypatch):
     monkeypatch.setitem(ds.SOURCES, "a", ds.Source(
         name="a", label="A", kind="page",
-        fetch=lambda q, n: [{"domain": "verumav.com", "source": "a"}]))
+        readers={"http": lambda q, n: [{"domain": "verumav.com", "source": "a"}]}))
     monkeypatch.setitem(ds.SOURCES, "b", ds.Source(
         name="b", label="B", kind="page",
-        fetch=lambda q, n: [{"domain": "verumav.com", "source": "b"}]))
+        readers={"http": lambda q, n: [{"domain": "verumav.com", "source": "b"}]}))
     out = ds.gather(["x"], only=["a", "b"])
     assert len(out["candidates"]) == 1
 
@@ -127,7 +127,7 @@ def test_the_same_company_found_twice_is_one_candidate(monkeypatch):
 def test_every_channel_reports_what_it_found(monkeypatch):
     monkeypatch.setitem(ds.SOURCES, "a", ds.Source(
         name="a", label="A", kind="page",
-        fetch=lambda q, n: [{"domain": f"{q}.com", "source": "a"}]))
+        readers={"http": lambda q, n: [{"domain": f"{q}.com", "source": "a"}]}))
     out = ds.gather(["one", "two"], only=["a"])
     assert out["sources"][0]["found"] == 2
 

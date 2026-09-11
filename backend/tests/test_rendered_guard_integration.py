@@ -45,7 +45,8 @@ def test_campaign_sends_exact_rendered_personalized_text(tmp_path):
     assert calls == [(
         "hello@verumav.com",
         "LED display supply",
-        "Saw the rental work on your site.\n\nWe manufacture LED displays for integrators.",
+        "I was looking through your website and noticed your rental work.\n\n"
+        "We manufacture LED displays for integrators.",
     )]
     conn.close()
 

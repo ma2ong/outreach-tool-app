@@ -202,6 +202,10 @@ def _top_up(conn, gap: int) -> int:
         lead = facts.get(no)
         if not lead or not message_guard.can_be_addressed(lead):
             continue
+        # docs/112 R3：不确定是停下来问的理由，不是猜的理由。
+        from app import icp
+        if icp.is_off_trade(lead):
+            continue
         sequence_id = executors._sequence_for(conn, lead)
         if sequence_id is None:
             continue

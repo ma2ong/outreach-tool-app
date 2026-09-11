@@ -5,9 +5,9 @@ quota on leads with no phone, or a stage board that lies about where deals stand
 Fixes are conservative: peers/directories are suppressed (do_not_contact), never
 deleted, so a wrong call is one click to undo.
 """
-from app import screening
+from app import icp, screening
 
-ISSUES = ("peer", "directory", "no_contact", "junk_name", "stale_stage")
+ISSUES = ("peer", "directory", "off_trade", "no_contact", "junk_name", "stale_stage")
 
 _JUNK_NAMES = ("contact", "contact us", "contact-us", "home", "about", "index",
                "page not found", "404")
@@ -15,7 +15,8 @@ _JUNK_NAMES = ("contact", "contact us", "contact-us", "home", "about", "index",
 
 def _rows(conn):
     return conn.execute(
-        "SELECT no, company_en, country, website, email, phone, instagram, facebook, stage,"
+        "SELECT no, company_en, company_local, country, website, email, phone, instagram,"
+        "       facebook, stage, brief, hook, business, tags, target_fit,"
         "       COALESCE(do_not_contact, 0) dnc FROM leads").fetchall()
 
 
@@ -38,6 +39,15 @@ def scan(conn) -> dict:
                 key = "directory" if "目录" in (s["exclude_reason"] or "") else "peer"
                 found[key].append(lead | {"reason": s["exclude_reason"]})
                 continue
+        # docs/112 R2. 这家公司在库里的全部文字里，没有一个字说它跟这门生意有关。
+        # 不是「不是客户」的证明，是「我们不知道它是不是客户」的证明 —— 该问，不该猜。
+        if not r["dnc"] and icp.is_off_trade(r):
+            # 先看官网上读来的那句，再退回导入时带的业务字段：
+            # 「小满邮件往来 2 封」说不出这家是干什么的，官网那句说得出。
+            evidence = (r["brief"] or r["hook"] or r["business"] or "").strip()
+            found["off_trade"].append(lead | {
+                "reason": evidence[:200] or "库里没有任何介绍、开场白或客户类别"})
+            continue
         if not any((r["email"], r["phone"], r["instagram"], r["facebook"])):
             found["no_contact"].append(lead)
         if _is_junk_name(r["company_en"]):
@@ -95,6 +105,15 @@ def fix(conn, issues: list[str]) -> dict:
                 conn.execute("UPDATE leads SET do_not_contact=1 WHERE no=?", (lead["no"],))
                 repository.add_note(conn, lead["no"],
                                     f"体检自动标记不再联系：{lead.get('reason', '同行/目录站')}")
+            done[key] = len(leads)
+        elif key == "off_trade":
+            # 不删：这类记录常有真实往来历史（EKM 有两封 2023 年的邮件），
+            # 删掉不可撤销，不再联系一键就能撤（docs/112 R4）。
+            for lead in leads:
+                conn.execute("UPDATE leads SET do_not_contact=1 WHERE no=?", (lead["no"],))
+                repository.add_note(
+                    conn, lead["no"],
+                    "体检标记不再联系：库里没有一句话说这家跟显示屏这一行有关（docs/112）")
             done[key] = len(leads)
         elif key == "stale_stage":
             for lead in leads:

@@ -1,16 +1,17 @@
 import { useState } from "react";
 import { cardToggle } from "./Expandable";
-import { scanHealth, fixHealth, fetchCleanable, bulkDeleteLeads, type HealthLead } from "../api";
+import { scanHealth, fixHealth, fetchCleanable, bulkDeleteLeads, busyTail, type HealthLead } from "../api";
 
 const ISSUE_META: Record<string, { title: string; hint: string; fixable: boolean; fixLabel?: string; blockDefault?: boolean }> = {
   peer: { title: "同行 / 供应商", hint: "中国·港台 LED 厂（+86 电话或 .cn 域名）——发给他们纯浪费额度", fixable: true, fixLabel: "标为不再联系", blockDefault: true },
   directory: { title: "B2B 目录站 / 平台", hint: "alibaba、tradekey 这类平台，不是买家", fixable: true, fixLabel: "标为不再联系", blockDefault: true },
+  off_trade: { title: "看不出跟显示屏这一行有关", hint: "库里关于这家的全部文字里，没有一句话提到屏、面板、租赁、活动——不是「不是客户」，是「我们不知道」。自动发送已经跳过它们，看一眼再决定", fixable: true, fixLabel: "标为不再联系" },
   stale_stage: { title: "阶段没跟上", hint: "已经发过消息，销售阶段却还停在「新客户」", fixable: true, fixLabel: "推进到「已联系」" },
   no_contact: { title: "没有任何联系方式", hint: "邮箱/电话/IG/FB 全空——留着占位，永远发不出去。补不到资料就勾选删掉", fixable: false },
   junk_name: { title: "公司名可疑", hint: "抓成了 Contact / Home 这种网页标题，发信开头会很怪。能改名就打开改，改不了就删", fixable: false },
 };
 
-export function HealthPanel({ onFixed }: { onFixed: () => void }) {
+export function HealthPanel({ onFixed, onOpenLead }: { onFixed: () => void; onOpenLead: (no: number) => void }) {
   const [issues, setIssues] = useState<Record<string, HealthLead[]> | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -56,7 +57,8 @@ export function HealthPanel({ onFixed }: { onFixed: () => void }) {
     try {
       const r = await bulkDeleteLeads([...picked], blockToo);
       setMsg(`已删除 ${r.deleted} 条`
-        + (r.blocked_domains.length ? `，${r.blocked_domains.length} 个域名已加入永不再收录` : ""));
+        + (r.blocked_domains.length ? `，${r.blocked_domains.length} 个域名已加入永不再收录` : "")
+        + busyTail(r.failed));
       await scan(); onFixed();
     } catch (e) { setMsg("删除失败：" + String(e)); }
     finally { setBusy(false); }
@@ -79,7 +81,7 @@ export function HealthPanel({ onFixed }: { onFixed: () => void }) {
     setBusy(true);
     try {
       const r = await bulkDeleteLeads(smart.map((l) => l.no), false);
-      setMsg(`智能清理完成：删除 ${r.deleted} 条`);
+      setMsg(`智能清理完成：删除 ${r.deleted} 条` + busyTail(r.failed));
       setSmart(null); await scan(); onFixed();
     } catch (e) { setMsg("清理失败：" + String(e)); }
     finally { setBusy(false); }
@@ -164,7 +166,16 @@ export function HealthPanel({ onFixed }: { onFixed: () => void }) {
                         <label key={l.no} style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 0", fontSize: 13, cursor: "pointer" }}>
                           <input type="checkbox" checked={picked.has(l.no)} onChange={() => toggle(l.no)} />
                           <span className="muted">#{l.no}</span>
-                          <b>{l.company_en}</b>
+                          {/* 勾选框是用来删的，删之前总得看一眼这家到底是谁 —— 公司名点开就是详情侧栏，
+                              它在 label 里，所以要拦下冒泡，别把点击变成勾选 */}
+                          <button type="button" title="打开客户详情"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenLead(l.no); }}
+                            style={{
+                              background: "none", border: "none", padding: 0, font: "inherit", fontWeight: 700,
+                              color: "var(--accent)", textDecoration: "underline", cursor: "pointer",
+                            }}>
+                            {l.company_en}
+                          </button>
                           <span className="muted">{l.website || ""}</span>
                           <span className="muted" style={{ marginLeft: "auto" }}>{l.country || ""}</span>
                         </label>
