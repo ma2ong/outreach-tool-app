@@ -299,11 +299,16 @@ def _browser_search(name: str, url: str, allow: tuple[str, ...],
 # Programmable Search API does not have one: 100 queries a day, free, no browser.
 _GOOGLE_CSE_FILE = "google_cse.txt"
 _GOOGLE_URL = "https://www.googleapis.com/customsearch/v1"
+# The order matters and the creation page does not tell you: it insists on at least one
+# site before it will create anything, and the "search the entire web" switch only
+# appears afterwards, in the engine's own settings.
 _GOOGLE_HOWTO = (
     "没有配置 Google 搜索 API。两个值，都免费，五分钟拿到："
-    "① 到 https://programmablesearchengine.google.com/ 新建一个搜索引擎，"
-    "打开「搜索整个网络」，复制它的「搜索引擎 ID」（cx）；"
-    "② 到 https://developers.google.com/custom-search/v1/introduction 点「Get a Key」"
+    "① 到 https://programmablesearchengine.google.com/ 新建搜索引擎：随便起个名，"
+    "「要搜索的网站」先填一个占位的 www.example.com（这一步必填，否则创建不了），"
+    "勾人机验证后创建；② 创建完进它的设置页，打开「搜索整个网络」，"
+    "再把 www.example.com 那条删掉，然后复制「搜索引擎 ID」（cx）；"
+    "③ 到 https://developers.google.com/custom-search/v1/introduction 点「Get a Key」"
     "拿 API key。把两行写进 backend/google_cse.txt：第一行 key，第二行 cx。"
     "（每天 100 次免费，超出才收费）")
 
