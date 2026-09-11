@@ -282,6 +282,44 @@ def _playwright_search(name: str, country: str | None = None
     return fetch
 
 
+def _facebook_page_urls(query: str, limit: int = 10) -> list[str]:
+    """Where Facebook pages are found, given that Facebook's own search will not say.
+
+    Logged out, `facebook.com/search/pages/` answers `Not Found` in nine bytes. A plain
+    web search does answer, and the one already running here is free and unattended.
+    """
+    from app.search import search_urls
+
+    return search_urls(f"site:facebook.com {query}", limit=max(limit * 3, limit))
+
+
+def facebook_public_pages(query: str, limit: int = 20) -> list[Candidate]:
+    """Companies found through their public Facebook page (docs/128 R4).
+
+    No account is involved on either end: the pages are public, the reader is a
+    logged-out headless browser, and nothing here can be banned. Only the domain crosses
+    (docs/124 R1) — the About tab's email and phone stay on the page, and `enrich_domain`
+    reads the company's own site for those as it does for every other channel. What the
+    page adds is its own handle, so a company arrives already carrying the address its
+    Facebook DMs would go to.
+    """
+    from app import scrape_browser
+    from app.scrape_runner import handles_from_hrefs
+
+    handles = handles_from_hrefs(_facebook_page_urls(query, limit), "facebook")[:limit]
+    out: list[Candidate] = []
+    seen: set[str] = set()
+    for row in scrape_browser.read_pages("facebook", handles, limit):
+        host = (row.get("domain") or "").lower()
+        # A page with no site on it is a page, not a company we can write to.
+        if not host or host in seen or not is_company_site(f"http://{host}"):
+            continue
+        seen.add(host)
+        out.append({"domain": host, "website": host, "source": "facebook",
+                    "facebook": row.get("handle")})
+    return out
+
+
 # How many names one blog run may spend on lookups. Each is a fetch of its own, and a
 # blog page that mentions forty companies is mentioning them, not listing them.
 _MAX_PROSE_NAMES = 12
@@ -402,15 +440,17 @@ SOURCES: dict[str, Source] = {
     # docs/128 R4. Registered now so the channels page can say how to switch them on;
     # until a collection account is logged in they report 未启用 and read nothing.
     "instagram": Source(
-        name="instagram", label="Instagram 搜索（采集账号）", kind="social",
+        name="instagram", label="Instagram 搜索（采集小号）", kind="social",
         readers={"playwright": _playwright_search("instagram")},
         unavailable=lambda: _scrape_unavailable("instagram"),
         optional=True, unattended=False),
+    # The one channel that needs a browser and still runs with nobody there: public
+    # pages, a logged-out headless reader, no account to lose (docs/128 R4).
     "facebook": Source(
-        name="facebook", label="Facebook 主页搜索（采集账号）", kind="social",
-        readers={"playwright": _playwright_search("facebook")},
+        name="facebook", label="Facebook 公共主页", kind="social",
+        readers={"playwright": facebook_public_pages},
         unavailable=lambda: _scrape_unavailable("facebook"),
-        optional=True, unattended=False),
+        optional=True, unattended=True),
 }
 
 

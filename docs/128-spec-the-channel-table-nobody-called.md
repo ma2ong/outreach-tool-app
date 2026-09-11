@@ -103,18 +103,50 @@ Instagram / Facebook 的**发送登录态**。采集不许碰它，它有自己�
 进程也要不同**——同一个 profile 目录被两个 Chromium 同时打开就是 `exitCode=21`，
 `playwright_engine._kill_stale_browser` 那段注释记的就是这个坑。
 
-## R4 Instagram / Facebook：注册，然后说清楚怎么开通
+## R4 Facebook 不需要账号：公共主页是公开的
 
-两条渠道现在就进表，读法声明 `playwright`。`~/.outreach-tool/scrape/<channel>` 里
+先写的这份 spec 把 Instagram 和 Facebook 归成一类——「都要登录，所以都先注册成未启用」。
+2026-09-11 补测推翻了 Facebook 那一半：
+
+| 读什么 | 未登录的真实浏览器 |
+|---|---|
+| `facebook.com/search/pages/?q=…` | `Not Found`（9 字节）——**死的只有 FB 自己的搜索** |
+| `facebook.com/<主页>` | 700 字节：主页名、粉丝数、类目、城市、简介 |
+| **`facebook.com/<主页>/about`** | **网站域名 + 邮箱 + 电话 + 地址** |
+
+实测四家：GCL Electronics → `gcled-usa.com` / info@gcled-usa.com / +1 469-686-1719；
+LED3 → `led3.us` / clare@led3.us；LED Distribution（波多黎各）→ `leddistributionpr.com` /
++1 787-246-8899；第四家主页受限，返回「This content isn't available right now」——
+那是一个答案，不是一个空结果。jina 读同样这几个地址全部撞登录墙，
+所以这条路必须是浏览器，但**不必是登录的浏览器**。
+
+找主页那一步也不用 FB：`site:facebook.com <关键词>` 丢给 DuckDuckGo 就能列出主页地址，
+而 DuckDuckGo 免费、无人值守、今天就在跑。
+
+于是 Facebook 这条渠道：**不需要账号，没有封号风险，headless 不弹窗，因此可以进调度器**
+（`unattended=True`）——这是唯一一条靠浏览器才能读、却仍然无人值守的渠道。
+
+只有域名过界（docs/124 R1 不变）：About 页上的邮箱和电话不落库，联系方式仍旧由
+`enrich_domain` 读公司自己的官网得到。多带的一样东西是主页 handle，
+它让这家公司一进库就有了 FB 私信的地址。About 页上没有网站的主页，不产生候选。
+
+## R5 Instagram：注册，然后说清楚怎么开通
+
+Instagram 的搜索页未登录只有一面登录墙（811 字节），没有 Facebook 那样的公开 About 页，
+所以它现在就进表、读法声明 `playwright`，而 `~/.outreach-tool/scrape/instagram` 里
 没有登录态时，它报的是「未启用：需要先登录采集专用账号」并说明怎么登，
 不是异常、不是重试、不是空结果（docs/126 R6）。
+
+登录用的必须是一个**可以赔的小号**，不是发私信那个账号。理由在 docs/126 R4：
+平台封的是账号不是目录，而采集的浏览特征比发信重得多；发信账号被封，
+在谈的对话和联系人一起没。
 
 选择器是**未经实测的**：没有采集账号就打不开那两个页面，而这套系统的规矩是
 不写不能验证的东西。所以这两条渠道的读法逻辑用假页面做了单元测试，
 真实选择器等 Allen 登录一个可以赔的账号之后按实测改。在那之前渠道是「未启用」，
 一行未验证的选择器也执行不到。
 
-## R5 读法由渠道声明，API 按声明校验
+## R6 读法由渠道声明，API 按声明校验
 
 `/api/discover` 和 `/api/discover/page` 收到一条渠道没有声明的读法时报 400，
 而不是默默降级成默认读法。docs/126 验收第 1 条，这份 spec 把它实现了。
@@ -126,7 +158,8 @@ Instagram / Facebook 的**发送登录态**。采集不许碰它，它有自己�
   加一条更贵的读法读同一页，是给没坏的东西换零件
 - 不因为 Google 今天被挡就把它从表里删掉。IP 会变，换网络就可能通；它现在的正确行为
   是报「被 Google 判定为异常流量」，不是消失
-- 不给 Instagram / Facebook 写此刻验证不了的真实选择器（R4）
+- 不给 Instagram 写此刻验证不了的真实选择器（R5）
+- 不用登录态读 Facebook 公共主页：未登录就能读的东西，没有理由拿一个能被封的身份去读（R4）
 - 不让任何 `browser`/带登录态的 `playwright` 读法进调度器（docs/126 R5 不变）
 
 ## 验收
@@ -137,5 +170,6 @@ Instagram / Facebook 的**发送登录态**。采集不许碰它，它有自己�
 3. 结果页出现反自动化拦截时，该渠道报失败并带原因，不返回空结果
 4. 采集用的 profile 目录在 `~/.outreach-tool/scrape/` 下，且任何采集代码路径都不会打开
    `~/.outreach-tool/browser/` 下的目录
-5. Instagram / Facebook 在没有采集登录态时报「未启用」并说明怎么登
+5. Facebook 不需要登录态就能产出候选，且只有域名过界；Instagram 在没有采集登录态时
+   报「未启用」并说明怎么登
 6. 指定一条渠道没有声明的读法，API 报 400

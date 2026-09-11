@@ -82,14 +82,70 @@ def test_collecting_never_opens_the_profile_that_sends():
 
 # ------------------------------------------- R4 instagram / facebook are registered
 
-def test_instagram_and_facebook_are_registered_and_say_how_to_turn_them_on(monkeypatch):
+def test_instagram_is_registered_and_says_how_to_turn_it_on(monkeypatch):
     monkeypatch.setattr(scrape_browser, "logged_in", lambda channel: False)
-    by_name = {row["name"]: row for row in ds.status()}
-    for name in ("instagram", "facebook"):
-        assert by_name[name]["engines"] == ["playwright"]
-        assert by_name[name]["available"] is False
-        assert "未启用" in by_name[name]["reason"] and "采集" in by_name[name]["reason"]
-        assert by_name[name]["optional"] and by_name[name]["unattended"] is False
+    row = {r["name"]: r for r in ds.status()}["instagram"]
+    assert row["engines"] == ["playwright"]
+    assert row["available"] is False
+    assert "未启用" in row["reason"] and "采集" in row["reason"]
+    assert row["optional"] and row["unattended"] is False
+
+
+# ------------------------------- R4 facebook needs no account: the pages are public
+
+def test_facebook_needs_no_login_and_may_therefore_run_unattended(monkeypatch):
+    """Measured 2026-09-11: a logged-out browser reads facebook.com/<page>/about."""
+    monkeypatch.setattr(scrape_browser, "logged_in", lambda channel: False)
+    row = {r["name"]: r for r in ds.status()}["facebook"]
+    assert row["available"] is True, row["reason"]
+    assert row["unattended"] is True, "headless、无账号、不弹窗的渠道没有理由被挡在调度器外"
+
+
+def test_facebook_pages_are_found_outside_facebook(monkeypatch):
+    """FB's own search is dead logged out, so the finding step is a normal web search."""
+    seen: list[str] = []
+
+    def fake_search(query, limit=10, **kw):
+        seen.append(query)
+        return ["https://www.facebook.com/gcled",
+                "https://www.facebook.com/groups/1813353365557599",
+                "https://www.facebook.com/Techledwall/videos/-we-are/339327871633141",
+                "https://secure.facebook.com",
+                "https://example.com/not-facebook"]
+
+    import app.search
+    monkeypatch.setattr(app.search, "search_urls", fake_search)
+    monkeypatch.setattr(scrape_browser, "read_pages",
+                        lambda channel, handles, limit=20: [
+                            {"handle": h, "domain": "gcled-usa.com"} for h in handles])
+    out = ds.facebook_public_pages("LED display distributor", 5)
+    assert "site:facebook.com" in seen[0]
+    assert [c["facebook"] for c in out] == ["gcled"]
+    assert out[0]["domain"] == "gcled-usa.com"
+
+
+def test_a_page_with_no_website_is_not_a_candidate(monkeypatch):
+    """docs/124 R1: the domain is the only field that crosses, so no domain, no row."""
+    monkeypatch.setattr(ds, "_facebook_page_urls",
+                        lambda q, limit=10: ["https://www.facebook.com/gcled"])
+    monkeypatch.setattr(scrape_browser, "read_pages",
+                        lambda channel, handles, limit=20: [{"handle": "gcled", "domain": ""}])
+    assert ds.facebook_public_pages("led", 5) == []
+
+
+def test_the_about_tab_gives_up_the_site_the_page_links_to():
+    """The strings are from the real pages read on 2026-09-11."""
+    assert scrape_runner.site_from_about(
+        "GCL Electronics 3.7K followers Contact info +1 469-686-1719 Mobile "
+        "info@gcled-usa.com Email https://gcled-usa.com/ Website Electronics") == "gcled-usa.com"
+    assert scrape_runner.site_from_about(
+        "LED3 Contact info clare@led3.us Email www.led3.us Website") == "led3.us"
+    # A page that is restricted or gone says so, and that is not a website.
+    assert scrape_runner.site_from_about(
+        "This content isn't available right now Go to Feed Visit Help Centre") == ""
+    # Facebook's own links, and the login form, never count as the company's site.
+    assert scrape_runner.site_from_about(
+        "Log In Forgot Account? facebook.com/help messenger.com") == ""
 
 
 def test_a_handle_is_only_worth_the_domain_it_leads_to():

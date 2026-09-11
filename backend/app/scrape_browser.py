@@ -10,8 +10,8 @@ is already readable by `jina`, so Playwright buys nothing there; Naver's blogs n
 companies in prose with no link at all, which no selector can reach; Bing hides the real
 host in the cite line and, worse, answers a question you did not ask when it has no
 answer for yours. What is left is Google — where the wall turned out to be the IP, not
-the reader — and the two social networks, where a selector is the right tool and a login
-is the missing part.
+the reader — Instagram, where a selector is the right tool and a collecting login is the
+missing part, and Facebook, whose public pages need no account at all.
 
 The profile tree is `~/.outreach-tool/scrape/`, never `~/.outreach-tool/browser/`. The
 sending logins live in the second one, and a platform's rate limiter watches a logged-in
@@ -33,14 +33,16 @@ SCRAPE_DIR = Path(os.environ.get(
 RUNNER = Path(__file__).resolve().parent / "scrape_runner.py"
 RUN_TIMEOUT = 180
 
-# Channels whose results page is only served to an account. Being logged out here is a
-# channel that was never switched on, not a channel that failed today (docs/126 R6).
-NEEDS_LOGIN = ("instagram", "facebook")
+# Instagram's search page is served to an account and nothing else, and being logged out
+# there is a channel that was never switched on rather than one that broke today
+# (docs/126 R6). Facebook is deliberately not on this list: measured 2026-09-11, only its
+# search is shut to a logged-out browser — every public Page's About tab reads fine
+# without an account, so that channel carries none (docs/128 R4).
+NEEDS_LOGIN = ("instagram",)
 LOGIN_HINT = {
-    "instagram": "未启用：需要先登录采集专用账号。到「渠道」页用采集账号登录 Instagram —— "
-                 "不要用发私信那个账号（docs/126 R4）",
-    "facebook": "未启用：需要先登录采集专用账号。到「渠道」页用采集账号登录 Facebook —— "
-                "不要用发私信那个账号（docs/126 R4）",
+    "instagram": "未启用：需要先登录采集专用账号（小号）。到「渠道」页用采集账号登录 "
+                 "Instagram —— 不要用发私信那个账号：平台封的是账号，"
+                 "发信账号封了，在谈的对话和联系人一起没（docs/126 R4）",
 }
 
 
@@ -89,29 +91,7 @@ def _subprocess_run(argv: list[str], timeout: int) -> str:
     return done.stdout
 
 
-def read_hosts(channel: str, query: str, limit: int = 20, *,
-               headless: bool | None = None, run=None) -> list[str]:
-    """Company domains this channel shows for this query. Raises rather than lying.
-
-    An empty list here means the page had nothing on it. Everything else — a wall, a
-    dead browser, a login that expired — comes back as an exception carrying what
-    happened, because "0 家" is a claim about the market and none of those are
-    (docs/128 R2).
-    """
-    if channel not in scrape_runner.SEARCH_URL:
-        raise ValueError(f"no playwright reader for channel: {channel}")
-    reason = unavailable(channel)
-    if reason:
-        raise Unavailable(reason)
-    profile = profile_dir(channel)
-    profile.mkdir(parents=True, exist_ok=True)
-    # Logged-in channels run headed: a social network's bot checks are far harder on a
-    # headless session, and these channels are attended anyway (docs/126 R5).
-    headed = channel in NEEDS_LOGIN if headless is None else not headless
-    argv = [sys.executable, str(RUNNER), "--channel", channel, "--query", query,
-            "--limit", str(limit), "--profile-dir", str(profile)]
-    if not headed:
-        argv.append("--headless")
+def _run_runner(argv: list[str], channel: str, run=None) -> dict:
     try:
         raw = (run or _subprocess_run)(argv, RUN_TIMEOUT)
     except subprocess.TimeoutExpired as exc:
@@ -126,4 +106,51 @@ def read_hosts(channel: str, query: str, limit: int = 20, *,
         raise Blocked(f"{channel} 把我们挡下来了：{payload['blocked'][:160]}")
     if payload.get("error"):
         raise RuntimeError(f"{channel} 读取失败：{payload['error'][:160]}")
+    return payload
+
+
+def _argv(channel: str, limit: int, headed: bool) -> list[str]:
+    profile = profile_dir(channel)
+    profile.mkdir(parents=True, exist_ok=True)
+    argv = [sys.executable, str(RUNNER), "--channel", channel,
+            "--limit", str(limit), "--profile-dir", str(profile)]
+    return argv if headed else argv + ["--headless"]
+
+
+def read_pages(channel: str, handles: list[str], limit: int = 20, *, run=None) -> list[dict]:
+    """Read public pages someone else found, one row each (docs/128 R4).
+
+    Facebook's own search is shut to a logged-out browser, but its pages are not: the
+    About tab prints the company's site, and that is read without an account at all —
+    so this channel carries no account that can be banned and opens no window.
+    """
+    reason = unavailable(channel)
+    if reason:
+        raise Unavailable(reason)
+    wanted = [h for h in handles if h][:limit]
+    if not wanted:
+        return []
+    argv = _argv(channel, limit, headed=False) + ["--pages", ",".join(wanted)]
+    return _run_runner(argv, channel, run).get("pages") or []
+
+
+def read_hosts(channel: str, query: str, limit: int = 20, *,
+               headless: bool | None = None, run=None) -> list[str]:
+    """Company domains this channel shows for this query. Raises rather than lying.
+
+    An empty list here means the page had nothing on it. Everything else — a wall, a
+    dead browser, a login that expired — comes back as an exception carrying what
+    happened, because "0 家" is a claim about the market and none of those are
+    (docs/128 R2).
+    """
+    if channel not in scrape_runner.SEARCH_URL:
+        raise ValueError(f"no playwright reader for channel: {channel}")
+    reason = unavailable(channel)
+    if reason:
+        raise Unavailable(reason)
+    # Logged-in channels run headed: a social network's bot checks are far harder on a
+    # headless session, and these channels are attended anyway (docs/126 R5).
+    headed = channel in NEEDS_LOGIN if headless is None else not headless
+    argv = _argv(channel, limit, headed) + ["--query", query]
+    payload = _run_runner(argv, channel, run)
     return [h for h in payload.get("hosts") or [] if h][:limit]

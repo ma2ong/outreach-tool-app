@@ -99,14 +99,56 @@ def external_host(hrefs, channel: str) -> str:
     return ""
 
 
+# Facebook's About tab prints the fields it has under their own labels: a phone under
+# Mobile, an address, an email under Email, and the site under Website. Measured
+# 2026-09-11 logged out — the page name, the category and all four fields are there, and
+# only FB's own search is behind the login wall.
+_ABOUT_DOMAIN = re.compile(
+    r"\b((?:[a-z0-9][a-z0-9-]{0,60}\.)+[a-z]{2,12}(?:\.[a-z]{2,6})?)\b", re.I)
+# A page that is restricted, renamed or deleted says this instead of its fields.
+_NO_PAGE = re.compile(r"isn't available right now|content not found|页面不可用", re.I)
+# Mail hosts: an address at one of these says where the owner reads mail, not where the
+# company lives, and importing gmail.com as a customer is worse than importing nothing.
+_NOT_A_COMPANY_HOST = (
+    "facebook.com", "fb.com", "messenger.com", "instagram.com", "meta.com", "meta.ai",
+    "threads.com", "whatsapp.com", "gmail.com", "googlemail.com", "hotmail.com",
+    "outlook.com", "yahoo.com", "qq.com", "163.com", "naver.com", "icloud.com",
+    "linkedin.com", "youtube.com", "twitter.com", "x.com", "tiktok.com", "goo.gl")
+
+
+def site_from_about(text: str) -> str:
+    """The company's own site as printed on its public About tab, or "".
+
+    Read off the text rather than the links because Facebook renders an outbound URL as
+    a redirect through its own host; the visible string is the one thing on that page
+    that is the company's actual address. `enrich_domain` still has to reach the site
+    and read it, so a misread here dies one step later rather than becoming a customer.
+    """
+    body = str(text or "")
+    if _NO_PAGE.search(body):
+        return ""
+    for match in _ABOUT_DOMAIN.findall(body):
+        host = match.lower().removeprefix("www.").rstrip(".")
+        if any(host == bad or host.endswith("." + bad) for bad in _NOT_A_COMPANY_HOST):
+            continue
+        if host in _REDIRECTORS or "." not in host:
+            continue
+        return host
+    return ""
+
+
 # One entry per channel: where to ask. A channel whose results page is stable enough to
 # be worth a selector is in here; the ones that are not stay with browser-use
 # (docs/126 R1), and the ones whose answers are not worth having are in neither.
 SEARCH_URL = {
     "google": "https://www.google.com/search?q={q}&num=30",
     "instagram": "https://www.instagram.com/explore/search/keyword/?q={q}",
-    "facebook": "https://www.facebook.com/search/pages/?q={q}",
 }
+# Facebook is not in there: its own search answers a logged-out browser with `Not Found`
+# (9 bytes, measured 2026-09-11). Its pages are public though, so that channel arrives
+# here with a list of pages someone else found and reads each one's About tab.
+ABOUT_URL = "https://www.facebook.com/{h}/about"
+CHANNELS = tuple(sorted(set(SEARCH_URL) | {"facebook"}))
 _LINKS_JS = "() => [...document.querySelectorAll('a[href]')].map(a => a.href)"
 # Google keeps the real URL in the link. Bing does not — it wraps every result in a
 # bing.com redirect and prints the real host only in the cite line, which is the smaller
@@ -120,12 +162,27 @@ def _profile_url(channel: str, handle: str) -> str:
             else f"https://www.facebook.com/{handle}")
 
 
+def _read_about(page, handles: list[str]) -> list[dict]:
+    """One row per public Facebook page: the handle, and the site it says it has."""
+    rows: list[dict] = []
+    for handle in handles:
+        try:
+            page.goto(ABOUT_URL.format(h=handle), wait_until="domcontentloaded",
+                      timeout=45000)
+            page.wait_for_timeout(2500)
+            rows.append({"handle": handle, "domain": site_from_about(page.inner_text("body"))})
+        except Exception:  # noqa: BLE001 — one page, not the channel
+            continue
+    return rows
+
+
 def _read(args) -> dict:
     from playwright.sync_api import sync_playwright
 
     channel = args.channel
-    out: dict = {"hosts": [], "handles": [], "blocked": ""}
-    url = SEARCH_URL[channel].format(q=urllib.parse.quote(args.query))
+    out: dict = {"hosts": [], "handles": [], "pages": [], "blocked": ""}
+    url = (ABOUT_URL.format(h=(args.pages or ["facebook"])[0]) if channel == "facebook"
+           else SEARCH_URL[channel].format(q=urllib.parse.quote(args.query)))
     with sync_playwright() as play:
         browser = play.chromium.launch_persistent_context(
             args.profile_dir, headless=args.headless,
@@ -138,6 +195,10 @@ def _read(args) -> dict:
             wall = blocked_reason(page.inner_text("body"))
             if wall:
                 out["blocked"] = wall
+                return out
+            if channel == "facebook":
+                out["pages"] = _read_about(page, args.pages or [])
+                out["hosts"] = [r["domain"] for r in out["pages"] if r["domain"]]
                 return out
             if channel == "google":
                 for href in page.evaluate(_GOOGLE_JS):
@@ -169,17 +230,20 @@ def _read(args) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--channel", required=True, choices=sorted(SEARCH_URL))
-    parser.add_argument("--query", required=True)
+    parser.add_argument("--channel", required=True, choices=CHANNELS)
+    parser.add_argument("--query", default="")
+    # Facebook pages someone else already found, comma separated: its own search is shut.
+    parser.add_argument("--pages", default="")
     parser.add_argument("--profile-dir", required=True)
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--headless", action="store_true")
     args = parser.parse_args()
+    args.pages = [h for h in args.pages.split(",") if h.strip()]
     try:
         result = _read(args)
     except Exception as exc:  # noqa: BLE001 — the caller reads JSON, not a traceback
         print(f"scrape failed: {exc}", file=sys.stderr)
-        result = {"hosts": [], "handles": [], "error": str(exc)[:200]}
+        result = {"hosts": [], "handles": [], "pages": [], "error": str(exc)[:200]}
     print(json.dumps(result, ensure_ascii=False), file=_STDOUT)
 
 
