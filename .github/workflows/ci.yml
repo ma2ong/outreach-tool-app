@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.14"
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - name: Install dependencies
@@ -41,7 +41,7 @@ jobs:
         run: pytest -q
 
   frontend:
-    name: Frontend production build
+    name: Frontend build and Playwright smoke
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -54,6 +54,14 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install API dependencies
+        working-directory: backend
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
       - name: Install dependencies
         run: npm ci
       - name: Audit production dependency tree
@@ -62,3 +70,33 @@ jobs:
         run: npm run audit:all
       - name: Build
         run: npm run build
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Seed isolated browser-test database
+        working-directory: backend
+        env:
+          OUTREACH_DB: ${{ runner.temp }}/outreach-ci.db
+        run: python ci_playwright_seed.py
+      - name: Start isolated API
+        working-directory: backend
+        env:
+          OUTREACH_DB: ${{ runner.temp }}/outreach-ci.db
+          OUTREACH_AUTO_POLL: "0"
+          OUTREACH_AUTO_SCAN: "0"
+          OUTREACH_AUTO_RECHECK: "0"
+          OUTREACH_AUTO_RESEARCH: "0"
+          OUTREACH_AUTOSEND_SCHEDULER: "0"
+          OUTREACH_SOCIAL_QUEUE: "0"
+          OUTREACH_EMBEDDED_WORKER: "0"
+          OUTREACH_AGENT: "0"
+        run: python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > $RUNNER_TEMP/outreach-api.log 2>&1 &
+      - name: Wait for isolated API
+        run: |
+          for i in {1..30}; do
+            curl --fail --silent http://127.0.0.1:8000/api/auth/status && exit 0
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/outreach-api.log"
+          exit 1
+      - name: Run Playwright smoke
+        run: npx playwright test

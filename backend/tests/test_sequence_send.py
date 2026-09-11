@@ -74,7 +74,7 @@ def test_channel_send_respects_daily_cap(conn):
     sequences.enroll_leads(conn, sid, [1, 2])
     # pretend WA daily cap already reached
     conn.executemany("INSERT INTO outreach(lead_no, channel, status, message_sent_date)"
-                     " VALUES (?, 'whatsapp', 'messaged', date('now'))",
+                     " VALUES (?, 'whatsapp', 'messaged', date('now','localtime'))",
                      [(100 + i,) for i in range(co_cap(conn))])
     conn.commit()
     eng = FakeEngine()
@@ -87,3 +87,89 @@ def test_channel_send_respects_daily_cap(conn):
 def co_cap(conn):
     from app import channel_outreach
     return channel_outreach.DAILY_CAP["whatsapp"]
+
+
+@pytest.mark.parametrize("failure", ["transport", "bookkeeping"])
+def test_uncertain_delivery_is_not_retried(conn, monkeypatch, failure):
+    sid = _email_seq(conn)
+    sequences.enroll_leads(conn, sid, [1])
+    eid = sequences.due_queue(conn)[0]["enrollment_id"]
+    calls = []
+    def sender(*args):
+        calls.append(args)
+        if failure == "transport":
+            raise TimeoutError("receipt unknown")
+    if failure == "bookkeeping":
+        monkeypatch.setattr(sequence_send.email_outreach, "_mark_messaged",
+                            lambda *a: (_ for _ in ()).throw(OSError("disk full")))
+    first = sequence_send.send_due(conn, [eid], sender=sender, email_delay=(0, 0))
+    second = sequence_send.send_due(conn, [eid], sender=sender, email_delay=(0, 0))
+    assert len(calls) == 1
+    assert first["failed"] == 1
+    assert second["sent"] == 0
+    row = conn.execute("SELECT * FROM delivery_intents").fetchone()
+    assert row["status"] == "unknown"
+    assert row["body"] == "First to Alpha"
+
+
+def test_competing_stale_queue_cannot_send_same_step(conn, monkeypatch):
+    sid = _email_seq(conn)
+    sequences.enroll_leads(conn, sid, [1])
+    due = sequences.due_queue(conn)
+    eid = due[0]["enrollment_id"]
+    monkeypatch.setattr(sequences, "due_queue", lambda *a: due)
+    competing = []
+    def sender(*args):
+        sequence_send.send_due(conn, [eid], sender=lambda *a: competing.append(a),
+                               email_delay=(0, 0))
+    result = sequence_send.send_due(conn, [eid], sender=sender, email_delay=(0, 0))
+    assert result["sent"] == 1
+    assert competing == []
+
+
+def test_failed_claim_never_calls_transport(conn, monkeypatch):
+    sid = _email_seq(conn)
+    sequences.enroll_leads(conn, sid, [1])
+    eid = sequences.due_queue(conn)[0]["enrollment_id"]
+    monkeypatch.setattr(sequence_send.delivery_intents, "claim",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("cannot persist")))
+    calls = []
+    result = sequence_send.send_due(conn, [eid], sender=lambda *a: calls.append(a),
+                                    email_delay=(0, 0))
+    assert calls == []
+    assert result["failed"] == 1
+
+
+def test_pending_previous_step_blocks_following_step(conn):
+    from app import delivery_intents
+    delivery_intents.ensure_schema(conn)
+    item = {"enrollment_id": 1, "current_step": 0, "lead_no": 1, "channel": "email"}
+    assert delivery_intents.claim(conn, item, target="a@example.invalid", body="first")
+    item["current_step"] = 1
+    assert delivery_intents.claim(conn, item, target="a@example.invalid", body="second") is None
+
+
+def test_human_can_confirm_not_sent_then_retry(conn):
+    from app import delivery_intents
+    sid = _email_seq(conn)
+    sequences.enroll_leads(conn, sid, [1])
+    eid = sequences.due_queue(conn)[0]["enrollment_id"]
+    sequence_send.send_due(conn, [eid], sender=lambda *a: (_ for _ in ()).throw(TimeoutError()))
+    intent = delivery_intents.unresolved(conn)[0]
+    delivery_intents.resolve(conn, intent["id"], "not_sent")
+    calls = []
+    result = sequence_send.send_due(conn, [eid], sender=lambda *a: calls.append(a), email_delay=(0, 0))
+    assert result["sent"] == 1 and len(calls) == 1
+
+
+def test_human_confirmed_send_repairs_crm_and_advances(conn):
+    from app import delivery_intents
+    sid = _email_seq(conn)
+    sequences.enroll_leads(conn, sid, [1])
+    eid = sequences.due_queue(conn)[0]["enrollment_id"]
+    sequence_send.send_due(conn, [eid], sender=lambda *a: (_ for _ in ()).throw(TimeoutError()))
+    intent = delivery_intents.unresolved(conn)[0]
+    delivery_intents.resolve(conn, intent["id"], "sent")
+    assert conn.execute("SELECT current_step FROM sequence_enrollments WHERE id=?", (eid,)).fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM send_log WHERE lead_no=1").fetchone()[0] == 1
+    assert delivery_intents.unresolved(conn) == []

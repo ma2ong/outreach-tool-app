@@ -50,6 +50,25 @@ def test_the_untouched_pool_is_counted_even_when_none_score_highly(planned):
     assert untouched["emailable_untouched"] == 1  # but lead 2 is contactable
 
 
+def test_untouched_shortlist_does_not_starve_later_ids(conn, monkeypatch):
+    conn.executemany("INSERT INTO leads(no,company_en) VALUES (?,?)",
+                     [(no, f"Company {no}") for no in range(10, 421)])
+    conn.commit()
+    def score(_conn, no, **_kwargs):
+        if no != 420:
+            return None
+        return {"lead_no": no, "company_en": "Company 420", "country": "USA",
+                "score": 90, "grade": "A", "next_action": "contact",
+                "missing_decision_maker": False}
+    monkeypatch.setattr("app.sales_intelligence.score_lead", score)
+    monkeypatch.setattr("app.agent.send_decision.evaluate_account", lambda *a, **k: {
+        "ready_for_template_check": True, "blockers": [], "positives": [],
+        "best_signal": None})
+    pool = world._untouched(conn)
+    assert pool["total_untouched"] >= 411
+    assert pool["top"][0]["lead_no"] == 420
+
+
 def test_the_planner_is_told_what_is_already_waiting(planned):
     proposals.create(planned, "create_task", lead_no=1, title="已经排过了", payload={})
     assert world.build(planned)["already_pending"][0]["title"] == "已经排过了"
@@ -265,17 +284,28 @@ def test_planning_is_on_by_default_and_can_be_switched_off(conn):
     assert run.plan_due(conn, morning) is True
 
 
-def test_the_plan_runs_once_in_the_morning_and_not_again(conn, monkeypatch):
+def test_planning_replenishes_after_cooldown_when_queue_is_clear(conn, monkeypatch):
+    mission.set_mission(conn, {"daily_qualified_leads": 0})
     monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"summary": "s", "plan": []})
     morning = dt.datetime(2026, 8, 20, 9, 0)
     assert run.plan_due(conn, morning)
     run.make_plan(conn, morning)
-    assert run.plan_due(conn, dt.datetime(2026, 8, 20, 11, 0)) is False
+    assert run.plan_due(conn, dt.datetime(2026, 8, 20, 9, 30)) is False
+    assert run.plan_due(conn, dt.datetime(2026, 8, 20, 10, 0)) is True
     assert run.plan_due(conn, dt.datetime(2026, 8, 21, 9, 0)) is True
 
 
-def test_an_afternoon_wake_up_does_not_plan_a_stale_day(conn):
-    assert run.plan_due(conn, dt.datetime(2026, 8, 20, 15, 0)) is False
+def test_pending_plan_work_prevents_queue_growth(conn, monkeypatch):
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {
+        "summary": "s", "plan": [{"kind": "create_task", "lead_no": 1,
+                                     "title": "Review lead", "payload": {}}]})
+    morning = dt.datetime(2026, 8, 20, 9, 0)
+    run.make_plan(conn, morning)
+    assert run.plan_due(conn, morning + dt.timedelta(hours=2)) is False
+
+
+def test_an_afternoon_wake_up_can_replenish_the_workday(conn):
+    assert run.plan_due(conn, dt.datetime(2026, 8, 20, 15, 0)) is True
 
 
 def test_a_failing_planner_waits_for_the_bounded_retry_window(conn, monkeypatch):
@@ -287,7 +317,8 @@ def test_a_failing_planner_waits_for_the_bounded_retry_window(conn, monkeypatch)
     result = run.make_plan(conn, morning)
     assert result["proposed"] == 0 and "网络不可达" in result["error"]
     assert run.plan_due(conn, dt.datetime(2026, 8, 20, 9, 5)) is False
-    assert run.plan_due(conn, dt.datetime(2026, 8, 20, 9, 30)) is True
+    assert run.plan_due(conn, dt.datetime(2026, 8, 20, 9, 30)) is False
+    assert run.plan_due(conn, dt.datetime(2026, 8, 20, 10, 0)) is True
     assert "计划失败" in run.status(conn)["plan"]["last_result"]
 
 

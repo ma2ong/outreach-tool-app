@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchSequences, createSequence, fetchDue, sendDue, pollReplies, fetchJob, loadSeeds, fetchQuota } from "../api";
-import { previewStep, updateStep, revertSequence } from "../api";
+import { createSequenceRouting, fetchSequenceRouting, previewSequenceRouting, updateSequenceRouting } from "../api";
+import type { SequenceRoutingInput } from "../api";
+import { previewStep, updateStep, revertSequence, fetchStepVersions, rollbackStep } from "../api";
 import type { StepPreview } from "../api";
-import type { Sequence, SequenceStep, DueItem, SendJob } from "../types";
+import type { CopyVersion, Sequence, SequenceStep, DueItem, SendJob, SequenceRoutingPreview, SequenceRoutingRule } from "../types";
 import { CopyExperiments } from "./CopyExperiments";
 
 const CH_LABEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook" };
@@ -20,6 +22,8 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
   // than producing one that looks fine and receives nobody.
   const [segment, setSegment] = useState("");
   const [lang, setLang] = useState("en");
+  const [routeCountry, setRouteCountry] = useState("");
+  const [routePriority, setRoutePriority] = useState(100000);
   const [due, setDue] = useState<DueItem[]>([]);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [job, setJob] = useState<SendJob | null>(null);
@@ -54,7 +58,7 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
       .then(([d, q]) => { setDue(d); setQuota(q); setPicked(pickWithinQuota(d, q)); })
       .catch((e) => setMsg(`跟进队列或额度加载失败：${String(e)}`));
   }
-  useEffect(reload, []);
+  useEffect(() => { reload(); }, []);
 
   const isEmail = channel === "email";
   const togglePick = (id: number) => setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -66,6 +70,7 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
     try {
       await createSequence({
         name: name.trim(), channel, segment: segment || null, korean: lang === "ko",
+        route_country: routeCountry.trim() || null, route_priority: routePriority,
         steps: clean.map((s) => ({ day_offset: Number(s.day_offset) || 0, subject: isEmail ? s.subject : null, body: s.body })),
       });
       setName(""); setSteps(BLANK_STEPS); setMsg(`已创建序列「${name.trim()}」`);
@@ -185,15 +190,25 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
             <option value="general">自动发给：中性版</option>
           </select>
           {segment && (
-            <select className="input" value={lang} onChange={(e) => setLang(e.target.value)}>
-              <option value="en">英语客户</option>
-              <option value="ko">韩国客户</option>
-            </select>
+            <>
+              <select className="input" value={lang} onChange={(e) => setLang(e.target.value)}>
+                <option value="en">英语客户</option>
+                <option value="ko">韩国客户</option>
+              </select>
+              <input className="input" value={routeCountry}
+                onChange={(e) => setRouteCountry(e.target.value)}
+                placeholder="国家（留空=所有国家）" style={{ width: 180 }} />
+              <label className="muted" style={{ fontSize: 12 }}>优先级
+                <input className="input" type="number" min={0} max={1000000}
+                  value={routePriority} onChange={(e) => setRoutePriority(Number(e.target.value) || 0)}
+                  style={{ width: 100, marginLeft: 4 }} />
+              </label>
+            </>
           )}
         </div>
         <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
           {segment
-            ? `建好后，${{ rental: "活动租赁", install: "固定安装", outdoor: "户外为主", general: "中性版" }[segment]}${lang === "ko" ? "（韩国）" : "（英语）"}的客户会被自动发送路由到这条序列——同一类已有的序列会被它取代。`
+            ? `建好后，${routeCountry.trim() || "所有国家"}的${{ rental: "活动租赁", install: "固定安装", outdoor: "户外为主", general: "中性版" }[segment]}${lang === "ko" ? "（韩语）" : "（英语）"}客户会按优先级 ${routePriority} 路由到这条序列；同一国家/语言/类型的旧规则会停用。`
             : "不指定客户类型的话，这条序列只能在客户库里手动勾选加人；自动发送永远不会用它。"}
         </div>
         {steps.map((s, i) => (
@@ -218,6 +233,8 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
         </div>
       </div>
 
+      <RoutingManager sequences={seqs.filter((s) => s.channel === "email")} />
+
       <div className="card">
         <h3>已有序列</h3>
         {seqs.length === 0 && <div className="muted">还没有序列。</div>}
@@ -226,6 +243,127 @@ export function SequencesPanel({ onChanged }: { onChanged?: () => void }) {
         ))}
       </div>
     </>
+  );
+}
+
+const SEGMENT_LABEL: Record<string, string> = {
+  rental: "活动租赁", install: "固定安装", outdoor: "户外为主", general: "中性兜底",
+};
+
+function RoutingManager({ sequences }: { sequences: Sequence[] }) {
+  const [rules, setRules] = useState<SequenceRoutingRule[]>([]);
+  const [country, setCountry] = useState("");
+  const [language, setLanguage] = useState("en");
+  const [customerType, setCustomerType] = useState("rental");
+  const [sequenceId, setSequenceId] = useState(0);
+  const [priority, setPriority] = useState(100);
+  const [preview, setPreview] = useState<SequenceRoutingPreview | null>(null);
+  const [message, setMessage] = useState("");
+
+  const reload = () => fetchSequenceRouting().then(setRules).catch((e) => setMessage(String(e)));
+  useEffect(() => { void reload(); }, []);
+  useEffect(() => {
+    if (!sequenceId && sequences.length) setSequenceId(sequences[0].id);
+  }, [sequenceId, sequences]);
+
+  const input = (enabled = true): SequenceRoutingInput => ({
+    sequence_id: sequenceId, enabled, priority,
+    country: country.trim() || null, language, customer_type: customerType,
+  });
+
+  async function add() {
+    if (!sequenceId) { setMessage("先创建一条 Email Sequence"); return; }
+    try { await createSequenceRouting(input()); setMessage("路由规则已新增"); reload(); }
+    catch (e) { setMessage("新增失败：" + String(e)); }
+  }
+
+  async function look() {
+    try {
+      setPreview(await previewSequenceRouting({
+        country: country.trim() || null, language, customer_type: customerType,
+      }));
+      setMessage("");
+    } catch (e) { setMessage("预览失败：" + String(e)); }
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <h3>自动分配规则</h3>
+      <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+        新客户会按“客户类型优先、同类型内优先级从高到低”匹配。这里改的是今后的自动分配；已经入组的客户不会被迁走。
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <input className="input" value={country} onChange={(e) => setCountry(e.target.value)}
+          placeholder="国家，留空=全球" style={{ width: 170 }} />
+        <select className="input" value={language} onChange={(e) => setLanguage(e.target.value)}>
+          <option value="en">英语</option><option value="ko">韩语</option>
+        </select>
+        <select className="input" value={customerType} onChange={(e) => setCustomerType(e.target.value)}>
+          {Object.entries(SEGMENT_LABEL).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+        </select>
+        <select className="input" value={sequenceId} onChange={(e) => setSequenceId(Number(e.target.value))}>
+          {sequences.map((s) => <option value={s.id} key={s.id}>{s.name}</option>)}
+        </select>
+        <label className="muted" style={{ fontSize: 12 }}>优先级 <input className="input" type="number"
+          min={0} max={1000000} value={priority} onChange={(e) => setPriority(Number(e.target.value) || 0)}
+          style={{ width: 90 }} /></label>
+        <button className="btn btn-sm" onClick={look}>预览谁会胜出</button>
+        <button className="btn btn-primary btn-sm" onClick={add}>新增规则</button>
+      </div>
+      {preview && (
+        <div style={{ marginTop: 10, padding: 10, border: "1px solid var(--border)", borderRadius: 8 }}>
+          <b>{preview.sequence_name ? `会进入：${preview.sequence_name}` : "没有匹配规则，不会自动入组"}</b>
+          {preview.matches.map((r, i) => (
+            <div className="muted" style={{ fontSize: 12, marginTop: 3 }} key={r.id}>
+              {i === 0 ? "✓ 胜出" : `候选 ${i + 1}`} · {r.sequence_name} · {SEGMENT_LABEL[r.customer_type || "general"] || "任意类型"} · 优先级 {r.priority}
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ marginTop: 12 }}>
+        {rules.map((rule) => (
+          <RoutingRuleRow key={rule.id} rule={rule} sequences={sequences} onSaved={reload} />
+        ))}
+      </div>
+      {message && <div className="muted" style={{ marginTop: 8 }}>{message}</div>}
+    </div>
+  );
+}
+
+function RoutingRuleRow({ rule, sequences, onSaved }: {
+  rule: SequenceRoutingRule; sequences: Sequence[]; onSaved: () => void;
+}) {
+  const [form, setForm] = useState<SequenceRoutingInput>({
+    sequence_id: rule.sequence_id, enabled: !!rule.enabled, priority: rule.priority,
+    country: rule.country, language: rule.language, customer_type: rule.customer_type,
+  });
+  const [message, setMessage] = useState("");
+  async function save() {
+    try { await updateSequenceRouting(rule.id, form); setMessage("已保存"); onSaved(); }
+    catch (e) { setMessage(String(e)); }
+  }
+  return (
+    <div style={{ borderTop: "1px solid var(--border)", padding: "8px 0", display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" }}>
+      <input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
+        title="关闭后新客户不再使用；历史入组不变" />
+      <select className="input" value={form.sequence_id} onChange={(e) => setForm({ ...form, sequence_id: Number(e.target.value) })}>
+        {sequences.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+      </select>
+      <input className="input" value={form.country || ""} placeholder="全球"
+        onChange={(e) => setForm({ ...form, country: e.target.value || null })} style={{ width: 130 }} />
+      <select className="input" value={form.language || ""} onChange={(e) => setForm({ ...form, language: e.target.value || null })}>
+        <option value="">任意语言</option><option value="en">英语</option><option value="ko">韩语</option>
+      </select>
+      <select className="input" value={form.customer_type || ""} onChange={(e) => setForm({ ...form, customer_type: e.target.value || null })}>
+        <option value="">任意类型</option>
+        {Object.entries(SEGMENT_LABEL).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+      </select>
+      <input className="input" type="number" min={0} max={1000000} value={form.priority}
+        onChange={(e) => setForm({ ...form, priority: Number(e.target.value) || 0 })} style={{ width: 90 }} />
+      <button className="btn btn-sm" onClick={save}>保存</button>
+      {!form.enabled && <span className="muted" style={{ fontSize: 12 }}>已停用</span>}
+      {message && <span className="muted" style={{ fontSize: 12 }}>{message}</span>}
+    </div>
   );
 }
 
@@ -241,6 +379,7 @@ function StepEditor({ seq, step, onSaved }: { seq: Sequence; step: SequenceStep;
   const [shown, setShown] = useState<StepPreview | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [versions, setVersions] = useState<CopyVersion[] | null>(null);
   const dirty = subject !== (step.subject ?? "") || body !== step.body;
 
   async function look() {
@@ -256,6 +395,22 @@ function StepEditor({ seq, step, onSaved }: { seq: Sequence; step: SequenceStep;
       setMsg("已保存。这一步现在是你的，系统播种不会再覆盖它。");
       onSaved();
     } catch (e) { setMsg(String(e).replace(/^Error:\s*/, "发不出去：")); }
+    finally { setBusy(false); }
+  }
+  async function history() {
+    setBusy(true); setMsg("");
+    try { setVersions(await fetchStepVersions(seq.id, step.step_order)); }
+    catch (e) { setMsg(String(e)); }
+    finally { setBusy(false); }
+  }
+  async function restore(version: CopyVersion) {
+    setBusy(true); setMsg("");
+    try {
+      const current = await rollbackStep(seq.id, step.step_order, version.id);
+      setSubject(current.subject ?? ""); setBody(current.body);
+      setVersions(await fetchStepVersions(seq.id, step.step_order));
+      setMsg(`已恢复 v${version.version}，并另存为新版本。`); onSaved();
+    } catch (e) { setMsg(String(e)); }
     finally { setBusy(false); }
   }
 
@@ -275,6 +430,7 @@ function StepEditor({ seq, step, onSaved }: { seq: Sequence; step: SequenceStep;
       <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
         <button className="btn btn-sm" onClick={look} disabled={busy}>看看发出去是什么样</button>
         <button className="btn btn-primary btn-sm" onClick={save} disabled={busy || !dirty}>保存这一步</button>
+        <button className="btn btn-sm" onClick={history} disabled={busy}>版本记录</button>
         {msg && <span className="muted" style={{ fontSize: 12 }}>{msg}</span>}
       </div>
       {shown && (
@@ -289,6 +445,19 @@ function StepEditor({ seq, step, onSaved }: { seq: Sequence; step: SequenceStep;
               ? <span style={{ color: "var(--danger, #d33)" }}>⚠ 这样发不出去：{shown.detail}</span>
               : <span style={{ color: "var(--ok, #2a7)" }}>✓ 检查通过，可以发</span>}
           </div>
+        </div>
+      )}
+      {versions && (
+        <div style={{ marginTop: 9, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>
+            {versions.length ? "历史不会被覆盖；恢复后也会生成一个新版本。" : "第一次保存后会从原稿开始记录版本。"}
+          </div>
+          {versions.map((version, index) => (
+            <div key={version.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "4px 0", fontSize: 12 }}>
+              <span>v{version.version} · {version.change_kind === "baseline" ? "原稿" : version.change_kind === "rollback" ? "恢复" : "编辑"} · {new Date(version.created_at).toLocaleString()}</span>
+              {index > 0 && <button className="btn btn-sm" disabled={busy} onClick={() => restore(version)}>恢复此版</button>}
+            </div>
+          ))}
         </div>
       )}
     </div>

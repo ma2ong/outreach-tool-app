@@ -35,11 +35,8 @@ stream = open(log_path, "a", encoding="utf-8", buffering=1)
 sys.stdout = sys.stderr = stream
 faulthandler.enable(file=stream, all_threads=True)
 
-start_marker = os.path.join(log_dir, "last-start.txt")
-with open(start_marker, "w", encoding="utf-8") as fh:
-    fh.write(datetime.datetime.now(datetime.UTC).isoformat())
-
 import uvicorn  # noqa: E402  (must come after the streams exist)
+from app import startup  # noqa: E402
 
 
 def _record_crash(exc: BaseException) -> None:
@@ -51,7 +48,20 @@ def _record_crash(exc: BaseException) -> None:
 
 if __name__ == "__main__":
     try:
+        owner = startup.port_owner()
+        if owner == "outreach":
+            print("[startup] outreach-tool 已在 8000 端口运行，复用现有服务。", flush=True)
+            raise SystemExit(0)
+        if owner == "other":
+            raise RuntimeError(
+                "端口 8000 已被其他程序占用；outreach-tool 未启动。请关闭占用程序或修改端口。"
+            )
+        start_marker = os.path.join(log_dir, "last-start.txt")
+        with open(start_marker, "w", encoding="utf-8") as fh:
+            fh.write(datetime.datetime.now(datetime.UTC).isoformat())
         uvicorn.run("app.main:app", host="127.0.0.1", port=8000, log_level="info")
+    except SystemExit:
+        raise
     except BaseException as exc:  # noqa: BLE001 — Scheduled Task will restart after recording it
         _record_crash(exc)
         traceback.print_exception(type(exc), exc, exc.__traceback__, file=stream)

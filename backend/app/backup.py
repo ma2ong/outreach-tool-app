@@ -137,6 +137,13 @@ def ensure_daily_backup(db_path: str, *, keep: int = BACKUP_KEEP,
         raise
 
 
+def startup_backup(db_path: str) -> str | None:
+    """Compatibility shape for bootstrap/tests while using the verified backup path."""
+    if not os.path.isfile(db_path):
+        return None
+    return str(ensure_daily_backup(db_path)["path"])
+
+
 def status(db_path: str, *, today: dt.date | None = None) -> dict:
     """Cheap dashboard-friendly backup state, with cached integrity verification."""
     today = today or dt.date.today()

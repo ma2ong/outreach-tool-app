@@ -37,7 +37,7 @@ export function SolutionEngineerPanel() {
       })
       .catch((e) => setMsg(String(e)));
   }
-  useEffect(load, []);
+  useEffect(() => { void load(); }, []);
 
   useEffect(() => {
     if (!selectedOpp) return;

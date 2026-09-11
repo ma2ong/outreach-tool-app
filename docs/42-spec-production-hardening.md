@@ -38,7 +38,7 @@ Health checks cover:
 - database disk free space;
 - existence of the built frontend entry point;
 - most recent server crash/start markers;
-- current Python version versus the CI-tested Python 3.11 baseline;
+- current Python version versus the CI-tested Python 3.14 baseline;
 - existing Worker lease/cycle/mailbox health.
 
 Severity:

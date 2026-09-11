@@ -365,11 +365,13 @@ def scan(conn: sqlite3.Connection, lead_no: int, *, role_kinds: set[str] | None 
         q, limit=lim, allowed_domain=domain))
     fetch_fn = fetch_fn or jina_fetch
     urls: list[str] = []
+    search_errors: list[str] = []
     for query in _queries(lead["company_en"], domain, wanted):
         try:
             found = search_fn(query, max_pages) or []
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 — keep trying, but never call it empty
             found = []
+            search_errors.append(f"search {query}: {type(exc).__name__}: {exc}")
         for url in found:
             if url not in urls and _company_owned(url, lead["website"]):
                 urls.append(url)
@@ -378,7 +380,7 @@ def scan(conn: sqlite3.Connection, lead_no: int, *, role_kinds: set[str] | None 
         if len(urls) >= max_pages:
             break
 
-    pages, errors = [], []
+    pages, errors = [], search_errors
     for url in urls[:max_pages]:
         try:
             text = fetch_fn(url) or ""
@@ -522,7 +524,7 @@ def sweep(conn: sqlite3.Connection, *, today: dt.date | None = None,
           limit: int = MAX_SWEEP_ACCOUNTS, search_fn=None, fetch_fn=None) -> dict:
     """Research a tiny number of authority gaps and surface review work as proposals."""
     today = today or _today()
-    checked, promoted, proposal_ids, results = 0, 0, [], []
+    checked, promoted, proposal_ids, results, errors = 0, 0, [], [], []
     for account in due_accounts(conn, today=today, limit=limit):
         result = scan(
             conn, account["lead_no"], role_kinds=set(account["missing_roles"]),
@@ -531,6 +533,9 @@ def sweep(conn: sqlite3.Connection, *, today: dt.date | None = None,
         checked += 1
         promoted += result.get("promoted", 0)
         results.append(result)
+        errors.extend(
+            f"lead #{account['lead_no']}: {error}" for error in result.get("errors") or []
+        )
         candidates = result.get("candidates") or []
         if candidates:
             summary = "；".join(
@@ -553,4 +558,4 @@ def sweep(conn: sqlite3.Connection, *, today: dt.date | None = None,
             if proposal:
                 proposal_ids.append(proposal["id"])
     return {"checked": checked, "promoted": promoted, "proposed": len(proposal_ids),
-            "proposal_ids": proposal_ids, "results": results}
+            "proposal_ids": proposal_ids, "results": results, "errors": errors}

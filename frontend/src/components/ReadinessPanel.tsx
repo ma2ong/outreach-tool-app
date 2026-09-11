@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { cardToggle } from "./Expandable";
 import { fetchReadiness, setAutoSend } from "../api";
 import type { Readiness } from "../types";
@@ -9,16 +9,14 @@ const STATUS = {
   blocked: { icon: "×", color: "var(--danger)" },
 };
 
-export function ReadinessPanel({ onGoto }: { onGoto: (page: string) => void }) {
-  const [data, setData] = useState<Readiness | null>(null);
+export function ReadinessPanel({ onGoto, data, onChanged }: {
+  onGoto: (page: string) => void;
+  data: Readiness | null;
+  onChanged: (value: Readiness) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
-  function reload() {
-    fetchReadiness().then(setData).catch((e) => setError(`就绪检查失败：${String(e)}`));
-  }
-  useEffect(reload, []);
 
   async function toggle() {
     if (!data) return;
@@ -34,10 +32,9 @@ export function ReadinessPanel({ onGoto }: { onGoto: (page: string) => void }) {
     setBusy(true); setError("");
     try {
       await setAutoSend(enabling, acknowledged);
-      reload();
+      onChanged(await fetchReadiness());
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
-      reload();
     } finally {
       setBusy(false);
     }

@@ -1,4 +1,5 @@
 import datetime as dt
+import threading
 
 import pytest
 
@@ -123,15 +124,122 @@ def test_second_leased_cycle_does_not_execute_while_first_owner_is_live(tmp_path
     )
     assert result["acquired"] is False
     assert calls == []
+    standby = runtime.status(conn)["state"]
+    assert standby["standby_count"] == 1
+    assert standby["last_standby_owner"] == "standby"
+
+
+def test_background_stage_failure_is_visible_in_the_runtime_record(monkeypatch, tmp_path):
+    from app import background_jobs
+
+    path, conn = _db(tmp_path)
+    monkeypatch.setattr(background_jobs, "email_poll", lambda _p: True)
+    monkeypatch.setattr(background_jobs, "social_scan", lambda _p: False)
+    monkeypatch.setattr(background_jobs, "website_recheck", lambda _p: True)
+    monkeypatch.setattr(background_jobs, "sequence_maintenance", lambda _p: True)
+    monkeypatch.setattr(background_jobs, "email_send", lambda _p: True)
+    monkeypatch.setattr(background_jobs, "social_send", lambda _p: True)
+    monkeypatch.setattr(background_jobs, "agent", lambda _p: True)
+    monkeypatch.setattr(background_jobs, "contact_names", lambda _p: True)
+
+    result = runtime.run_leased_cycle(path, lambda: background_jobs.run_cycle(path),
+                                      owner="worker-a", mode="worker")
+    assert result["cycle_ok"] is False
+    assert "social_scan" in result["error"]
+    assert runtime.status(conn)["state"]["last_cycle_ok"] == 0
+    capability = {row["name"]: row for row in runtime.capability_status(conn)}["social_scan"]
+    assert capability["consecutive_failures"] == 1
+    assert "reported failure" in capability["last_error"]
+
+
+def test_capability_failure_does_not_stop_the_following_stage(monkeypatch, tmp_path):
+    from app import background_jobs
+
+    path, _conn = _db(tmp_path)
+    called = []
+    monkeypatch.setattr(background_jobs, "email_poll", lambda _p: (_ for _ in ()).throw(RuntimeError("imap down")))
+    monkeypatch.setattr(background_jobs, "social_scan", lambda _p: called.append("social") or True)
+    monkeypatch.setattr(background_jobs, "website_recheck", lambda _p: True)
+    monkeypatch.setattr(background_jobs, "sequence_maintenance", lambda _p: True)
+    monkeypatch.setattr(background_jobs, "email_send", lambda _p: True)
+    monkeypatch.setattr(background_jobs, "social_send", lambda _p: True)
+    monkeypatch.setattr(background_jobs, "agent", lambda _p: True)
+    monkeypatch.setattr(background_jobs, "contact_names", lambda _p: True)
+
+    with pytest.raises(RuntimeError, match="imap down"):
+        background_jobs.run_cycle(path)
+    assert called == ["social"]
+
+
+def test_agent_job_propagates_decision_maker_search_failures(monkeypatch, tmp_path):
+    from app import background_jobs, decision_maker_radar
+    from app.agent import account_brain, catchup, opportunity_coach, run
+
+    path, _conn = _db(tmp_path)
+    monkeypatch.setenv("OUTREACH_AGENT", "1")
+    monkeypatch.setenv("OUTREACH_AUTO_RESEARCH", "1")
+    monkeypatch.setattr(run, "run_once", lambda _conn: {"processed": 1, "errors": []})
+    monkeypatch.setattr(catchup, "run_if_due", lambda _conn: None)
+    monkeypatch.setattr(account_brain, "safety_net", lambda _conn: None)
+    monkeypatch.setattr(opportunity_coach, "safety_net", lambda _conn: None)
+    monkeypatch.setattr(decision_maker_radar, "sweep", lambda _conn: {
+        "checked": 1, "promoted": 0, "proposed": 0,
+        "errors": ["lead #1: search offline"],
+    })
+
+    result = background_jobs.agent(path)
+    assert result["errors"] == ["lead #1: search offline"]
+    observed = runtime.run_capability(path, "agent", lambda: result)
+    assert observed["status"] == "partial"
+    assert observed["processed_count"] == 1
+
+
+def test_stalled_stage_does_not_block_or_duplicate_and_final_result_is_collected(tmp_path):
+    from app import scheduler
+
+    path, conn = _db(tmp_path)
+    release = threading.Event()
+    started = threading.Event()
+    finished = threading.Event()
+    calls = []
+
+    def stuck():
+        calls.append("stuck")
+        started.set()
+        release.wait(2)
+        finished.set()
+        return {"processed": 3}
+
+    later = []
+    with pytest.raises(RuntimeError, match="stalled"):
+        scheduler.run_cycle(
+            path, (("stuck", stuck), ("later", lambda: later.append(1) or True)),
+            deadlines={"stuck": 0.02, "later": 1},
+        )
+    assert started.is_set() and later == [1]
+    health = {row["name"]: row for row in runtime.capability_status(conn)}
+    assert health["stuck"]["status"] == "stalled"
+
+    with pytest.raises(RuntimeError, match="stalled"):
+        scheduler.run_cycle(
+            path, (("stuck", stuck),), deadlines={"stuck": 0.02})
+    assert calls == ["stuck"]
+
+    release.set()
+    assert finished.wait(1)
+    assert scheduler.run_cycle(
+        path, (("stuck", stuck),), deadlines={"stuck": 1}) is True
+    health = {row["name"]: row for row in runtime.capability_status(conn)}["stuck"]
+    assert health["status"] == "succeeded" and health["processed_count"] == 3
+    assert calls == ["stuck"]
 
 
 def test_standalone_once_releases_lease_and_records_cycle(monkeypatch, tmp_path):
-    from app import main, worker
+    from app import background_jobs, worker
 
     path = str(tmp_path / "worker.db")
     conn = connect(path); init_schema(conn); conn.close()
-    monkeypatch.setattr(main, "DB_PATH", path)
-    monkeypatch.setattr(main, "background_cycle", lambda: True)
+    monkeypatch.setattr(background_jobs, "run_cycle", lambda actual: actual == path)
     result = worker.run_once(
         db_path=path, owner="once-worker", mode="worker", release_after=True)
     assert result["cycle_ok"] is True
@@ -145,27 +253,29 @@ def test_standalone_once_releases_lease_and_records_cycle(monkeypatch, tmp_path)
         check.close()
 
 
-def test_worker_refuses_to_lease_one_db_and_execute_against_another(monkeypatch, tmp_path):
-    from app import main, worker
+def test_worker_executes_cycle_against_the_leased_database(monkeypatch, tmp_path):
+    from app import background_jobs, worker
 
     path = str(tmp_path / "leased.db")
-    monkeypatch.setattr(main, "DB_PATH", str(tmp_path / "different.db"))
-    with pytest.raises(RuntimeError, match="DB_PATH"):
-        worker.run_once(db_path=path, owner="bad")
+    conn = connect(path); init_schema(conn); conn.close()
+    seen = []
+    monkeypatch.setattr(background_jobs, "run_cycle", lambda actual: seen.append(actual) or True)
+    worker.run_once(db_path=path, owner="same-db")
+    assert seen == [path]
 
 
 def test_sequence_autosend_is_owned_by_background_cycle(monkeypatch, tmp_path):
-    from app import autosend, main
+    from app import autosend, background_jobs
+    from app.api import send as send_api
 
     path = str(tmp_path / "autosend.db")
     conn = connect(path); init_schema(conn); conn.close()
-    monkeypatch.setattr(main, "DB_PATH", path)
     monkeypatch.setenv("OUTREACH_AUTOSEND_SCHEDULER", "1")
     calls = []
     monkeypatch.setattr(autosend, "should_run", lambda conn: True)
     monkeypatch.setattr(autosend, "run_once",
                         lambda conn, sender, image: calls.append((sender, image)) or {"sent": 0})
-    monkeypatch.setattr(main.send_api, "pick_sender", lambda conn: "sender")
-    monkeypatch.setattr(main.send_api, "DEFAULT_ATTACHMENT", None)
-    main.auto_send_sequences()
+    monkeypatch.setattr(send_api, "pick_sender", lambda conn: "sender")
+    monkeypatch.setattr(send_api, "DEFAULT_ATTACHMENT", None)
+    background_jobs.email_send(path)
     assert calls == [("sender", None)]

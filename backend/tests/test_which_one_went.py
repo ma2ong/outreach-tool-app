@@ -132,6 +132,48 @@ def test_a_deferred_item_is_neither_sent_nor_failed(conn, monkeypatch):
     assert sent_lead == 2
 
 
+def test_uncertain_queue_send_stays_visible_and_cannot_be_sent_twice(conn):
+    class AcceptedThenTimeout:
+        def __init__(self):
+            self.calls = 0
+
+        def send_message(self, *_args, **_kwargs):
+            self.calls += 1
+            raise TimeoutError("click result unknown")
+
+    engine = AcceptedThenTimeout()
+    item = _items(conn)[0]
+    first = channel_outreach.send_prepared(conn, [item], engine)
+    second = channel_outreach.send_prepared(conn, [item], engine)
+
+    assert first["failed"] == 1
+    assert second["sent"] == 0
+    assert engine.calls == 1
+    assert _status(conn, item["lead_no"]) == "ready"
+    assert conn.execute("SELECT status FROM delivery_intents").fetchone()["status"] == "unknown"
+
+
+def test_confirming_uncertain_queue_send_repairs_queue_and_crm(conn):
+    from app import delivery_intents
+
+    class Timeout:
+        def send_message(self, *_args, **_kwargs):
+            raise TimeoutError("click result unknown")
+
+    item = _items(conn)[0]
+    channel_outreach.send_prepared(conn, [item], Timeout(), campaign="Queue repair")
+    intent = delivery_intents.unresolved(conn)[0]
+
+    delivery_intents.resolve(conn, intent["id"], "sent")
+
+    assert _status(conn, item["lead_no"]) == "sent"
+    assert conn.execute(
+        "SELECT status FROM outreach WHERE lead_no=? AND channel=?",
+        (item["lead_no"], item["channel"]),
+    ).fetchone()["status"] == "messaged"
+    assert conn.execute("SELECT campaign FROM send_log").fetchone()["campaign"] == "Queue repair"
+
+
 # ---------------------------------------------------------------- R3
 
 def test_every_channel_leaves_its_own_error(conn, monkeypatch):

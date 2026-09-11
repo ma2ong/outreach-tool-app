@@ -39,7 +39,7 @@ def conn(tmp_path, monkeypatch):
 def _touch(conn, count=1, days_ago=10):
     conn.execute(
         "INSERT INTO outreach(lead_no,channel,status,touch_count,message_sent_date)"
-        " VALUES (10,'email','messaged',?,date('now',?))"
+        " VALUES (10,'email','messaged',?,date('now','localtime',?))"
         " ON CONFLICT(lead_no,channel) DO UPDATE SET status='messaged',touch_count=excluded.touch_count,"
         " message_sent_date=excluded.message_sent_date",
         (count, f"-{days_ago} days"),
@@ -47,7 +47,7 @@ def _touch(conn, count=1, days_ago=10):
     for i in range(count):
         conn.execute(
             "INSERT INTO send_log(lead_no,channel,campaign,sent_at)"
-            " VALUES (10,'email','序列:Cold follow-up',datetime('now',?))",
+            " VALUES (10,'email','序列:Cold follow-up',datetime('now','localtime',?))",
             (f"-{days_ago + i} days",),
         )
     conn.commit()

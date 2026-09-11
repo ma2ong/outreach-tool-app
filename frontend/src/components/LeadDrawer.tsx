@@ -3,6 +3,8 @@ import { updateLead, addNote, createOpportunity, fetchOpportunities, deleteLead,
 import type { Activity, Contact, Lead, LeadIntelligence, Opportunity } from "../types";
 import { fetchLeadIntelligence } from "../salesIntelligenceApi";
 import { fetchLeadMemory, writeLeadMemory, forgetLeadMemory, type MemoryItem } from "../agentApi";
+import { takeoverConversation, resumeConversation, scheduleConversation } from "../agentApi";
+import { fetchConversation, type Conversation } from "../conversationApi";
 import { CustomerTypePicker } from "./CustomerTypePicker";
 import { CorrespondencePanel } from "./CorrespondencePanel";
 import { fetchCustomerTypes } from "../api";
@@ -145,6 +147,9 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
   const [rechecking, setRechecking] = useState(false);
   const [recheckMsg, setRecheckMsg] = useState("");
   const [intelligence, setIntelligence] = useState<LeadIntelligence | null>(null);
+  const [conversationDetail, setConversationDetail] = useState<Conversation | null>(null);
+  const [conversationDue, setConversationDue] = useState(localToday());
+  const [conversationBusy, setConversationBusy] = useState(false);
 
   async function runRecheck() {
     setRechecking(true); setRecheckMsg(""); setErr("");
@@ -172,6 +177,12 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
     setContacts(rows); setDraft(updated); onChange(updated);
   }
 
+  async function refreshConversation() {
+    const value = await fetchConversation(lead.no);
+    setConversationDetail(value);
+    setConversationDue(value.state?.due_at || localToday());
+  }
+
   useEffect(() => {
     setDraft(lead); setDirty(false); setConfirmDelete(false);
     setProjectTitle(`${lead.company_en} LED 项目`);
@@ -182,6 +193,7 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
       .catch((e) => setErr("联系人加载失败：" + String(e)));
     fetchLeadIntelligence(lead.no).then(setIntelligence)
       .catch((e) => setErr("销售评分加载失败：" + String(e)));
+    refreshConversation().catch((e) => setErr("下一步加载失败：" + String(e)));
     setMemoryDraft("");
     fetchLeadMemory(lead.no).then((m) => setMemoryItems(m.items))
       .catch((e) => setErr("客户记忆加载失败：" + String(e)));
@@ -297,7 +309,57 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
     finally { setContactBusy(false); }
   }
 
+  async function takeOverConversation() {
+    const state = conversationDetail?.state;
+    if (!state) return;
+    setConversationBusy(true); setErr("");
+    try {
+      await takeoverConversation(lead.no, state.channel, "Allen 在客户档案中明确接管");
+      await refreshConversation();
+    } catch (e) { setErr("接管失败：" + String(e)); }
+    finally { setConversationBusy(false); }
+  }
+
+  async function returnConversationToAgent() {
+    const state = conversationDetail?.state;
+    if (!state) return;
+    setConversationBusy(true); setErr("");
+    try {
+      await resumeConversation(lead.no, state.channel);
+      await refreshConversation();
+    } catch (e) { setErr("交回失败：" + String(e)); }
+    finally { setConversationBusy(false); }
+  }
+
+  async function adjustConversationDate() {
+    const state = conversationDetail?.state;
+    if (!state || !conversationDue) return;
+    setConversationBusy(true); setErr("");
+    try {
+      await scheduleConversation(
+        lead.no, state.channel,
+        state.next_action || openTasks[0]?.title || draft.next_action || "检查客户下一步",
+        conversationDue,
+      );
+      await refreshConversation();
+    } catch (e) { setErr("调整下一步失败：" + String(e)); }
+    finally { setConversationBusy(false); }
+  }
+
   const blockDomain = (draft.website || draft.email || "").replace(/^https?:\/\/(www\.)?/, "").split("/")[0].split("@").pop() || "";
+  const conversationState = conversationDetail?.state;
+  const currentAction = conversationState?.next_action || openTasks[0]?.title
+    || draft.next_action || "尚未安排明确下一步";
+  const conversationStateLabel: Record<string, string> = {
+    waiting_us: "等我们回复", waiting_customer: "等客户回复",
+    human_takeover: "人工接管", closed: "本轮已结束",
+  };
+  const projectFactLabel: Record<string, string> = {
+    pixel_pitch: "点间距", indoor_outdoor: "环境", width_m: "宽度(m)",
+    height_m: "高度(m)", area_sqm: "面积(㎡)", quantity: "数量",
+    brightness_nits: "亮度(nits)", refresh_rate_hz: "刷新率(Hz)",
+    viewing_distance_m: "观看距离(m)", project_timing: "项目时间",
+  };
 
   async function removeLead() {
     setDeleting(true); setErr("");
@@ -357,6 +419,46 @@ export function LeadDrawer({ lead, onClose, onChange, onDeleted, onTasksChange }
             {!!draft.do_not_contact && (
               <div className="muted" style={{ fontSize: 11, marginTop: 3, whiteSpace: "normal" }}>
                 已排除：群发、WhatsApp/Instagram、跟进序列都不会再发给这家。
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 14, borderLeft: "3px solid var(--accent)" }}>
+          <div className="stat-label">客户当前下一步</div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>{currentAction}</div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
+                <span>当前负责人</span>：{conversationState?.owner === "agent" ? "Agent" : conversationState?.owner === "allen" ? "Allen" : "尚未分配"}
+                {conversationState ? ` · ${conversationStateLabel[conversationState.state] || conversationState.state}` : " · 尚无对话状态"}
+                {conversationState?.due_at ? ` · ${conversationState.due_at}` : ""}
+              </div>
+              {conversationState?.reason && <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>原因：{conversationState.reason}</div>}
+              {!!conversationDetail?.requirements?.facts.length && (
+                <div style={{ fontSize: 11, marginTop: 7 }}>
+                  已确认需求：{conversationDetail.requirements.facts.slice(0, 8).map((fact) =>
+                    `${projectFactLabel[fact.field] || fact.field} ${fact.value}`
+                  ).join(" · ")}
+                </div>
+              )}
+              {!!conversationDetail?.requirements?.conflicts.length && (
+                <div className="error-text" style={{ fontSize: 11, marginTop: 5 }}>
+                  需客户确认冲突：{conversationDetail.requirements.conflicts.map((item) =>
+                    `${projectFactLabel[item.field] || item.field}（${item.values.join(" / ")}）`
+                  ).join("；")}
+                </div>
+              )}
+            </div>
+            {conversationState && (
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                {conversationState.owner === "agent"
+                  ? <button className="btn btn-sm" onClick={takeOverConversation} disabled={conversationBusy}>我来处理</button>
+                  : <button className="btn btn-sm" onClick={returnConversationToAgent} disabled={conversationBusy}>交回 Agent</button>}
+                <input className="input" type="date" value={conversationDue}
+                  onChange={(e) => setConversationDue(e.target.value)} aria-label="下一步日期" />
+                <button className="btn btn-sm" onClick={adjustConversationDate}
+                  disabled={conversationBusy || !conversationDue}>调整时间</button>
               </div>
             )}
           </div>

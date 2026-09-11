@@ -20,6 +20,7 @@ from app import message_guard
 from app import contacts
 from app import outreach as email_outreach
 from app import sequences
+from app import delivery_intents
 from app.personalize import render
 
 
@@ -42,6 +43,7 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
     `autonomous_quality=True` is reserved for the automatic email scheduler. It may
     delay/park/stop machine-owned enrollment state before anything reaches the sender.
     """
+    delivery_intents.ensure_schema(conn)
     due = {d["enrollment_id"]: d for d in sequences.due_queue(conn)}
     items = [due[i] for i in enrollment_ids if i in due]
     today = datetime.date.today().isoformat()
@@ -102,6 +104,7 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
 
         attempted_send = False
         sent_this_item = False
+        intent_id = None
         try:
             if ch == "email":
                 to = lead.get("email")
@@ -120,15 +123,27 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
                                   "detail": verdict.detail,
                                   "enrollment_id": d["enrollment_id"]})
                 else:
-                    attempted_send = True
                     # docs/95：同一家公司的第二个信箱跟着这一封走，不另发一封。
                     # 老的四参 sender（测试里的假发信器）不认识 cc，没有抄送时不传。
                     image = d.get("image") or image_default
                     cc = contacts.also_reach(conn, no, to)
+                    item_sender, sender_metadata = email_outreach._prepared_sender(sender)
+                    intent_id = delivery_intents.claim(
+                        conn, d, target=to, subject=subject_text, body=body_text,
+                        metadata=sender_metadata)
+                    if intent_id is None:
+                        held += 1
+                        holds.append({"no": no, "reason": "delivery_already_claimed",
+                                      "detail": "已有发送记录，请核对结果，勿重复发送",
+                                      "enrollment_id": d["enrollment_id"]})
+                        continue
+                    attempted_send = True
                     if cc:
-                        sender(to, subject_text, body_text, image, cc=cc)
+                        item_sender(to, subject_text, body_text, image, cc=cc)
                     else:
-                        sender(to, subject_text, body_text, image)
+                        item_sender(to, subject_text, body_text, image)
+                    if sender_metadata.get("mailbox_id"):
+                        delivery_intents.update_metadata(conn, intent_id, mailbox_counted=True)
                     email_outreach._mark_messaged(conn, no, today)
                     remaining["email"] -= 1
                     batch_used["email"] += 1
@@ -138,8 +153,15 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
                 if not target:
                     deferred += 1
                     continue
-                attempted_send = True
                 social_body = render(d["body"], lead)
+                intent_id = delivery_intents.claim(conn, d, target=target, body=social_body)
+                if intent_id is None:
+                    held += 1
+                    holds.append({"no": no, "reason": "delivery_already_claimed",
+                                  "detail": "已有发送记录，请核对结果，勿重复发送",
+                                  "enrollment_id": d["enrollment_id"]})
+                    continue
+                attempted_send = True
                 engine.send_message(ch, target, social_body,
                                     d.get("image") or image_default)
                 co._mark_messaged(conn, no, ch, today)
@@ -160,10 +182,18 @@ def send_due(conn, enrollment_ids, *, sender=None, engine=None,
                     audience=types[0] if types else None,
                     market=lead["country"] if "country" in lead.keys() else None)
                 sequences.advance_enrollment(conn, d["enrollment_id"])
+                delivery_intents.finish(conn, intent_id)
                 sent += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1
             errors.append({"no": no, "error": str(exc)})
+            conn.rollback()
+            if intent_id is not None:
+                try:
+                    delivery_intents.finish(conn, intent_id, error=exc)
+                except Exception:
+                    # The committed pending claim still prevents another delivery.
+                    conn.rollback()
         if on_progress:
             on_progress(idx, total)
         if attempted_send and idx < total:

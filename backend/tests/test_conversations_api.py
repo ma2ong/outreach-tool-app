@@ -90,6 +90,21 @@ def test_the_summary_counts_what_we_cannot_show(tmp_path):
     assert (body["sent_count"], body["reply_count"], body["missing_bodies"]) == (2, 1, 1)
 
 
+def test_conversation_summary_exposes_sourced_project_facts(tmp_path):
+    client = _client(tmp_path)
+    conn = main.app.dependency_overrides[main.get_conn]()
+    from app.agent import project_facts
+    row = conn.execute("SELECT * FROM inbox_messages WHERE lead_no=1 AND kind='reply'").fetchone()
+    message = {**dict(row), "body": "Outdoor P2.5 wall, 6m x 3m."}
+    project_facts.capture(conn, message)
+    conn.close()
+
+    requirements = client.get("/api/conversations/1").json()["requirements"]
+    assert {item["field"] for item in requirements["facts"]} >= {
+        "indoor_outdoor", "pixel_pitch", "width_m", "height_m",
+    }
+
+
 def test_leads_nobody_ever_wrote_to_are_not_conversations(tmp_path):
     rows = _client(tmp_path).get("/api/conversations").json()
     assert {r["no"] for r in rows} == {1, 2}

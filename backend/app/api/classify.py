@@ -1,14 +1,13 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from app import icp, jobs
 from app.db import connect
 from app.jina import fetch as jina_fetch
-from app.main_deps import DB_PATH as _DB_PATH
+from app.main_deps import database_path, get_conn
 
 router = APIRouter(prefix="/api")
 
-DB_PATH = _DB_PATH
 FETCHER = None  # injectable in tests; None -> real jina fetch
 
 
@@ -16,8 +15,8 @@ class ClassifyRequest(BaseModel):
     lead_nos: list[int] | None = None
 
 
-def _run(job_id: str, lead_nos):
-    conn = connect(DB_PATH)
+def _run(job_id: str, lead_nos, db_path: str):
+    conn = connect(db_path)
     fetch = FETCHER or jina_fetch
     try:
         if lead_nos:
@@ -49,9 +48,9 @@ def _run(job_id: str, lead_nos):
 
 
 @router.post("/leads/classify")
-def classify_leads(req: ClassifyRequest, background: BackgroundTasks):
+def classify_leads(req: ClassifyRequest, background: BackgroundTasks, conn=Depends(get_conn)):
     job_id = jobs.create(total=len(req.lead_nos) if req.lead_nos else 0)
-    background.add_task(_run, job_id, req.lead_nos)
+    background.add_task(_run, job_id, req.lead_nos, database_path(conn))
     return {"job_id": job_id}
 
 

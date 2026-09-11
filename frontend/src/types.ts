@@ -74,6 +74,42 @@ export interface Sequence {
   segment?: string | null;
   korean?: boolean;
 }
+export interface SequenceRoutingRule {
+  id: number;
+  enabled: number;
+  priority: number;
+  country: string | null;
+  language: string | null;
+  customer_type: string | null;
+  sequence_id: number;
+  sequence_name: string;
+  sequence_channel: string;
+  sequence_active: number;
+}
+export interface SequenceRoutingPreview {
+  country: string | null;
+  language: string;
+  customer_type: string;
+  sequence_id: number | null;
+  sequence_name: string | null;
+  rule_id: number | null;
+  matches: (SequenceRoutingRule & { match_level: "customer_type" | "general" })[];
+}
+export interface CopyVersion {
+  id: number;
+  source_kind: "sequence_step";
+  source_id: string;
+  version: number;
+  channel: string;
+  market: string | null;
+  customer_type: string | null;
+  subject: string | null;
+  body: string;
+  day_offset: number;
+  change_kind: "baseline" | "edit" | "rollback";
+  rollback_of_id: number | null;
+  created_at: string;
+}
 export interface DueItem {
   enrollment_id: number;
   lead_no: number;
@@ -177,6 +213,13 @@ export interface InboxMessage {
   handled_at: string | null;
   intent: string | null;
   intent_confidence: number | null;
+  rfc_message_id: string | null;
+  attachments: {
+    filename: string;
+    content_type: string;
+    size: number;
+    sha256: string;
+  }[];
   company_en: string;
   contact_name: string | null;
   country: string | null;
@@ -394,6 +437,37 @@ export interface Readiness {
     };
     autosend: AutoSendStatus;
   };
+}
+export interface ActivationStep {
+  id: "mission" | "mailbox" | "knowledge" | "plan" | "autonomy";
+  label: string;
+  detail: string;
+  action_page: string;
+  complete: boolean;
+}
+export interface ActivationStatus {
+  prepared: boolean;
+  completed: number;
+  total: number;
+  steps: ActivationStep[];
+  evidence: { verified_mailboxes: number; approved_knowledge: number };
+  worker: {
+    active: boolean; mode: string | null; last_cycle_ok: number | null;
+    last_error: string | null; heartbeat_age_seconds: number | null;
+  };
+}
+export interface ActivationPreview {
+  mission: {
+    target_markets: string[];
+    daily_qualified_leads: number;
+    minimum_fit_score: number;
+    auto_enroll: boolean;
+  };
+  agent_work: string[];
+  allen_owns: string[];
+  email_autosend: boolean;
+  social_modes: Record<string, string>;
+  guards: string[];
 }
 export const OPPORTUNITY_STAGES = [
   "qualified", "requirements", "quoted", "negotiation", "won", "lost",

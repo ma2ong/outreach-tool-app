@@ -35,11 +35,32 @@ def breakdown(conn, by: tuple[str, ...] = ("variant", "market"),
         if key not in DIMENSIONS:
             raise ValueError(f"未知维度 {key}")
     cols = ", ".join(f"s.{k}" for k in by)
+    tables = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    )}
+    human_reply = (
+        "EXISTS (SELECT 1 FROM inbox_messages hr WHERE hr.lead_no=s.lead_no"
+        " AND hr.channel=s.channel AND hr.kind='reply' AND hr.received_at>=s.sent_at)"
+        if "inbox_messages" in tables else "0"
+    )
+    requirements = (
+        "EXISTS (SELECT 1 FROM project_fact_evidence pf WHERE pf.lead_no=s.lead_no"
+        " AND pf.created_at>=s.sent_at)"
+        if "project_fact_evidence" in tables else "0"
+    )
+    progressed = (
+        "EXISTS (SELECT 1 FROM opportunities op WHERE op.lead_no=s.lead_no"
+        " AND op.stage NOT IN ('lost') AND op.updated_at>=s.sent_at)"
+        if "opportunities" in tables else "0"
+    )
     sql = f"""
         SELECT {cols},
                COUNT(*) AS sent,
                COUNT(DISTINCT s.lead_no) AS leads,
-               COUNT(DISTINCT CASE WHEN r.lead_no IS NOT NULL THEN s.lead_no END) AS replied
+               COUNT(DISTINCT CASE WHEN r.lead_no IS NOT NULL THEN s.lead_no END) AS replied,
+               COUNT(DISTINCT CASE WHEN {human_reply} THEN s.lead_no END) AS meaningful_replies,
+               COUNT(DISTINCT CASE WHEN {requirements} THEN s.lead_no END) AS requirements_captured,
+               COUNT(DISTINCT CASE WHEN {progressed} THEN s.lead_no END) AS opportunities_progressed
         FROM send_log s
         LEFT JOIN (
             SELECT DISTINCT lead_no, channel FROM outreach WHERE status='replied'
@@ -53,6 +74,10 @@ def breakdown(conn, by: tuple[str, ...] = ("variant", "market"),
     for row in _rows(conn, sql, (f"-{days} days",)):
         leads = row["leads"] or 0
         row["reply_rate"] = round(100.0 * (row["replied"] or 0) / leads, 1) if leads else 0.0
+        row["meaningful_reply_rate"] = round(
+            100.0 * (row["meaningful_replies"] or 0) / leads, 1
+        ) if leads else 0.0
+        row["sample_quality"] = "sufficient" if leads >= 25 else "insufficient"
         out.append(row)
     return out
 

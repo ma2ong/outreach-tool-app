@@ -6,9 +6,9 @@ from pydantic import BaseModel, field_validator
 
 from app import jobs, outreach, channel_outreach, mailboxes
 from app.api import channels as channels_api
-from app.channels import email_adapter
+from app.channels import email_adapter  # compatibility seam used by local/test send injectors
 from app.channels.email_adapter import send_email
-from app.main_deps import DB_PATH, get_conn
+from app.main_deps import database_path, get_conn
 from app.db import connect
 
 router = APIRouter(prefix="/api/send")
@@ -44,31 +44,15 @@ class EmailSendRequest(BaseModel):
     _clean_attachment = field_validator("attachment")(clean_path)
 
 
-def _rotating_sender(conn):
-    """Per-email sender that rotates configured mailboxes and records usage."""
-    def send(to, subject, body, attachment, cc=None):
-        mbx = mailboxes.pick_mailbox(conn)
-        if mbx is None:
-            raise RuntimeError("no mailbox capacity")
-        # 没有抄送时按老的五参调用 —— 测试里替换 send_via 的假函数不认识第六个参数，
-        # 而它们测的是邮箱轮换，不是抄送。
-        if cc:
-            email_adapter.send_via(mbx, to, subject, body, attachment, cc)
-        else:
-            email_adapter.send_via(mbx, to, subject, body, attachment)
-        mailboxes.record_send(conn, mbx["id"])
-    return send
-
-
 def pick_sender(conn):
     """The one place that decides how email goes out. Both send paths (blast and the
     sequence due queue) must use it: the daily budget is the SUM of the mailboxes'
     caps, so sending that volume through the single fallback Gmail would burn it."""
-    return _rotating_sender(conn) if mailboxes.has_active(conn) else SENDER
+    return mailboxes.rotating_sender(conn) if mailboxes.has_active(conn) else SENDER
 
 
-def _run(job_id: str, req: EmailSendRequest):
-    conn = connect(DB_PATH)
+def _run(job_id: str, req: EmailSendRequest, db_path: str):
+    conn = connect(db_path)
     try:
         sender = pick_sender(conn)
         result = outreach.send_campaign(
@@ -90,7 +74,7 @@ def send_email_campaign(req: EmailSendRequest, background: BackgroundTasks, conn
     eligible = outreach.eligible_leads(conn, req.lead_nos, "email")
     will_send = min(len(eligible), outreach.remaining_today(conn), outreach.MAX_BATCH)
     job_id = jobs.create(total=will_send)
-    background.add_task(_run, job_id, req)
+    background.add_task(_run, job_id, req, database_path(conn))
     return {"job_id": job_id, "eligible": len(eligible), "selected": len(req.lead_nos),
             "will_send": will_send}
 
@@ -117,8 +101,8 @@ class ChannelSendRequest(BaseModel):
     _clean_image = field_validator("image")(clean_path)
 
 
-def _run_channel(job_id: str, req: ChannelSendRequest):
-    conn = connect(DB_PATH)
+def _run_channel(job_id: str, req: ChannelSendRequest, db_path: str):
+    conn = connect(db_path)
     try:
         result = channel_outreach.send_channel_campaign(
             conn, req.lead_nos, req.channel, req.message, channels_api.ENGINE,
@@ -154,6 +138,6 @@ def send_channel(req: ChannelSendRequest, background: BackgroundTasks, conn=Depe
                           - channel_outreach.sent_today(conn, req.channel))
     will_send = min(len(eligible), channel_outreach.MAX_BATCH, remaining_today)
     job_id = jobs.create(total=will_send)
-    background.add_task(_run_channel, job_id, req)
+    background.add_task(_run_channel, job_id, req, database_path(conn))
     return {"job_id": job_id, "eligible": len(eligible), "selected": len(req.lead_nos),
             "will_send": will_send}

@@ -7,9 +7,9 @@ platform ToS, not email. Cold-email risk is deliverability, controlled by the da
 cap / batch size / random pacing that the send path enforces regardless of who
 triggers it. WA/IG/FB stay strictly manual.
 
-Mechanics: a background thread wakes every few minutes; the first wake-up inside the
-send window (09:00–20:00 local) on a day that hasn't run yet sends the due email
-steps within today's budget. PC off all day -> it simply runs on next boot.
+Mechanics: the single leased Sales Worker asks this module whether work is due. The
+first cycle inside the send window (09:00–20:00 local) on a day that has not run yet
+sends within today's budget. PC off all day -> it runs on the next eligible cycle.
 
 A due date is not itself permission to send. Automatic sequence steps pass the
 follow-up decision layer immediately before the sender is called; manual sends retain
@@ -17,14 +17,12 @@ human timing judgment while using the same delivery/message safety guards.
 """
 import datetime as _dt
 import json
-import threading
 import time
 
 from app import settings
 from app.outreach import EMAIL_DELAY
 
 WINDOW = (9, 20)
-CHECK_SECONDS = 300
 
 _K_ENABLED = "autosend_enabled"
 _K_LAST_DATE = "autosend_last_date"
@@ -112,7 +110,7 @@ def preview(conn) -> dict:
     oldest = conn.execute(
         "SELECT MIN(e.next_due_date) AS oldest FROM sequence_enrollments e"
         " JOIN sequences s ON s.id=e.sequence_id"
-        " WHERE e.status='active' AND s.channel='email' AND e.next_due_date <= date('now')"
+        " WHERE e.status='active' AND s.channel='email' AND e.next_due_date <= date('now', 'localtime')"
     ).fetchone()["oldest"]
     return {
         "due": len(due),
@@ -292,25 +290,3 @@ def run_once(conn, sender, image_default: str | None, now: _dt.datetime | None =
         note += f"，额度外延后 {res['deferred']}（明天继续）"
     settings.set_value(conn, _K_LAST_RESULT, note)
     return res
-
-
-def scheduler_loop(db_path: str) -> None:
-    from app.db import connect
-    from app.api import send as send_api
-    while True:
-        try:
-            conn = connect(db_path)
-            try:
-                if should_run(conn):
-                    run_once(conn, send_api.pick_sender(conn), send_api.DEFAULT_ATTACHMENT)
-            finally:
-                conn.close()
-        except Exception:  # noqa: BLE001
-            pass
-        time.sleep(CHECK_SECONDS)
-
-
-def start_scheduler(db_path: str) -> threading.Thread:
-    t = threading.Thread(target=scheduler_loop, args=(db_path,), daemon=True)
-    t.start()
-    return t

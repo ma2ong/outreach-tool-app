@@ -59,20 +59,26 @@ def test_guidance_stays_silent_until_there_are_enough_examples(conn, monkeypatch
     assert learn.summary(conn)["examples_needed"] == 1
 
 
-def test_guidance_turns_on_once_the_sample_is_big_enough(conn, monkeypatch):
+def test_a_large_raw_sample_still_needs_an_explicit_lesson(conn, monkeypatch):
     for i in range(learn.MIN_EXAMPLES):
         p = _draft_proposal(conn, f"agent {i}")
         _approve_edited(conn, monkeypatch, p, f"allen {i}")
-    guidance = learn.draft_guidance(conn)
-    assert "HOW ALLEN REWRITES YOUR DRAFTS" in guidance
-    assert "agent 0" in guidance and "allen 0" in guidance
-    assert learn.summary(conn)["guidance_active"] is True
+    assert learn.draft_guidance(conn) == ""
+    assert learn.summary(conn)["guidance_active"] is False
 
 
 def test_the_drafting_prompt_carries_the_guidance_once_active(conn, monkeypatch):
+    ids = []
     for i in range(learn.MIN_EXAMPLES):
         p = _draft_proposal(conn, f"agent {i}")
         _approve_edited(conn, monkeypatch, p, f"allen {i}")
+        ids.append(p["id"])
+    lesson = learn.create_lesson(
+        conn, "Keep the answer direct and ask one concrete next question.",
+        category="tone", channel="email", market="USA", customer_type="general",
+        source_proposal_ids=ids,
+    )
+    learn.set_lesson_status(conn, lesson["id"], "active")
     seen = {}
     monkeypatch.setattr(llm, "complete_json",
                         lambda c, task, system, user, **k: seen.update(system=system) or {
@@ -83,7 +89,8 @@ def test_the_drafting_prompt_carries_the_guidance_once_active(conn, monkeypatch)
     conn.commit()
     msg = dict(conn.execute("SELECT * FROM inbox_messages ORDER BY id DESC LIMIT 1").fetchone())
     draft.build(conn, msg)
-    assert "HOW ALLEN REWRITES YOUR DRAFTS" in seen["system"]
+    assert "ALLEN-APPROVED DRAFTING LESSONS" in seen["system"]
+    assert "ask one concrete next question" in seen["system"]
     assert "NEVER state a price" in seen["system"]   # the rules survive the addition
 
 

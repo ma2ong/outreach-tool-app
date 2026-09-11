@@ -72,7 +72,7 @@ export function EmailPlanPanel({ onOpenLead }: { onOpenLead?: (no: number) => vo
   function load() {
     fetchPlan().then(setPlan).catch((e) => setErr(String(e instanceof Error ? e.message : e)));
   }
-  useEffect(load, []);
+  useEffect(() => { void load(); }, []);
 
   async function toggle() {
     if (!plan) return;

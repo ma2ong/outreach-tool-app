@@ -9,28 +9,15 @@ from __future__ import annotations
 
 import datetime as dt
 
-from app import settings
 from app.agent import run
 
 
 def due(conn, now: dt.datetime | None = None) -> bool:
     now = now or dt.datetime.now()
-    # Morning is handled by run.plan_due(). After the report hour the day is no longer a
-    # useful planning horizon, so recovery is bounded to the working afternoon.
-    if not (run.PLAN_WINDOW[1] <= now.hour < run.REPORT_HOUR):
+    # Kept as a compatibility hook; the normal planner now covers the whole workday.
+    if not (12 <= now.hour < run.REPORT_HOUR):
         return False
-    today = now.date().isoformat()
-    if settings.get(conn, run._K_PLAN_ENABLED, "1") != "1":
-        return False
-    if settings.get(conn, run._K_PLAN_DATE) == today:
-        return False
-    if run._plan_attempts(conn, today) >= run.PLAN_MAX_ATTEMPTS:
-        return False
-    last_attempt = run._last_plan_attempt(conn)
-    if last_attempt and settings.get(conn, run._K_PLAN_ATTEMPT_DATE) == today:
-        if now - last_attempt < dt.timedelta(minutes=run.PLAN_RETRY_MINUTES):
-            return False
-    return True
+    return run.plan_due(conn, now)
 
 
 def run_if_due(conn, now: dt.datetime | None = None) -> dict:

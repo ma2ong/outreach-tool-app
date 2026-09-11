@@ -29,7 +29,7 @@ def _overdue_tasks(conn) -> list[dict]:
     return _rows(conn,
                  "SELECT a.id, a.lead_no, a.title, a.type, a.due_at, l.company_en"
                  " FROM activities a JOIN leads l ON l.no=a.lead_no"
-                 " WHERE a.status='open' AND a.due_at < date('now')"
+                 " WHERE a.status='open' AND a.due_at < date('now', 'localtime')"
                  " ORDER BY a.due_at LIMIT ?", (MAX_ROWS,))
 
 
@@ -83,16 +83,15 @@ def _untouched(conn) -> dict:
     from app.agent import send_decision
 
     sales_intelligence.ensure_schema(conn)
-    candidates = [r["no"] for r in conn.execute(
-        "SELECT l.no FROM leads l"
+    total_untouched = conn.execute(
+        "SELECT COUNT(*) c FROM leads l"
         " WHERE COALESCE(l.do_not_contact,0)=0"
         "   AND COALESCE(l.stage,'new') NOT IN ('won','lost')"
         "   AND NOT EXISTS (SELECT 1 FROM outreach o WHERE o.lead_no=l.no"
         "                   AND o.status IN ('messaged','replied'))"
-        " ORDER BY l.no LIMIT 400")]
-    scored = [s for s in (sales_intelligence.score_lead(conn, no, _ensure=False)
-                          for no in candidates) if s and s["score"] >= 55]
-    scored.sort(key=lambda r: -r["score"])
+    ).fetchone()["c"]
+    scored = sales_intelligence.ranked(
+        conn, limit=2000, min_score=55, untouched_only=True)
     emailable = conn.execute(
         "SELECT COUNT(*) c FROM leads l"
         " WHERE COALESCE(l.do_not_contact,0)=0 AND l.email IS NOT NULL AND l.email != ''"
@@ -118,7 +117,7 @@ def _untouched(conn) -> dict:
             },
         })
     return {
-        "total_untouched": len(candidates),
+        "total_untouched": total_untouched,
         "emailable_untouched": emailable,
         "top": top,
     }

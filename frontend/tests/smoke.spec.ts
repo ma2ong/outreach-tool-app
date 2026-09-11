@@ -8,6 +8,9 @@ import { test, expect } from "@playwright/test";
 test("shell loads with sidebar and leads table", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("MCVISUAL")).toBeVisible();
+  for (const group of ["今日工作", "客户与对话", "开发计划", "商机与订单", "资料与设置"]) {
+    await expect(page.getByText(group, { exact: true })).toBeVisible();
+  }
   await expect(page.locator(".nav-item", { hasText: "客户库" })).toBeVisible();
   // Dashboard is the daily-workbench default; open the customer library explicitly.
   await page.getByRole("button", { name: /客户库/ }).click();
@@ -17,6 +20,12 @@ test("shell loads with sidebar and leads table", async ({ page }) => {
   // IG 和 FB 合成了一列「社媒」，官网跟在它后面
   await expect(page.getByRole("columnheader", { name: "社媒" })).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "官网" })).toBeVisible();
+});
+
+test("worker health exposes unresolved delivery count", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /Sales Worker/ }).click();
+  await expect(page.getByText(/待人工核对的发送：0/)).toBeVisible();
 });
 
 test("untouched filter option exists", async ({ page }) => {
@@ -61,13 +70,14 @@ test("clicking a lead row opens detail drawer with stage and notes", async ({ pa
   await expect(page.locator(".drawer")).toBeVisible();
   await expect(page.getByText("销售阶段")).toBeVisible();
   await expect(page.getByText("下一步行动", { exact: true })).toBeVisible();
+  await expect(page.getByText("当前负责人", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "安排任务" })).toBeVisible();
   // 公司信息和联系人在开场白正下方：打开一家客户，先要看的是这家是谁、官网在哪、找谁谈
   await expect(page.getByText("公司信息")).toBeVisible();
   await expect(page.getByRole("link", { name: /打开/ }).first()).toBeVisible();
   await expect(page.getByText(/联系人（\d+）/)).toBeVisible();
   await expect(page.getByRole("button", { name: "＋ 新建联系人" })).toBeVisible();
-  await expect(page.getByText("往来记录")).toBeVisible();
+  await expect(page.getByText("往来记录", { exact: true })).toBeVisible();
   // 评分卡按 Allen 的判断删掉了；采购信号那种带出处的证据留着
   await expect(page.getByText(/不是成交概率/)).toHaveCount(0);
   await expect(page.getByText("LED 项目 / 商机")).toBeVisible();
@@ -84,6 +94,8 @@ test("dashboard shows today's work and the stock analysis on one page", async ({
   await expect(page.getByText(/国家分布/)).toBeVisible();
   await expect(page.getByText(/触达漏斗/)).toBeVisible();
   await expect(page.getByText("生成订单")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "让销售 Agent 真正接班" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "销售 Agent 启用向导" })).toContainText("不会偷偷开启发送权限");
 });
 
 // SAFETY: reads the task workbench and creation controls, but does not create or complete anything.
@@ -160,6 +172,33 @@ test("inbox page is present", async ({ page }) => {
   await page.getByRole("button", { name: /收件箱/ }).click();
   await expect(page.locator(".card h3", { hasText: "收件箱" })).toBeVisible();
   await expect(page.getByRole("button", { name: /拉取邮件/ })).toBeVisible();
+  await page.getByText("CI LED Demo", { exact: true }).click();
+  await expect(page.getByText("CI cabinet drawing.pdf")).toBeVisible();
+  await expect(page.getByText(/内容尚未自动解析/)).toBeVisible();
+});
+
+// CI main path: read-only navigation through Sequence editor and Agent control center.
+test("sequence editor and Agent control center are reachable", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.stack ?? error.message));
+  await page.goto("/");
+  await page.getByRole("button", { name: /跟进序列/ }).click();
+  await expect(page.getByRole("heading", { name: "新建跟进序列" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "已有序列" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "自动分配规则" })).toBeVisible();
+  const sequenceCard = page.getByRole("heading", { name: "已有序列" }).locator("..");
+  await expect(sequenceCard).toContainText("CI Rental Follow-up");
+  await expect(page.getByRole("button", { name: "预览谁会胜出" })).toBeVisible();
+  await sequenceCard.getByRole("button", { name: "改文案" }).click();
+  await sequenceCard.getByRole("button", { name: "版本记录" }).first().click();
+  await expect(sequenceCard.getByText(/第一次保存后会从原稿开始记录版本/)).toBeVisible();
+  await page.getByRole("button", { name: /Agent$/ }).click();
+  await page.waitForTimeout(1000);
+  expect(pageErrors).toEqual([]);
+  await expect(page.getByText("Agent 助手", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /任务书与自主度/ })).toBeVisible();
+  await page.getByRole("button", { name: "学到了什么" }).click();
+  await expect(page.getByText(/改稿只是证据，不会偷偷改变 Agent/)).toBeVisible();
 });
 
 // SAFETY: opens the drawer and reads the do-not-contact toggle — never checks it.

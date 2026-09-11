@@ -296,12 +296,49 @@ export async function createSequence(s: {
   name: string; channel: string;
   steps: { day_offset: number; subject: string | null; body: string }[];
   // docs/86 R4: who automatic routing sends here. Omit for a manual-only sequence.
-  segment?: string | null; korean?: boolean;
+  segment?: string | null; korean?: boolean; route_country?: string | null; route_priority?: number;
 }): Promise<import("./types").Sequence> {
   const r = await fetch("/api/sequences", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(s),
   });
   if (!r.ok) throw new Error(`sequence ${r.status}`);
+  return r.json();
+}
+
+export type SequenceRoutingInput = {
+  sequence_id: number; enabled: boolean; priority: number;
+  country: string | null; language: string | null; customer_type: string | null;
+};
+
+export async function fetchSequenceRouting(): Promise<import("./types").SequenceRoutingRule[]> {
+  const r = await fetch("/api/sequences/routing");
+  if (!r.ok) throw new Error(`sequence routing ${r.status}`);
+  return r.json();
+}
+
+export async function createSequenceRouting(body: SequenceRoutingInput): Promise<import("./types").SequenceRoutingRule> {
+  const r = await fetch("/api/sequences/routing", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail || `sequence routing ${r.status}`);
+  return r.json();
+}
+
+export async function updateSequenceRouting(id: number, body: SequenceRoutingInput): Promise<import("./types").SequenceRoutingRule> {
+  const r = await fetch(`/api/sequences/routing/${id}`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail || `sequence routing ${r.status}`);
+  return r.json();
+}
+
+export async function previewSequenceRouting(body: {
+  country: string | null; language: string | null; customer_type: string | null;
+}): Promise<import("./types").SequenceRoutingPreview> {
+  const r = await fetch("/api/sequences/routing/preview", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail || `sequence routing ${r.status}`);
   return r.json();
 }
 
@@ -705,6 +742,27 @@ export async function fetchReadiness(): Promise<import("./types").Readiness> {
   return r.json();
 }
 
+export async function fetchActivation(): Promise<import("./types").ActivationStatus> {
+  const r = await fetch("/api/activation");
+  if (!r.ok) throw new Error(`activation ${r.status}`);
+  return r.json();
+}
+
+export async function fetchActivationPreview(): Promise<import("./types").ActivationPreview> {
+  const r = await fetch("/api/activation/preview");
+  if (!r.ok) throw new Error(`activation preview ${r.status}`);
+  return r.json();
+}
+
+export async function acknowledgeActivation(step: "plan" | "autonomy"): Promise<import("./types").ActivationStatus> {
+  const r = await fetch("/api/activation/acknowledge", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ step }),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `activation ${r.status}`);
+  return r.json();
+}
+
 export async function setAutoSend(enabled: boolean, acknowledgeSafetyRisk = false): Promise<import("./types").AutoSendStatus> {
   const r = await fetch("/api/autosend", {
     method: "PATCH", headers: { "Content-Type": "application/json" },
@@ -745,4 +803,14 @@ export async function updateStep(sid: number, order: number, subject: string | n
 
 export async function revertSequence(sid: number): Promise<void> {
   await send(`/api/sequences/${sid}/revert`, "POST", {});
+}
+
+export async function fetchStepVersions(sid: number, order: number): Promise<import("./types").CopyVersion[]> {
+  const r = await fetch(`/api/sequences/${sid}/steps/${order}/versions`);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `versions ${r.status}`);
+  return r.json();
+}
+
+export async function rollbackStep(sid: number, order: number, versionId: number): Promise<import("./types").CopyVersion> {
+  return send(`/api/sequences/${sid}/steps/${order}/rollback`, "POST", { version_id: versionId });
 }

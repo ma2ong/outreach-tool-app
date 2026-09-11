@@ -39,6 +39,25 @@ def test_classify_job_applies_types(tmp_path):
     assert conn.execute("SELECT target_fit FROM leads WHERE no=2").fetchone()["target_fit"] is None
 
 
+def test_classify_background_job_uses_request_database(tmp_path, monkeypatch):
+    import app.api.classify as classify_api
+
+    jobs.clear()
+    client, db = _client(tmp_path)
+    wrong = str(tmp_path / "wrong.db")
+    conn = connect(wrong)
+    init_schema(conn)
+    conn.close()
+    monkeypatch.setattr(classify_api, "DB_PATH", wrong, raising=False)
+
+    response = client.post("/api/leads/classify", json={"lead_nos": [1]})
+    job = client.get(f"/api/leads/classify/jobs/{response.json()['job_id']}").json()
+
+    assert job["status"] == "done"
+    assert connect(db).execute("SELECT target_fit FROM leads WHERE no=1").fetchone()["target_fit"]
+    assert connect(wrong).execute("SELECT COUNT(*) c FROM leads").fetchone()["c"] == 0
+
+
 def test_classify_jobs_404(tmp_path):
     client, _ = _client(tmp_path)
     assert client.get("/api/leads/classify/jobs/nope").status_code == 404

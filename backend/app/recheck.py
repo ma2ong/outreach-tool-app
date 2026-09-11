@@ -99,7 +99,7 @@ def due_leads(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
     anything already won or lost."""
     rows = conn.execute(
         "SELECT no, company_en, recheck_due FROM leads"
-        " WHERE recheck_due IS NOT NULL AND recheck_due <= date('now')"
+        " WHERE recheck_due IS NOT NULL AND recheck_due <= date('now', 'localtime')"
         "   AND COALESCE(website, '') != ''"
         "   AND COALESCE(do_not_contact, 0) = 0"
         "   AND (stage IS NULL OR stage NOT IN ('won', 'lost'))"

@@ -25,7 +25,7 @@ export function CaseLibraryPanel() {
   function reload() {
     fetchCases().then(setItems).catch((e) => setMsg(String(e)));
   }
-  useEffect(reload, []);
+  useEffect(() => { reload(); }, []);
 
   const set = (key: keyof typeof BLANK, value: string) => setForm((f) => ({ ...f, [key]: value }));
 

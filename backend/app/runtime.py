@@ -38,6 +38,21 @@ CREATE TABLE IF NOT EXISTS runtime_state (
     last_email_poll_ok INTEGER,
     last_error TEXT,
     cycle_count INTEGER NOT NULL DEFAULT 0,
+    last_standby_at TEXT,
+    last_standby_owner TEXT,
+    standby_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS capability_health (
+    name TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'idle',
+    running_since TEXT,
+    last_attempt_at TEXT,
+    last_success_at TEXT,
+    last_output_at TEXT,
+    last_error TEXT,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    processed_count INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
 );
 """
@@ -68,15 +83,37 @@ def owner_id(mode: str = "embedded") -> str:
     return f"{mode}:{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:10]}"
 
 
+def _add_missing_columns(
+    conn: sqlite3.Connection, table: str, definitions: tuple[tuple[str, str], ...]
+) -> None:
+    """Apply additive upgrades safely when two first requests arrive together."""
+    columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    for column, definition in definitions:
+        if column in columns:
+            continue
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        except sqlite3.OperationalError as exc:
+            # Another web request/process can finish the same additive migration
+            # after our PRAGMA snapshot.  Only that exact, now-satisfied race is safe
+            # to ignore; locks and malformed migrations still need to be visible.
+            if "duplicate column name" not in str(exc).lower():
+                raise
+    conn.commit()
+
+
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     # Runtime tables may already exist from an earlier draft/deployment. Keep this
     # upgrade additive just like the CRM schemas instead of requiring a destructive
     # recreation for a new health field.
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(runtime_state)")}
-    if "last_email_poll_ok" not in columns:
-        conn.execute("ALTER TABLE runtime_state ADD COLUMN last_email_poll_ok INTEGER")
-    conn.commit()
+    _add_missing_columns(conn, "runtime_state", (
+        ("last_email_poll_ok", "INTEGER"),
+        ("last_standby_at", "TEXT"),
+        ("last_standby_owner", "TEXT"),
+        ("standby_count", "INTEGER NOT NULL DEFAULT 0"),
+    ))
+    _ensure_capability_status(conn)
 
 
 def acquire(conn: sqlite3.Connection, *, name: str = LEASE_NAME, owner: str,
@@ -167,6 +204,172 @@ def record_finish(conn: sqlite3.Connection, *, ok: bool, error: str | None,
     conn.commit()
 
 
+def _ensure_capability_status(conn: sqlite3.Connection) -> None:
+    _add_missing_columns(conn, "capability_health", (
+        ("status", "TEXT NOT NULL DEFAULT 'idle'"),
+        ("running_since", "TEXT"),
+    ))
+
+
+def record_standby(conn: sqlite3.Connection, *, owner: str,
+                   name: str = LEASE_NAME, now: dt.datetime | None = None) -> None:
+    """Persist a declined startup without touching the active lease or cycle result."""
+    ensure_schema(conn)
+    now = now or utcnow()
+    conn.execute(
+        "INSERT INTO runtime_state(name,last_standby_at,last_standby_owner,standby_count,updated_at)"
+        " VALUES (?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET"
+        " last_standby_at=excluded.last_standby_at,"
+        " last_standby_owner=excluded.last_standby_owner,"
+        " standby_count=runtime_state.standby_count+1, updated_at=excluded.updated_at",
+        (name, _iso(now), owner, 1, _iso(now)),
+    )
+    conn.commit()
+
+
+def _capability_write(db_path: str, name: str, *, success: bool | None,
+                      error: str | None = None, processed_count: int = 0,
+                      now: dt.datetime | None = None, outcome: str | None = None) -> None:
+    """Best-effort telemetry: observing a job may never become a new job failure."""
+    from app.db import connect
+
+    conn = None
+    try:
+        conn = connect(db_path)
+        ensure_schema(conn)
+        _ensure_capability_status(conn)
+        stamp = _iso(now or utcnow())
+        if outcome in ("disabled", "not_configured", "idle"):
+            conn.execute(
+                "INSERT INTO capability_health(name,status,updated_at) VALUES (?,?,?)"
+                " ON CONFLICT(name) DO UPDATE SET status=excluded.status,"
+                " running_since=NULL,updated_at=excluded.updated_at", (name, outcome, stamp))
+            conn.commit()
+            return
+        if outcome == "stalled":
+            conn.execute(
+                "INSERT INTO capability_health(name,status,running_since,last_error,updated_at)"
+                " VALUES (?,'stalled',?,?,?) ON CONFLICT(name) DO UPDATE SET"
+                " status='stalled',running_since=COALESCE(capability_health.running_since,"
+                " excluded.running_since),last_error=excluded.last_error,"
+                " updated_at=excluded.updated_at",
+                (name, stamp, (error or "capability exceeded its deadline")[:2000], stamp),
+            )
+            conn.commit()
+            return
+        if success is None:
+            conn.execute(
+                "INSERT INTO capability_health(name,running_since,updated_at) VALUES (?,?,?)"
+                " ON CONFLICT(name) DO UPDATE SET running_since=excluded.running_since,"
+                " updated_at=excluded.updated_at",
+                (name, stamp, stamp),
+            )
+        elif success:
+            output_at = stamp if processed_count > 0 else None
+            conn.execute(
+                "INSERT INTO capability_health(name,last_attempt_at,last_success_at,last_output_at,"
+                " last_error,consecutive_failures,processed_count,updated_at)"
+                " VALUES (?,?,?,?,NULL,0,?,?) ON CONFLICT(name) DO UPDATE SET"
+                " last_attempt_at=excluded.last_attempt_at,last_success_at=excluded.last_success_at,"
+                " last_output_at=COALESCE(excluded.last_output_at,capability_health.last_output_at),"
+                " last_error=NULL,consecutive_failures=0,"
+                " processed_count=excluded.processed_count,updated_at=excluded.updated_at",
+                (name, stamp, stamp, output_at, max(0, int(processed_count)), stamp),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO capability_health(name,last_attempt_at,last_error,"
+                " consecutive_failures,processed_count,updated_at) VALUES (?,?,?,1,0,?)"
+                " ON CONFLICT(name) DO UPDATE SET last_attempt_at=excluded.last_attempt_at,"
+                " last_error=excluded.last_error,consecutive_failures="
+                " capability_health.consecutive_failures+1,processed_count=0,"
+                " updated_at=excluded.updated_at",
+                (name, stamp, (error or "unknown failure")[:2000], stamp),
+            )
+            if processed_count > 0:
+                conn.execute(
+                    "UPDATE capability_health SET processed_count=?,last_output_at=? WHERE name=?",
+                    (processed_count, stamp, name))
+        conn.execute("UPDATE capability_health SET status=? WHERE name=?",
+                     (outcome or ("running" if success is None else
+                                  "succeeded" if success else "failed"), name))
+        if success is not None:
+            conn.execute("UPDATE capability_health SET running_since=NULL WHERE name=?", (name,))
+        conn.commit()
+    except Exception:  # noqa: BLE001 — telemetry must never affect the observed job
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass  # telemetry cleanup must not change the business result
+
+
+def capability_status(conn: sqlite3.Connection, *, now: dt.datetime | None = None) -> list[dict]:
+    ensure_schema(conn)
+    _ensure_capability_status(conn)
+    rows = conn.execute("SELECT * FROM capability_health ORDER BY name").fetchall()
+    result = [dict(row) for row in rows]
+    for row in result:
+        started = _parse(row.get("running_since"))
+        if started and (now or utcnow()) - started > dt.timedelta(seconds=DEFAULT_TTL_SECONDS):
+            row["status"] = "stalled"
+    return result
+
+
+def _processed_count(result) -> int:
+    if isinstance(result, bool) or result is None:
+        return 0
+    if isinstance(result, int):
+        return max(0, result)
+    if isinstance(result, dict):
+        for key in ("processed", "sent", "scanned", "updated", "enrolled", "imported"):
+            value = result.get(key)
+            if isinstance(value, int) and not isinstance(value, bool):
+                return max(0, value)
+    return 0
+
+
+def run_capability(db_path: str, name: str, fn: Callable[[], object]) -> dict:
+    """Run one stage, preserve its real error, and never stop the following stages."""
+    _capability_write(db_path, name, success=None)
+    try:
+        result = fn()
+        if isinstance(result, dict):
+            status = result.get("status")
+            if status == "stalled":
+                error = str(result.get("error") or "capability exceeded its deadline")
+                _capability_write(
+                    db_path, name, success=None, error=error, outcome="stalled")
+                return {"ok": False, "status": "stalled", "error": error,
+                        "processed_count": 0}
+            if status in ("disabled", "not_configured", "idle"):
+                _capability_write(db_path, name, success=None, outcome=status)
+                return {"ok": True, "status": status, "error": None, "processed_count": 0}
+            errors = result.get("errors") or result.get("error")
+            if errors or result.get("failed") or result.get("unavailable") or result.get("ok") is False:
+                processed = _processed_count(result)
+                error = str(errors or result.get("note") or "job reported failures")
+                status = "partial" if processed else "failed"
+                _capability_write(db_path, name, success=False, error=error,
+                                  processed_count=processed, outcome=status)
+                return {"ok": False, "status": status, "error": error, "processed_count": processed}
+        if result is False:
+            raise RuntimeError(f"{name} reported failure")
+    except Exception as exc:  # noqa: BLE001 — failure is returned to the orchestrator
+        error = f"{type(exc).__name__}: {exc}"
+        _capability_write(db_path, name, success=False, error=error)
+        return {"ok": False, "status": "failed", "error": error, "processed_count": 0}
+    processed = _processed_count(result)
+    _capability_write(db_path, name, success=True, processed_count=processed)
+    return {"ok": True, "status": "succeeded", "error": None, "processed_count": processed}
+
+
 def status(conn: sqlite3.Connection, *, name: str = LEASE_NAME,
            now: dt.datetime | None = None) -> dict:
     ensure_schema(conn)
@@ -235,21 +438,25 @@ def run_leased_cycle(db_path: str, cycle_fn: Callable[[], bool], *, owner: str,
         init_schema(conn)
         ensure_schema(conn)
         if not acquire(conn, owner=owner, mode=mode, ttl_seconds=ttl_seconds):
+            record_standby(conn, owner=owner)
             return {
                 "acquired": False, "cycle_ok": None, "email_poll_ok": None,
                 "error": None, "owner": owner, "mode": mode, "backup": None,
             }
         record_start(conn, owner=owner, mode=mode)
+        _capability_write(db_path, "backup", success=None)
         try:
             backup_info = backup.ensure_daily_backup(db_path)
         except Exception as exc:  # noqa: BLE001 — backup failure is a hard safety gate
             error = f"BackupError: {exc}"
+            _capability_write(db_path, "backup", success=False, error=error)
             record_finish(conn, ok=False, error=error, email_poll_ok=None,
                           owner=owner, mode=mode)
             return {
                 "acquired": True, "cycle_ok": False, "email_poll_ok": None,
                 "error": error, "owner": owner, "mode": mode, "backup": None,
             }
+        _capability_write(db_path, "backup", success=True, processed_count=1)
 
         heartbeat_stop = threading.Event()
         heartbeat_interval = max(10, min(300, int(ttl_seconds) // 3))

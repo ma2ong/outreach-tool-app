@@ -44,6 +44,28 @@ def test_discover_job_and_import(tmp_path):
     assert row["linkedin"] == "linkedin.com/company/newco"
 
 
+def test_discovery_background_job_uses_request_database(tmp_path, monkeypatch):
+    import app.api.discover as disc
+
+    jobs.clear()
+    client, _ = _client(tmp_path)
+    wrong = str(tmp_path / "wrong.db")
+    conn = connect(wrong)
+    init_schema(conn)
+    conn.execute("INSERT INTO leads(no, company_en, website) VALUES (99,'Wrong','newco.com')")
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(disc, "DB_PATH", wrong, raising=False)
+
+    response = client.post("/api/discover", json={"query": "led wall", "limit": 10})
+    job = client.get(f"/api/discover/jobs/{response.json()['job_id']}").json()
+
+    assert job["status"] == "done"
+    candidates = {row["domain"]: row for row in job["result"]["candidates"]}
+    assert candidates["alpha.com"]["duplicate_of"] == 1
+    assert candidates["newco.com"]["duplicate_of"] is None
+
+
 def test_import_not_blocked_by_generic_company_name(tmp_path):
     """Regression: lead named 'Contact' in DB must not swallow every candidate titled 'Contact'."""
     jobs.clear()

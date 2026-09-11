@@ -131,3 +131,21 @@ def test_delete_merge_and_health_keep_signal_relations_safe(conn):
     assert 3 not in [row["no"] for row in health.cleanable(conn)]
     assert repository.delete_lead(conn, 3) is True
     assert sales_intelligence.get_signal(conn, signal3["id"]) is None
+
+
+def test_portfolio_summary_does_not_issue_one_query_bundle_per_customer(conn):
+    conn.executemany(
+        "INSERT INTO leads(no,company_en,country,target_fit,email,email_status)"
+        " VALUES (?,?,?,?,?,?)",
+        [(no, f"Company {no}", "USA", "AV integrator (75)",
+          f"buyer{no}@example.com", "valid") for no in range(10, 100)],
+    )
+    conn.commit()
+    statements = []
+    conn.set_trace_callback(statements.append)
+    summary = sales_intelligence.summary(conn)
+    conn.set_trace_callback(None)
+
+    selects = [sql for sql in statements if sql.lstrip().upper().startswith(("SELECT", "WITH"))]
+    assert summary["ranked_accounts"] >= 90
+    assert len(selects) < 80

@@ -31,7 +31,7 @@ export function ProductsPanel() {
     fetchKnowledgeProducts().then((p) => { setProds(p); setPicked(new Set(p.map((x) => x.id))); })
       .catch((e) => setMsg(String(e)));
   }
-  useEffect(reload, []);
+  useEffect(() => { reload(); }, []);
 
   const toggle = (id: number) => setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const set = (k: keyof ProductForm, v: string) => setForm((f) => ({ ...f, [k]: v }));

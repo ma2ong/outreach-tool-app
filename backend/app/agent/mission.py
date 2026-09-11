@@ -72,19 +72,33 @@ def set_mission(conn, value: dict) -> dict:
 
 
 def progress(conn) -> dict:
-    """Qualified contactable accounts added today, from any legitimate path."""
+    """Today's imports that still pass the same gate used by autonomous discovery."""
+    from app import discovery
+
     rows = conn.execute(
-        "SELECT target_fit, email_status FROM leads"
+        "SELECT no,country,website,email,email_status,target_fit,hook,brief,do_not_contact"
+        " FROM leads"
         " WHERE date(created_at, 'localtime')=date('now', 'localtime')"
-        "   AND COALESCE(email,'') != ''"
     ).fetchall()
     assignment = get(conn)
     minimum = assignment["minimum_fit_score"]
+    markets = {discovery.country_key(value) for value in assignment["target_markets"]}
     count = 0
     for row in rows:
         match = re.search(r"\((\d{1,3})\)\s*$", row["target_fit"] or "")
-        if (row["email_status"] != "invalid" and match
-                and int(match.group(1)) >= minimum):
+        if not match or discovery.country_key(row["country"]) not in markets:
+            continue
+        candidate = {
+            "domain": row["website"], "email": row["email"], "country": row["country"],
+            "icp_type": (row["target_fit"] or "").split("(", 1)[0].strip() or "unknown",
+            "fit_score": int(match.group(1)), "hook": row["hook"], "brief": row["brief"],
+            "excluded": bool(row["do_not_contact"]), "exclude_reason": "不再联系",
+        }
+        accepted, _ = discovery.qualify_for_auto_import(
+            [candidate], minimum, limit=1,
+            email_classifier=lambda _email, status=row["email_status"]: (
+                "invalid" if status == "invalid" else "valid", "stored verification"))
+        if accepted:
             count += 1
     target = assignment["daily_qualified_leads"]
     return {"qualified_leads_imported_today": count,

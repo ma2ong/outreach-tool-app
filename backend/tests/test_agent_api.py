@@ -109,6 +109,26 @@ def test_conversation_takeover_and_resume_are_explicit_api_actions(tmp_path):
     assert client.post("/api/agent/conversations/1/sms/takeover", json={}).status_code == 400
 
 
+def test_conversation_next_action_can_be_rescheduled_without_changing_ownership(tmp_path):
+    client, _ = _client(tmp_path)
+    taken = client.post("/api/agent/conversations/1/email/takeover",
+                        json={"reason": "waiting for Allen's drawing"}).json()
+    changed = client.patch("/api/agent/conversations/1/email/schedule", json={
+        "due_at": "2026-09-30",
+        "next_action": "Send the approved cabinet drawing",
+    })
+    assert changed.status_code == 200
+    assert changed.json()["owner"] == taken["owner"] == "allen"
+    assert changed.json()["state"] == taken["state"] == "human_takeover"
+    assert changed.json()["due_at"] == "2026-09-30"
+    assert changed.json()["next_action"] == "Send the approved cabinet drawing"
+
+    detail = client.get("/api/conversations/1").json()
+    assert detail["state"]["due_at"] == "2026-09-30"
+    assert client.patch("/api/agent/conversations/1/email/schedule",
+                        json={"due_at": "not-a-date", "next_action": "x"}).status_code == 400
+
+
 def test_the_backend_for_a_task_is_switchable(tmp_path):
     client, _ = _client(tmp_path)
     body = client.post("/api/agent/backend",
@@ -193,3 +213,24 @@ def test_allen_can_write_and_retire_a_customer_memory(tmp_path):
 def test_empty_memory_is_refused(tmp_path):
     client, _ = _client(tmp_path)
     assert client.post("/api/agent/memory/1", json={"content": "   "}).status_code == 400
+
+
+def test_learning_lesson_requires_explicit_activation_and_can_be_retired(tmp_path):
+    client, _ = _client(tmp_path)
+    made = client.post("/api/agent/learning/lessons", json={
+        "rule_text": "Ask one specific next question.", "category": "sales_action",
+        "channel": "email", "market": "United States", "customer_type": "install",
+        "source_proposal_ids": [],
+    })
+    assert made.status_code == 200
+    lesson = made.json()
+    assert lesson["status"] == "candidate" and lesson["market"] == "USA"
+    active = client.patch(
+        f"/api/agent/learning/lessons/{lesson['id']}/status", json={"status": "active"}
+    )
+    assert active.status_code == 200 and active.json()["status"] == "active"
+    assert client.get("/api/agent/learning").json()["guidance_active"] is True
+    retired = client.patch(
+        f"/api/agent/learning/lessons/{lesson['id']}/status", json={"status": "retired"}
+    )
+    assert retired.json()["status"] == "retired"

@@ -210,6 +210,16 @@ export function InboxPanel({ onOpenLead, onPendingChange }: {
                   </div>
                   <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13,
                                 margin: "6px 0", userSelect: "text", cursor: "text" }}>{m.body || "(无正文)"}</pre>
+                  {!!m.attachments?.length && (
+                    <div style={{ margin: "8px 0" }}>
+                      <strong style={{ fontSize: 13 }}>附件（内容尚未自动解析）</strong>
+                      {m.attachments.map((a, i) => (
+                        <div className="muted" style={{ fontSize: 12 }} key={`${a.sha256}-${i}`}>
+                          📎 {a.filename} · {a.content_type} · {Math.max(1, Math.ceil(a.size / 1024))} KB
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <button className="btn btn-sm" style={{ marginRight: 8 }} onClick={(e) => { e.stopPropagation(); onOpenLead(m.lead_no); }}>
                     打开客户详情 →
                   </button>

@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.main_deps import get_conn
@@ -16,6 +18,7 @@ def list_inbox(unread_only: int = 0, pending_only: int = 0,
     sql = (
         "SELECT m.id, m.lead_no, m.contact_id, m.channel, m.kind, m.from_addr, m.subject, m.body,"
         "       m.received_at, m.is_read, m.handled_at, m.intent, m.intent_confidence,"
+        "       m.rfc_message_id, m.attachments_json,"
         "       l.company_en, l.country,"
         "       c.name AS contact_name"
         " FROM inbox_messages m JOIN leads l ON l.no = m.lead_no"
@@ -28,7 +31,15 @@ def list_inbox(unread_only: int = 0, pending_only: int = 0,
         sql += " AND m.kind = 'reply' AND m.handled_at IS NULL"
     sql += " ORDER BY m.received_at DESC, m.id DESC LIMIT ?"
     params.append(limit)
-    return [dict(r) for r in conn.execute(sql, params)]
+    result = []
+    for row in conn.execute(sql, params):
+        item = dict(row)
+        try:
+            item["attachments"] = json.loads(item.pop("attachments_json") or "[]")
+        except (TypeError, ValueError):
+            item["attachments"] = []
+        result.append(item)
+    return result
 
 
 @router.get("/unread_count")

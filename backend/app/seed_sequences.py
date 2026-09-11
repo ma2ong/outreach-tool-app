@@ -317,6 +317,8 @@ def seed_all(conn) -> dict[tuple[str, bool], int]:
                 segment=segment, korean=korean)
     close_orphaned_enrollments(conn)
     conn.commit()
+    from app import sequence_routing
+    sequence_routing.seed_declared_routes(conn)
     return out
 
 

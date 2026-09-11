@@ -117,7 +117,7 @@ def evaluate_account(conn, lead_no: int, *, sales: dict | None = None,
 
     task = _one(conn,
         "SELECT title FROM activities WHERE lead_no=? AND status='open'"
-        " AND due_at IS NOT NULL AND due_at <= date('now') ORDER BY due_at,id LIMIT 1",
+        " AND due_at IS NOT NULL AND due_at <= date('now', 'localtime') ORDER BY due_at,id LIMIT 1",
         (lead_no,),
     )
     if task:

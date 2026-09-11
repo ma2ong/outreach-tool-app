@@ -53,16 +53,30 @@ def test_world_state_carries_the_mission_and_today_progress(conn):
 def test_mission_progress_counts_only_contactable_leads_above_the_quality_bar(conn):
     today = dt.datetime.now(dt.UTC).isoformat()
     conn.executemany(
-        "INSERT INTO leads(no,company_en,email,email_status,target_fit,created_at)"
-        " VALUES (?,?,?,?,?,?)",
+        "INSERT INTO leads(no,company_en,country,website,email,email_status,target_fit,hook,created_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
         [
-            (20, "Qualified", "q@example.com", "valid", "AV集成商 (85)", today),
-            (21, "Low fit", "l@example.com", "valid", "终端用户 (50)", today),
-            (22, "Dead email", "d@example.com", "invalid", "租赁公司 (90)", today),
+            (20, "Qualified", "USA", "q.example", "q@example.com", "valid", "AV集成商 (85)", "AV projects", today),
+            (21, "Low fit", "USA", "l.example", "l@example.com", "valid", "终端用户 (50)", "venue", today),
+            (22, "Dead email", "USA", "d.example", "d@example.com", "invalid", "租赁公司 (90)", "rental", today),
         ],
     )
     conn.commit()
     assert mission.progress(conn)["qualified_leads_imported_today"] == 1
+
+
+def test_mission_progress_rejects_wrong_market_dnc_and_missing_evidence(conn):
+    today = dt.datetime.now(dt.UTC).isoformat()
+    conn.executemany(
+        "INSERT INTO leads(no,company_en,country,website,email,email_status,target_fit,hook,"
+        "do_not_contact,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        [
+            (30, "Wrong market", "France", "a.fr", "a@a.fr", "valid", "AV集成商 (90)", "AV", 0, today),
+            (31, "DNC", "USA", "b.us", "b@b.us", "valid", "AV集成商 (90)", "AV", 1, today),
+            (32, "No evidence", "USA", "c.us", "c@c.us", "valid", "AV集成商 (90)", None, 0, today),
+        ])
+    conn.commit()
+    assert mission.progress(conn)["qualified_leads_imported_today"] == 0
 
 
 def test_an_empty_model_plan_falls_back_to_the_sales_mission(conn, monkeypatch):
@@ -81,9 +95,10 @@ def test_fallback_stays_quiet_after_the_daily_target_is_met(conn, monkeypatch):
     today = dt.datetime.now(dt.UTC).isoformat()
     for no in range(10, 15):
         conn.execute(
-            "INSERT INTO leads(no,company_en,country,email,target_fit,created_at)"
-            " VALUES (?,?,?,?,?,?)",
-            (no, f"Imported {no}", "USA", f"x{no}@example.com", "AV集成商 (85)", today),
+            "INSERT INTO leads(no,company_en,country,website,email,email_status,target_fit,hook,created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
+            (no, f"Imported {no}", "USA", f"https://x{no}.example.com",
+             f"x{no}@example.com", "valid", "AV集成商 (85)", "AV project evidence", today),
         )
     conn.commit()
     monkeypatch.setattr(llm, "complete_json",
@@ -201,7 +216,7 @@ def test_manually_approved_discovery_still_waits_for_human_candidate_review(conn
         "SELECT COUNT(*) FROM leads WHERE website='review-me.com'").fetchone()[0] == 0
 
 
-def test_failed_morning_plan_retries_after_cooldown_but_stops_after_three(conn,
+def test_failed_plan_retries_hourly_but_stops_after_six(conn,
                                                                          monkeypatch):
     mission.set_mission(conn, {"daily_qualified_leads": 0})
     monkeypatch.setattr(llm, "complete_json",
@@ -212,12 +227,13 @@ def test_failed_morning_plan_retries_after_cooldown_but_stops_after_three(conn,
     assert run.plan_due(conn, first)
     run.make_plan(conn, first)
     assert run.plan_due(conn, first + dt.timedelta(minutes=15)) is False
-    assert run.plan_due(conn, first + dt.timedelta(minutes=30)) is True
-    run.make_plan(conn, first + dt.timedelta(minutes=30))
-    run.make_plan(conn, first + dt.timedelta(minutes=60))
-    assert run.plan_due(conn, first + dt.timedelta(minutes=90)) is False
+    assert run.plan_due(conn, first + dt.timedelta(minutes=30)) is False
+    for hour in range(1, 6):
+        assert run.plan_due(conn, first + dt.timedelta(hours=hour)) is True
+        run.make_plan(conn, first + dt.timedelta(hours=hour))
+    assert run.plan_due(conn, first + dt.timedelta(hours=6)) is False
     status = run.status(conn)["plan"]
-    assert status["attempts"] == 3 and "计划失败" in status["last_result"]
+    assert status["attempts"] == 6 and "计划失败" in status["last_result"]
 
 
 def test_model_outage_still_runs_the_deterministic_sales_mission(conn, monkeypatch):

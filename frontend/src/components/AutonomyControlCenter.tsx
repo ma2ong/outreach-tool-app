@@ -176,6 +176,21 @@ export function AutonomyControlCenter() {
             </div>
           )}
 
+          {!!data?.capabilities.length && (
+            <div style={{ marginTop: 12 }}>
+              <div className="stat-label">业务能力健康（区别于进程存活）</div>
+              {data.capabilities.map((item) => (
+                <div key={item.name} style={{ fontSize: 11, marginTop: 4 }}>
+                  <span style={{ color: item.consecutive_failures || item.status === "stalled" ? "var(--danger)" : item.status === "succeeded" ? "var(--green)" : "var(--muted)" }}>
+                    {item.consecutive_failures ? "⚠" : "●"}
+                  </span>{" "}{item.name} · {item.status === "stalled" ? "运行超过 20 分钟，请检查 · " : item.status === "running" ? "正在执行 · " : item.status === "disabled" ? "已关闭 · " : item.status === "not_configured" ? "尚未连接 · " : item.status === "idle" ? "等待下次执行 · " : item.status === "partial" ? "部分完成 · " : ""}{item.consecutive_failures
+                    ? `连续失败 ${item.consecutive_failures} 次：${item.last_error || "未知错误"}`
+                    : `最近成功 ${item.last_success_at ? new Date(item.last_success_at).toLocaleString() : "尚无"}，本次处理 ${item.processed_count}`}
+                </div>
+              ))}
+            </div>
+          )}
+
           {truth && truth.accounts.length > 0 && (
             <details style={{ marginTop: 10 }}>
               <summary className="stat-label" style={{ cursor: "pointer" }}>

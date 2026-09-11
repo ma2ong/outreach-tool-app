@@ -3,11 +3,10 @@ from pydantic import BaseModel, Field
 
 from app import discovery, jobs
 from app.db import connect
-from app.main_deps import DB_PATH as _DB_PATH, get_conn
+from app.main_deps import database_path, get_conn
 
 router = APIRouter(prefix="/api")
 
-DB_PATH = _DB_PATH
 SEARCH_FN = None    # injectable in tests; None -> real search
 ENRICH_FN = None    # injectable in tests; None -> real enrich
 HARVEST_FN = None   # injectable in tests; None -> real harvest
@@ -55,8 +54,8 @@ class ImportRequest(BaseModel):
     candidates: list[Candidate]
 
 
-def _run(job_id: str, queries: list[str], limit: int, req: "DiscoverRequest"):
-    conn = connect(DB_PATH)
+def _run(job_id: str, queries: list[str], limit: int, req: "DiscoverRequest", db_path: str):
+    conn = connect(db_path)
     try:
         seen: set[str] = set()
         merged: list[dict] = []
@@ -76,8 +75,8 @@ def _run(job_id: str, queries: list[str], limit: int, req: "DiscoverRequest"):
         conn.close()
 
 
-def _run_page(job_id: str, url: str, limit: int, req: "PageDiscoverRequest"):
-    conn = connect(DB_PATH)
+def _run_page(job_id: str, url: str, limit: int, req: "PageDiscoverRequest", db_path: str):
+    conn = connect(db_path)
     try:
         cands = discovery.run_page_discovery(
             conn, url, limit, harvest_fn=HARVEST_FN, enrich_fn=ENRICH_FN,
@@ -91,21 +90,21 @@ def _run_page(job_id: str, url: str, limit: int, req: "PageDiscoverRequest"):
 
 
 @router.post("/discover")
-def discover(req: DiscoverRequest, background: BackgroundTasks):
+def discover(req: DiscoverRequest, background: BackgroundTasks, conn=Depends(get_conn)):
     queries = [q.strip() for q in (req.queries or ([req.query] if req.query else [])) if q and q.strip()]
     if not queries:
         raise HTTPException(status_code=400, detail="query required")
     job_id = jobs.create(total=req.limit * len(queries))
-    background.add_task(_run, job_id, queries, req.limit, req)
+    background.add_task(_run, job_id, queries, req.limit, req, database_path(conn))
     return {"job_id": job_id}
 
 
 @router.post("/discover/page")
-def discover_page(req: PageDiscoverRequest, background: BackgroundTasks):
+def discover_page(req: PageDiscoverRequest, background: BackgroundTasks, conn=Depends(get_conn)):
     if not req.url.strip().lower().startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="url must start with http:// or https://")
     job_id = jobs.create(total=req.limit)
-    background.add_task(_run_page, job_id, req.url.strip(), req.limit, req)
+    background.add_task(_run_page, job_id, req.url.strip(), req.limit, req, database_path(conn))
     return {"job_id": job_id}
 
 

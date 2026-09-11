@@ -65,6 +65,31 @@ def test_send_records_failure(conn):
     assert res["failed"] == 1 and res["sent"] == 0
 
 
+def test_uncertain_social_transport_is_not_reentered(conn):
+    _seed(conn)
+
+    class AcceptedThenTimeout:
+        def __init__(self):
+            self.calls = []
+
+        def send_message(self, channel, target, body, image):
+            self.calls.append((channel, target, body))
+            raise TimeoutError("browser result unknown")
+
+    engine = AcceptedThenTimeout()
+    first = co.send_channel_campaign(
+        conn, [1], "instagram", "Hi {name}", engine, delay_range=(0, 0),
+        campaign="Manual social")
+    second = co.send_channel_campaign(
+        conn, [1], "instagram", "Hi {name}", engine, delay_range=(0, 0),
+        campaign="Manual social")
+
+    assert first["failed"] == 1
+    assert second["sent"] == 0
+    assert len(engine.calls) == 1
+    assert conn.execute("SELECT status FROM delivery_intents").fetchone()["status"] == "unknown"
+
+
 def test_batch_capped_at_20(conn):
     conn.execute("DELETE FROM outreach")
     conn.execute("DELETE FROM leads")

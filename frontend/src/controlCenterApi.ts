@@ -95,6 +95,16 @@ export type ControlCenterSnapshot = {
     by_kind: Record<string, string>;
     counts: Record<string, number>;
   };
+  capabilities: {
+    name: string;
+    status?: string;
+    last_attempt_at: string | null;
+    last_success_at: string | null;
+    last_output_at: string | null;
+    last_error: string | null;
+    consecutive_failures: number;
+    processed_count: number;
+  }[];
   blockers: ControlCenterBlocker[];
   next_actions: ControlCenterNextAction[];
   approval_backlog: ControlCenterReceipt[];

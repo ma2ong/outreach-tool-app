@@ -1,4 +1,5 @@
 import datetime as dt
+import threading
 
 import pytest
 
@@ -119,6 +120,48 @@ def test_an_approved_proposal_cannot_be_approved_again(conn):
         proposals.approve(conn, p["id"])
 
 
+def test_only_one_concurrent_executor_can_claim_an_approved_proposal(conn, monkeypatch):
+    from app.db import connect
+
+    p = proposals.create(conn, "create_task", lead_no=1, title="once",
+                         payload={"title": "once"})
+    proposals.mark_approved(conn, p["id"])
+    db_path = conn.execute("PRAGMA database_list").fetchone()["file"]
+    entered = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def handler(_conn, _proposal):
+        calls.append(1)
+        entered.set()
+        release.wait(2)
+        return "done"
+
+    monkeypatch.setitem(executors.HANDLERS, "create_task", handler)
+    results = []
+
+    def execute():
+        other = connect(db_path)
+        try:
+            results.append(proposals.execute_approved(other, p["id"])["status"])
+        except Exception as exc:  # the losing request must fail before the handler
+            results.append(type(exc).__name__)
+        finally:
+            other.close()
+
+    first = threading.Thread(target=execute)
+    second = threading.Thread(target=execute)
+    first.start()
+    assert entered.wait(1)
+    second.start()
+    second.join(1)
+    release.set()
+    first.join(1)
+
+    assert calls == [1]
+    assert sorted(results) == ["ProposalError", "executed"]
+
+
 def test_a_kind_without_an_executor_fails_loudly_instead_of_doing_nothing(conn,
                                                                           monkeypatch):
     monkeypatch.setitem(executors.HANDLERS, "create_task", None)
@@ -156,6 +199,135 @@ def test_a_sent_reply_marks_the_message_handled_and_leaves_a_note(conn, monkeypa
                        (mid,)).fetchone()
     assert msg["handled_at"] and msg["is_read"] == 1
     assert conn.execute("SELECT COUNT(*) c FROM notes WHERE lead_no=1").fetchone()["c"] == 1
+
+
+def test_reply_transport_timeout_is_unknown_and_never_blindly_retried(conn, monkeypatch):
+    attempts = []
+
+    def timeout(*args, **kwargs):
+        attempts.append(1)
+        raise TimeoutError("timeout")
+
+    monkeypatch.setattr(executors.email_adapter, "send_via", timeout)
+    conn.execute("INSERT INTO mailboxes(email, smtp_host, port, username, password,"
+                 " daily_cap, active) VALUES ('allen@mc.com','smtp.mc.com',465,"
+                 "'allen@mc.com','pw',40,1)")
+    conn.commit()
+    mid = _reply(conn)
+    p = proposals.create(conn, "reply_draft", lead_no=1, inbox_message_id=mid,
+                         title="Reply", payload={"to": "buyer@alpha.com", "body": "ok",
+                                                 "mailbox_email": "allen@mc.com"})
+
+    done = proposals.approve(conn, p["id"])
+    assert done["status"] == "failed"
+    intent = conn.execute(
+        "SELECT * FROM delivery_intents WHERE source_kind='reply' AND source_id=?", (p["id"],)
+    ).fetchone()
+    assert intent["status"] == "unknown" and "timeout" in intent["last_error"]
+
+    with pytest.raises(executors.ExecutionRefused, match="核对"):
+        executors.send_reply(conn, proposals.get(conn, p["id"]))
+    assert len(attempts) == 1
+
+
+def test_post_send_reply_bookkeeping_failure_is_unknown_and_not_resent(conn, monkeypatch):
+    attempts = []
+    monkeypatch.setattr(executors.email_adapter, "send_via",
+                        lambda *a, **k: attempts.append(1))
+    monkeypatch.setattr("app.repository.add_note",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+    conn.execute("INSERT INTO mailboxes(email, smtp_host, port, username, password,"
+                 " daily_cap, active) VALUES ('allen@mc.com','smtp.mc.com',465,"
+                 "'allen@mc.com','pw',40,1)")
+    conn.commit()
+    mid = _reply(conn)
+    p = proposals.create(conn, "reply_draft", lead_no=1, inbox_message_id=mid,
+                         title="Reply", payload={"to": "buyer@alpha.com", "body": "ok",
+                                                 "mailbox_email": "allen@mc.com"})
+
+    assert proposals.approve(conn, p["id"])["status"] == "failed"
+    assert conn.execute(
+        "SELECT status FROM delivery_intents WHERE source_kind='reply' AND source_id=?",
+        (p["id"],),
+    ).fetchone()[0] == "unknown"
+    with pytest.raises(executors.ExecutionRefused, match="核对"):
+        executors.send_reply(conn, proposals.get(conn, p["id"]))
+    assert len(attempts) == 1
+
+
+def test_reply_guard_failure_does_not_reserve_delivery(conn, monkeypatch):
+    from app import delivery_intents
+
+    monkeypatch.setattr(executors.email_adapter, "send_via",
+                        lambda *a, **k: pytest.fail("must not send"))
+    conn.execute("UPDATE leads SET do_not_contact=1 WHERE no=1")
+    conn.commit()
+    p = proposals.create(conn, "reply_draft", lead_no=1, title="Reply",
+                         payload={"to": "buyer@alpha.com", "body": "ok"})
+    assert proposals.approve(conn, p["id"])["status"] == "failed"
+    delivery_intents.ensure_schema(conn)
+    assert conn.execute("SELECT COUNT(*) FROM delivery_intents").fetchone()[0] == 0
+
+
+def test_confirming_unknown_reply_not_sent_reopens_same_proposal(conn, monkeypatch):
+    from app import delivery_intents
+
+    attempts = []
+
+    def transport(*args, **kwargs):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise TimeoutError("unknown")
+
+    monkeypatch.setattr(executors.email_adapter, "send_via", transport)
+    conn.execute("INSERT INTO mailboxes(email, smtp_host, port, username, password,"
+                 " daily_cap, active) VALUES ('allen@mc.com','smtp.mc.com',465,"
+                 "'allen@mc.com','pw',40,1)")
+    conn.commit()
+    p = proposals.create(conn, "reply_draft", lead_no=1, title="Reply",
+                         payload={"to": "buyer@alpha.com", "body": "ok",
+                                  "mailbox_email": "allen@mc.com"})
+    assert proposals.approve(conn, p["id"])["status"] == "failed"
+    intent = conn.execute(
+        "SELECT id FROM delivery_intents WHERE source_kind='reply' AND source_id=?", (p["id"],)
+    ).fetchone()
+
+    delivery_intents.resolve(conn, intent["id"], "not_sent")
+    assert proposals.get(conn, p["id"])["status"] == "pending"
+    assert proposals.approve(conn, p["id"])["status"] == "executed"
+    assert len(attempts) == 2
+
+
+def test_confirming_unknown_reply_sent_repairs_state_without_transport(conn, monkeypatch):
+    from app import delivery_intents
+
+    attempts = []
+
+    def timeout(*args, **kwargs):
+        attempts.append(1)
+        raise TimeoutError("unknown")
+
+    monkeypatch.setattr(executors.email_adapter, "send_via", timeout)
+    conn.execute("INSERT INTO mailboxes(email, smtp_host, port, username, password,"
+                 " daily_cap, active) VALUES ('allen@mc.com','smtp.mc.com',465,"
+                 "'allen@mc.com','pw',40,1)")
+    conn.commit()
+    mid = _reply(conn)
+    p = proposals.create(conn, "reply_draft", lead_no=1, inbox_message_id=mid,
+                         title="Reply", payload={"to": "buyer@alpha.com", "body": "ok",
+                                                 "mailbox_email": "allen@mc.com"})
+    assert proposals.approve(conn, p["id"])["status"] == "failed"
+    intent = conn.execute(
+        "SELECT id FROM delivery_intents WHERE source_kind='reply' AND source_id=?", (p["id"],)
+    ).fetchone()
+
+    delivery_intents.resolve(conn, intent["id"], "sent")
+
+    assert attempts == [1]
+    assert proposals.get(conn, p["id"])["status"] == "executed"
+    assert conn.execute("SELECT handled_at FROM inbox_messages WHERE id=?", (mid,)).fetchone()[0]
+    assert conversation.get(conn, 1, "email")["state"] == "waiting_customer"
+    assert conn.execute("SELECT COUNT(*) FROM notes WHERE lead_no=1").fetchone()[0] == 1
 
 
 def test_the_reply_goes_out_from_the_address_the_customer_wrote_to(conn, monkeypatch):
@@ -199,6 +371,20 @@ def test_classification_stores_intent_and_confidence(conn, monkeypatch):
     row = conn.execute("SELECT intent, intent_confidence FROM inbox_messages WHERE id=?",
                        (mid,)).fetchone()
     assert row["intent"] == "quote" and row["intent_confidence"] == 88
+
+
+def test_classification_also_captures_literal_project_facts(conn, monkeypatch):
+    from app.agent import project_facts
+
+    mid = _reply(conn, body="We need an outdoor P2.5 screen, 6m x 3m.")
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {
+        "results": [{"id": mid, "intent": "spec", "confidence": 94,
+                     "needs": "outdoor P2.5, 6m x 3m"}]})
+    result = classify.run(conn)
+    assert result["errors"] == []
+    assert {row["field"] for row in project_facts.for_message(conn, mid)["facts"]} >= {
+        "indoor_outdoor", "pixel_pitch", "width_m", "height_m",
+    }
 
 
 def test_a_made_up_intent_is_dropped_rather_than_stored(conn, monkeypatch):
@@ -403,6 +589,21 @@ def test_a_dm_is_written_in_chat_voice_not_email_voice():
     # the refusal to invent numbers survives the change of register
     assert "NEVER state a price" in draft.SYSTEM_DM
     assert "no sign-off" in draft.SYSTEM_DM
+
+
+def test_attachment_names_reach_draft_context_but_are_marked_unparsed(conn):
+    mid = _reply(conn, body="Please review the attached drawing.")
+    conn.execute(
+        "UPDATE inbox_messages SET attachments_json=? WHERE id=?",
+        ('[{"filename":"Cabinet.pdf","content_type":"application/pdf",'
+         '"size":42,"sha256":"abc"}]', mid),
+    )
+    conn.commit()
+    message = dict(conn.execute("SELECT * FROM inbox_messages WHERE id=?", (mid,)).fetchone())
+    rendered = draft._render(draft.build_context(conn, message))
+    assert "Cabinet.pdf" in rendered
+    assert "UNPARSED ATTACHMENTS" in rendered
+    assert "do not infer their content" in rendered
 
 
 def test_a_rejection_proposes_stopping_all_contact(conn):
@@ -622,3 +823,14 @@ def test_the_evening_hook_still_pushes_once_turned_on(conn, monkeypatch):
     monkeypatch.setattr(report, "send_daily", lambda c, d: pushed.append(d))
     agent_run._maybe_report(conn, dt.datetime(2026, 8, 26, 19, 0))
     assert pushed
+
+
+def test_evening_push_failure_is_returned_for_health_reporting(conn, monkeypatch):
+    import datetime as dt
+    from app.agent import report, run as agent_run
+    report.set_push(conn, True)
+    monkeypatch.setattr(report, "targets", lambda: ["whatsapp"])
+    monkeypatch.setattr(report, "send_daily",
+                        lambda *a: (_ for _ in ()).throw(OSError("phone offline")))
+    assert "phone offline" in agent_run._maybe_report(
+        conn, dt.datetime(2026, 8, 26, 19, 0))

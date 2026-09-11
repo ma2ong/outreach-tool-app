@@ -10,10 +10,15 @@ if not exist "..\frontend\dist\index.html" (
 )
 
 echo Starting the outreach tool at http://127.0.0.1:8000 ...
-start "outreach-tool-server" cmd /c "python -m uvicorn app.main:app --port 8000"
+start "outreach-tool-server" cmd /c "python ..\scripts\run_server.py"
 
-REM give the server a moment to boot, then open the browser
-timeout /t 3 /nobreak >nul
+REM wait for schema/backup startup, then open only the verified application
+python -c "from app.startup import wait_for_outreach; raise SystemExit(0 if wait_for_outreach(30) else 1)"
+if errorlevel 1 (
+  echo [X] Port 8000 did not start outreach-tool. Check backend\logs\last-crash.txt.
+  pause
+  exit /b 1
+)
 start "" "http://127.0.0.1:8000"
 
 echo.

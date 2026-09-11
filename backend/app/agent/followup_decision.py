@@ -80,7 +80,13 @@ def _parse_date(value) -> dt.date | None:
     if not raw:
         return None
     try:
-        return dt.datetime.fromisoformat(raw.replace("Z", "+00:00")).date()
+        parsed = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            # SQLite's datetime('now','localtime') is deliberately a naive *local*
+            # timestamp. Labelling it UTC and converting again moves evening sends to
+            # tomorrow in Asia, extending the cooldown by one day.
+            return parsed.date()
+        return parsed.astimezone().date()
     except ValueError:
         try:
             return dt.date.fromisoformat(raw[:10])

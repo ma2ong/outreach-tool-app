@@ -24,6 +24,7 @@ messages and never touch the network.
 """
 import datetime as _dt
 import email
+import hashlib
 import imaplib
 import re
 import json
@@ -151,6 +152,29 @@ def _plain_body(msg) -> str:
     return fallback[:_BODY_LIMIT]
 
 
+def _attachment_metadata(msg) -> list[dict]:
+    """Return inert evidence about attachments without retaining their bytes."""
+    found: list[dict] = []
+    for part in msg.walk() if msg.is_multipart() else [msg]:
+        filename = _decode(part.get_filename())
+        disposition = str(part.get_content_disposition() or "").lower()
+        if not filename and disposition != "attachment":
+            continue
+        try:
+            payload = part.get_payload(decode=True) or b""
+        except Exception:  # noqa: BLE001 — malformed attachment must not lose the mail
+            payload = b""
+        found.append({
+            "filename": (filename or "未命名附件")[:300],
+            "content_type": str(part.get_content_type() or "application/octet-stream")[:100],
+            "size": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        })
+        if len(found) >= 50:
+            break
+    return found
+
+
 def _declares_auto(msg) -> bool:
     """Does the message itself say a machine sent it? (RFC 3834 and friends)"""
     if str(msg.get("Auto-Submitted") or "").strip().lower() not in ("", "no"):
@@ -192,6 +216,8 @@ def fetch_mailbox_messages(mailbox: dict, since_days: int = 7) -> list[dict]:
                 "subject": _decode(msg.get("Subject", "")),
                 "body": _plain_body(msg),
                 "received_at": received,
+                "rfc_message_id": str(msg.get("Message-ID") or "").strip()[:998],
+                "attachments": _attachment_metadata(msg),
                 "auto_submitted": _declares_auto(msg),
             })
     return messages
@@ -222,28 +248,42 @@ def test_mailbox(mailbox: dict) -> None:
 
 
 def _store(conn, lead_no: int, kind: str, m: dict,
-           contact_id: int | None = None) -> int | None:
+           contact_id: int | None = None,
+           enrichment_errors: list[dict] | None = None) -> int | None:
     cur = conn.execute(
         "INSERT OR IGNORE INTO inbox_messages(lead_no, contact_id, channel, kind, from_addr,"
-        " subject, body, received_at, mailbox_email)"
-        " VALUES (?, ?, 'email', ?, ?, ?, ?, ?, ?)",
+        " subject, body, received_at, mailbox_email,rfc_message_id,attachments_json)"
+        " VALUES (?, ?, 'email', ?, ?, ?, ?, ?, ?, ?, ?)",
         (lead_no, contact_id, kind, _norm(m.get("from_addr")), m.get("subject") or "",
-         m.get("body") or "", m.get("received_at") or "", m.get("mailbox_email") or ""))
+         m.get("body") or "", m.get("received_at") or "", m.get("mailbox_email") or "",
+         str(m.get("rfc_message_id") or "").strip()[:998] or None,
+         json.dumps(m.get("attachments") or [], ensure_ascii=False, sort_keys=True)))
     if cur.rowcount > 0 and kind == "reply":
         # docs/86 R5. The signature is the customer stating their own number, site,
         # name, title and address. Only on a genuinely new reply, and only into fields
         # the book is missing. docs/106: the sender decides whose row it lands on and
         # which addresses in the body are believable.
         from app import reply_details
-        from app.agent import memory_events
         try:
             reply_details.apply(conn, lead_no, m.get("body"),
                                 contact_id=contact_id,
                                 sender=_norm(m.get("from_addr")))
+        except Exception as exc:  # noqa: BLE001 — enrichment may never lose a reply
+            if enrichment_errors is not None:
+                enrichment_errors.append({
+                    "lead_no": lead_no, "message_id": cur.lastrowid,
+                    "stage": "reply_details", "error": str(exc)[:200],
+                })
+        from app.agent import memory_events
+        try:
             # docs/87: remember it now, not only if the agent decides to draft an answer.
             memory_events.remember(conn, lead_no)
-        except Exception:  # noqa: BLE001 — enrichment may never lose a reply
-            pass
+        except Exception as exc:  # noqa: BLE001 — memory cannot roll back the reply
+            if enrichment_errors is not None:
+                enrichment_errors.append({
+                    "lead_no": lead_no, "message_id": cur.lastrowid,
+                    "stage": "memory", "error": str(exc)[:200],
+                })
     return cur.lastrowid if cur.rowcount > 0 else None
 
 
@@ -291,6 +331,7 @@ def process_messages(conn, messages: list[dict]) -> dict:
     by_domain = _by_domain(by_email)
     replies_n = bounces = delayed = unsubs = stored = auto = 0
     lead_nos: list[int] = []
+    enrichment_errors: list[dict] = []
     for m in messages:
         sender = _norm(m.get("from_addr"))
         subject, body = m.get("subject") or "", m.get("body") or ""
@@ -346,7 +387,8 @@ def process_messages(conn, messages: list[dict]) -> dict:
                 exact_contact = None
         inbox_id = _store(
             conn, matched[0], kind, m,
-            contact_id=exact_contact["id"] if exact_contact else None)
+            contact_id=exact_contact["id"] if exact_contact else None,
+            enrichment_errors=enrichment_errors)
         if inbox_id:
             stored += 1
             if kind == "reply":
@@ -369,7 +411,7 @@ def process_messages(conn, messages: list[dict]) -> dict:
     conn.commit()
     return {"replies": replies_n, "bounces": bounces, "delayed": delayed,
             "unsubscribes": unsubs, "auto": auto, "stored": stored,
-            "lead_nos": lead_nos}
+            "lead_nos": lead_nos, "enrichment_errors": enrichment_errors}
 
 
 def backfill_bounced_at(conn) -> int:
@@ -437,9 +479,11 @@ def poll_all_replies(conn, fetcher=fetch_mailbox_messages, since_days: int | Non
         settings.set_value(conn, _K_LAST_RESULT, "未配置可用的收件邮箱")
         raise RuntimeError("no active mailbox and fallback Gmail password missing")
 
-    totals = {"replies": 0, "bounces": 0, "delayed": 0, "unsubscribes": 0, "stored": 0}
+    totals = {"replies": 0, "bounces": 0, "delayed": 0, "unsubscribes": 0,
+              "auto": 0, "stored": 0}
     lead_nos: list[int] = []
     errors: list[dict] = []
+    enrichment_errors: list[dict] = []
     checked = 0
     for mailbox in targets:
         try:
@@ -454,6 +498,7 @@ def poll_all_replies(conn, fetcher=fetch_mailbox_messages, since_days: int | Non
         for key in totals:
             totals[key] += result[key]
         lead_nos.extend(result["lead_nos"])
+        enrichment_errors.extend(result.get("enrichment_errors") or [])
 
     status = "success" if not errors else ("partial" if checked else "error")
     now = _dt.datetime.now(_dt.UTC).isoformat()
@@ -463,6 +508,7 @@ def poll_all_replies(conn, fetcher=fetch_mailbox_messages, since_days: int | Non
         "mailboxes_checked": checked,
         "mailboxes_total": len(targets),
         "errors": errors,
+        "enrichment_errors": enrichment_errors,
         "since_days": since_days,
     }
     settings.set_value(conn, _K_LAST_AT, now)

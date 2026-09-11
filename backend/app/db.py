@@ -141,6 +141,8 @@ CREATE TABLE IF NOT EXISTS inbox_messages (
     subject TEXT,
     body TEXT,
     received_at TEXT,
+    rfc_message_id TEXT,
+    attachments_json TEXT,
     is_read INTEGER DEFAULT 0,
     handled_at TEXT
 );
@@ -158,6 +160,9 @@ CREATE INDEX IF NOT EXISTS idx_enroll_lead ON sequence_enrollments(lead_no);
 CREATE INDEX IF NOT EXISTS idx_send_log_campaign ON send_log(campaign, channel);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_dedup
     ON inbox_messages(lead_no, kind, from_addr, subject, received_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_rfc_message
+    ON inbox_messages(lead_no, rfc_message_id)
+    WHERE rfc_message_id IS NOT NULL AND rfc_message_id != '';
 CREATE INDEX IF NOT EXISTS idx_inbox_read ON inbox_messages(is_read);
 """
 
@@ -261,6 +266,10 @@ _TABLE_COLUMNS = {
         # address: replying to a thread from a different mailbox breaks threading and
         # reads as a different company.
         "mailbox_email": "TEXT",
+        # Stable provider evidence. Attachment bytes stay in the mailbox; only inert
+        # metadata is kept here until an explicitly allow-listed parser exists.
+        "rfc_message_id": "TEXT",
+        "attachments_json": "TEXT",
         # Agent intent classification. Kept on the message, not the lead: one customer
         # can ask for a quote today and reject next month, and both stay true of the
         # message that carried them.

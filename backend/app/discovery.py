@@ -24,7 +24,7 @@ def _bounded_fetch(url: str) -> str:
     return jina_fetch(url, timeout=DISCOVERY_FETCH_TIMEOUT)
 
 
-def _country_key(value: str | None) -> str:
+def country_key(value: str | None) -> str:
     raw = str(value or "").strip().lower()
     return _COUNTRY_ALIASES.get(raw, raw)
 
@@ -90,7 +90,7 @@ def qualify_for_auto_import(candidates: list[dict], minimum_fit: int,
         elif not domain:
             reason = "缺少官网域名"
         elif (target_country and candidate.get("country")
-              and _country_key(candidate.get("country")) != _country_key(target_country)):
+              and country_key(candidate.get("country")) != country_key(target_country)):
             reason = f"目标市场不符：识别为 {candidate['country']}，任务要求 {target_country}"
         else:
             if email_classifier:

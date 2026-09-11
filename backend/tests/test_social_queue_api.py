@@ -5,6 +5,9 @@ from fastapi.testclient import TestClient
 
 
 def _client(tmp_path):
+    from app.api import channels as channels_api
+    from app.browser_engine import FakeEngine
+
     db = str(tmp_path / "t.db")
     conn = connect(db)
     init_schema(conn)
@@ -20,6 +23,7 @@ def _client(tmp_path):
     # The send runs in a background task that opens its own connection by path.
     from app.api import send as send_api
     send_api.DB_PATH = db
+    channels_api.ENGINE = FakeEngine()
     return TestClient(main.app), db
 
 

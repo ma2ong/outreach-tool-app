@@ -29,6 +29,7 @@ def test_runtime_status_exposes_active_worker_without_secrets(tmp_path, monkeypa
         runtime.record_start(conn, owner="worker:test-host:123:abc", mode="worker", now=NOW)
         runtime.record_finish(conn, ok=True, error=None, email_poll_ok=True,
                               owner="worker:test-host:123:abc", mode="worker", now=NOW)
+        runtime._capability_write(db, "email_poll", success=False, error="IMAP timeout", now=NOW)
     finally:
         conn.close()
     monkeypatch.setattr(runtime, "utcnow", lambda: NOW + dt.timedelta(seconds=20))
@@ -46,6 +47,10 @@ def test_runtime_status_exposes_active_worker_without_secrets(tmp_path, monkeypa
         assert body["state"]["last_email_poll_ok"] == 1
         assert body["embedded_worker_enabled"] is False
         assert body["dedicated_worker_expected"] is True
+        assert body["capabilities"][0]["name"] == "email_poll"
+        assert body["capabilities"][0]["consecutive_failures"] == 1
+        assert body["capabilities"][0]["last_error"] == "IMAP timeout"
+        assert body["unresolved_deliveries"] == []
         assert "password" not in str(body).lower()
     finally:
         main.app.dependency_overrides.pop(main.get_conn, None)

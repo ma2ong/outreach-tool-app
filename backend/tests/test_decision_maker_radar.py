@@ -116,6 +116,22 @@ def test_scan_reads_only_company_owned_results_and_stages_weaker_candidate(conn)
     assert result["candidates"][0]["confidence"] < 90
 
 
+def test_search_provider_failure_is_not_reported_as_an_empty_contact_result(conn):
+    result = decision_maker_radar.scan(
+        conn, 1, role_kinds={"commercial"},
+        search_fn=lambda *_args: (_ for _ in ()).throw(TimeoutError("search offline")),
+        fetch_fn=lambda _url: "",
+    )
+
+    assert result["pages_checked"] == 0
+    assert result["errors"]
+    assert "TimeoutError: search offline" in result["errors"][0]
+    stored = conn.execute(
+        "SELECT last_error FROM decision_maker_scans WHERE lead_no=1"
+    ).fetchone()["last_error"]
+    assert "search offline" in stored
+
+
 def test_due_accounts_respects_research_cooldown(conn):
     opportunities.create(conn, 1, {
         "title": "Retail wall", "stage": "requirements", "use_case": "Retail",

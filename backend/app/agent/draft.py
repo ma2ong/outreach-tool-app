@@ -11,6 +11,7 @@ Nothing here sends. The product is a proposal (Spec 22 section 3).
 """
 from __future__ import annotations
 
+import json
 import re
 
 from app.agent import llm, proposals
@@ -82,6 +83,16 @@ Do not describe the company as a leader, premier, or top supplier.
 Say you are in Shenzhen, China only if it comes up naturally. Never name the company.
 Leave "subject" as an empty string: chat messages do not have one.""")
 
+FOLLOWUP_SYSTEM = """You draft one short follow-up after an LED display prospect replied,
+we answered, and they have been silent for seven days. Use only the supplied customer
+words, our last sent reply, CRM facts, APPROVED PRODUCT FACTS and APPROVED SHAREABLE CASES.
+Never invent or imply a price, discount, payment term, delivery promise, lead time, MOQ,
+warranty, certification or technical value. Do not say "just following up". Refer to
+the concrete project/question already in the conversation and ask one easy next-step
+question. Do not add a new promise. English or Korean, matching the customer. Email is
+70 words or fewer; chat is 35 words or fewer. Return JSON with the same fields as the
+reply drafter: subject, body, language, evidence and open_questions."""
+
 # Numbers a model invents when it wants to sound helpful. Finding one is not proof of a
 # fabrication, but it is proof this draft needs a human's eyes before it goes out.
 _RISK_PATTERNS = [
@@ -106,7 +117,7 @@ def build_context(conn, message: dict) -> dict:
     # Own the dependency rather than trusting FastAPI startup order: the agent also runs
     # from the poll loop and from scripts that only initialised the base schema.
     from app import case_library, opportunities, sales_documents
-    from app.agent import led_playbook, product_advisor
+    from app.agent import led_playbook, product_advisor, project_facts
     opportunities.ensure_schema(conn)
     sales_documents.ensure_schema(conn)
     lead_no = message["lead_no"]
@@ -161,6 +172,7 @@ def build_context(conn, message: dict) -> dict:
         "product_guidance": product_guidance,
         "case_guidance": case_guidance,
         "quotes": quotes,
+        "project_facts": project_facts.for_lead(conn, lead_no),
         "thread": social.stored_thread(message),
     }
 
@@ -179,6 +191,33 @@ def _render(ctx: dict) -> str:
             for o in ctx["opportunities"]))
     else:
         out.append("OPPORTUNITY FIELDS: none recorded")
+    sourced = ctx.get("project_facts") or {}
+    if sourced.get("facts"):
+        seen = set()
+        lines = []
+        for fact in sourced["facts"]:
+            key = (fact.get("field"), fact.get("normalized_value"))
+            if key in seen:
+                continue
+            seen.add(key)
+            lines.append(
+                f"{fact['field']}={fact['value']} (inbox:{fact['source_message_id']}; "
+                f"exact quote: {fact['source_quote']})"
+            )
+            if len(lines) >= 20:
+                break
+        out.append("CUSTOMER-STATED PROJECT FACTS (literal, sourced):\n" + "\n".join(lines))
+        if sourced.get("conflicts"):
+            conflicts = "; ".join(
+                f"{item['field']} has {', '.join(item['values'])}"
+                for item in sourced["conflicts"][:8]
+            )
+            out.append(
+                "PROJECT FACT CONFLICT — do not choose a value; ask the customer to confirm: "
+                + conflicts
+            )
+    else:
+        out.append("CUSTOMER-STATED PROJECT FACTS: none")
     guide = ctx.get("qualification_guidance")
     if guide:
         missing = ", ".join(item["label"] for item in guide["missing"][:8]) or "none"
@@ -220,6 +259,20 @@ def _render(ctx: dict) -> str:
         out.append(f"EARLIER FROM CUSTOMER ({h.get('received_at') or '?'}): "
                    f"{(h.get('body') or '')[:600]}")
     m = ctx["message"]
+    attachments = m.get("attachments")
+    if attachments is None:
+        try:
+            attachments = json.loads(m.get("attachments_json") or "[]")
+        except (TypeError, ValueError):
+            attachments = []
+    if attachments:
+        labels = ", ".join(
+            f"{item.get('filename') or 'unnamed'} ({item.get('content_type') or 'unknown'}, "
+            f"{int(item.get('size') or 0)} bytes)" for item in attachments[:20]
+        )
+        out.append(
+            "UNPARSED ATTACHMENTS (metadata only; do not infer their content): " + labels
+        )
     if ctx.get("thread"):
         from app.agent import social
         out.append("THE CHAT SO FAR (US = we sent it, THEM = the customer)\n"
@@ -257,8 +310,9 @@ def check_claims(body: str, ctx: dict) -> list[str]:
 def build(conn, message: dict) -> dict:
     """Draft one reply. Returns the parsed model output plus our own warnings."""
     ctx = build_context(conn, message)
-    from app.agent import learn
-    system = system_for(message.get("channel") or "email") + learn.draft_guidance(conn)
+    system = system_for(message.get("channel") or "email") + learn_guidance(
+        conn, message=message, context=ctx,
+    )
     data = llm.complete_json(conn, "draft", system, _render(ctx))
     body = str(data.get("body") or "").strip()
     if not body:
@@ -274,3 +328,60 @@ def build(conn, message: dict) -> dict:
         "backend": data.get("_llm_backend") or llm.backend_for(conn, "draft"),
         "fallback_from": data.get("_llm_fallback_from"),
     }
+
+
+def build_followup(conn, message: dict) -> dict:
+    """Draft a bounded post-reply nudge from the last actually executed response."""
+    ctx = build_context(conn, message)
+    rows = conn.execute(
+        "SELECT id FROM agent_proposals WHERE kind='reply_draft' AND lead_no=?"
+        " AND status='executed' ORDER BY executed_at DESC,id DESC",
+        (message["lead_no"],),
+    ).fetchall()
+    last_sent = None
+    for row in rows:
+        candidate = proposals.get(conn, row["id"])
+        payload = (candidate or {}).get("payload") or {}
+        if (payload.get("channel") or "email") == (message.get("channel") or "email"):
+            last_sent = payload
+            break
+    if not last_sent or not str(last_sent.get("body") or "").strip():
+        raise llm.LLMError("找不到上一封已确认发送的回复，不能凭空起草复联")
+    prompt = (
+        _render(ctx)
+        + "\n\nOUR LAST CONFIRMED SENT REPLY\n"
+        + str(last_sent["body"])[:2500]
+        + "\n\nThe customer has not replied since. Draft the one bounded follow-up now."
+    )
+    system = FOLLOWUP_SYSTEM + "\n\n" + learn_guidance(
+        conn, message=message, context=ctx,
+    )
+    data = llm.complete_json(conn, "draft", system, prompt)
+    body = str(data.get("body") or "").strip()
+    if not body:
+        raise llm.LLMError("模型没有返回复联正文")
+    return {
+        "subject": str(data.get("subject") or last_sent.get("subject") or "").strip(),
+        "body": body,
+        "language": str(data.get("language") or "en").strip(),
+        "evidence": data.get("evidence") or [],
+        "open_questions": str(data.get("open_questions") or "").strip(),
+        "warnings": check_claims(body, ctx),
+        "context": ctx,
+        "backend": data.get("_llm_backend") or llm.backend_for(conn, "draft"),
+        "fallback_from": data.get("_llm_fallback_from"),
+    }
+
+
+def learn_guidance(conn, *, message: dict | None = None,
+                   context: dict | None = None) -> str:
+    from app.agent import learn
+    from app import copy_segments
+    message = message or {}
+    lead = (context or {}).get("lead") or {}
+    return learn.draft_guidance(
+        conn,
+        channel=message.get("channel") or "email",
+        country=lead.get("country"),
+        customer_type=copy_segments.segment_of(lead),
+    )

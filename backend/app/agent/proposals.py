@@ -30,7 +30,7 @@ AUTONOMY = ("off", "propose", "auto")
 RISKS = ("low", "medium", "high")
 # Approved but not finished is still open work. Keep one definition so list, summary and
 # planner-world visibility do not disagree about whether the Agent is busy.
-OPEN_STATUSES = ("pending", "approved", "edited_approved")
+OPEN_STATUSES = ("pending", "approved", "edited_approved", "executing")
 APPROVED_STATUSES = ("approved", "edited_approved")
 EXPIRE_DAYS = 7
 
@@ -264,12 +264,31 @@ def approve(conn, proposal_id: int, payload: dict | None = None, note: str = "")
 
 def execute_approved(conn, proposal_id: int, note: str = "") -> dict:
     """Run the action of an already-approved proposal. Safe to call from a background
-    task: everything it needs is in the row."""
+    task: everything it needs is in the row. Claim the row before business I/O so two
+    approval workers cannot run the same handler."""
+    ensure_schema(conn)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT status FROM agent_proposals WHERE id=?", (proposal_id,)
+        ).fetchone()
+        if not row:
+            raise ProposalError("提议不存在")
+        if row["status"] not in APPROVED_STATUSES:
+            raise ProposalError(f"提议是 {row['status']}，不是待执行状态")
+        placeholders = ",".join("?" * len(APPROVED_STATUSES))
+        cur = conn.execute(
+            f"UPDATE agent_proposals SET status='executing', updated_at=?"
+            f" WHERE id=? AND status IN ({placeholders})",
+            (_now(), proposal_id, *APPROVED_STATUSES),
+        )
+        if cur.rowcount != 1:
+            raise ProposalError("提议已被其他执行器领取")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     p = get(conn, proposal_id)
-    if not p:
-        raise ProposalError("提议不存在")
-    if p["status"] not in APPROVED_STATUSES:
-        raise ProposalError(f"提议是 {p['status']}，不是待执行状态")
     return _execute(conn, p, note=note)
 
 
@@ -281,27 +300,38 @@ def mark_approved(conn, proposal_id: int, payload: dict | None = None,
 
     Taking `pending` away here is also what stops a double click from running the
     action twice: the second one no longer finds a pending row."""
-    p = get(conn, proposal_id)
-    if not p:
-        raise ProposalError("提议不存在")
-    if p["status"] != "pending":
-        raise ProposalError(f"提议已是 {p['status']}，不能重复确认")
-    edited = payload is not None and payload != p["payload"]
-    if edited:
-        # Keep the agent's version. What Allen changed is the only real training signal
-        # phase C has, and overwriting the draft in place threw it away every time.
-        conn.execute(
-            "UPDATE agent_proposals SET payload=?, original_payload=?, updated_at=?"
-            " WHERE id=?",
-            (json.dumps(payload, ensure_ascii=False),
-             json.dumps(p["payload"], ensure_ascii=False), _now(), proposal_id))
+    ensure_schema(conn)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        raw = conn.execute(
+            "SELECT * FROM agent_proposals WHERE id=?", (proposal_id,)
+        ).fetchone()
+        if not raw:
+            raise ProposalError("提议不存在")
+        p = _row(raw)
+        if p["status"] != "pending":
+            raise ProposalError(f"提议已是 {p['status']}，不能重复确认")
+        edited = payload is not None and payload != p["payload"]
+        next_payload = payload if edited else p["payload"]
+        original_payload = (
+            json.dumps(p["payload"], ensure_ascii=False)
+            if edited else raw["original_payload"]
+        )
+        now = _now()
+        cur = conn.execute(
+            "UPDATE agent_proposals SET status=?, payload=?, original_payload=?,"
+            " decided_at=?, decided_note=?, updated_at=?"
+            " WHERE id=? AND status='pending'",
+            ("edited_approved" if edited else "approved",
+             json.dumps(next_payload, ensure_ascii=False), original_payload,
+             now, note, now, proposal_id),
+        )
+        if cur.rowcount != 1:
+            raise ProposalError("提议已被其他请求确认")
         conn.commit()
-        p = get(conn, proposal_id)
-    conn.execute(
-        "UPDATE agent_proposals SET status=?, decided_at=?, decided_note=?, updated_at=?"
-        " WHERE id=?",
-        ("edited_approved" if edited else "approved", _now(), note, _now(), proposal_id))
-    conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     return get(conn, proposal_id)
 
 
@@ -312,9 +342,9 @@ def fail_interrupted(conn) -> int:
     ensure_schema(conn)
     cur = conn.execute(
         "UPDATE agent_proposals SET status='failed', executed_at=?, execution_result=?,"
-        " updated_at=? WHERE status IN (?, ?)",
+        " updated_at=? WHERE status IN (?, ?, ?)",
         (_now(), "服务重启，执行中断——请确认结果后再决定是否重跑", _now(),
-         *APPROVED_STATUSES))
+         *APPROVED_STATUSES, "executing"))
     conn.commit()
     return cur.rowcount
 

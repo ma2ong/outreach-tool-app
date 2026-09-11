@@ -1,5 +1,6 @@
 """Sales activities: the single source of truth for every next action."""
 import datetime as dt
+import hashlib
 import sqlite3
 
 
@@ -285,6 +286,32 @@ def create_reply_task(conn: sqlite3.Connection, inbox_id: int) -> bool:
     _sync_lead(conn, row["lead_no"])
     conn.commit()
     return created
+
+
+def create_commitment_task(conn: sqlite3.Connection, lead_no: int,
+                           source_message_id: int | None, question: str,
+                           due_at: str) -> dict:
+    """Create one human-owned promise checkpoint with stable provenance."""
+    from app.agent import task_ownership
+
+    ensure_schema(conn)
+    task_ownership.ensure_schema(conn)
+    clean_question = str(question or "").strip()
+    digest = hashlib.sha1(clean_question.encode("utf-8")).hexdigest()[:12]
+    source_ref = f"inbox:{source_message_id or 0}:{digest}"
+    activity_id, _created = _upsert_source(
+        conn, lead_no=lead_no, opportunity_id=None,
+        source="agent_commitment", source_ref=source_ref, type="task",
+        title=f"补充回答：{clean_question}"[:300], due_at=_date(due_at), priority="high",
+        note="已发回复中承诺补充但当前没有可靠来源；需要 Allen 提供或确认，不能由 Agent 猜测。",
+    )
+    conn.execute(
+        "UPDATE activities SET work_owner='human',updated_at=? WHERE id=?",
+        (_now(), activity_id),
+    )
+    _sync_lead(conn, lead_no)
+    conn.commit()
+    return get(conn, activity_id)
 
 
 def complete_reply_task(conn: sqlite3.Connection, inbox_id: int) -> None:

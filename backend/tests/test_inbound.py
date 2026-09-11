@@ -122,6 +122,22 @@ def test_one_broken_channel_does_not_hide_the_other(conn):
     assert inbound.should_scan_today(conn, _dt())
 
 
+def test_social_reply_enrichment_failure_is_reported_as_partial_not_swallowed(conn, monkeypatch):
+    monkeypatch.setattr(
+        "app.reply_details.apply",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("parser broke")),
+    )
+    result = inbound.scan_all(
+        conn, lambda channel: [_thread("+55 11 98888-7777")] if channel == "whatsapp" else [],
+    )
+
+    assert result["replies"] == 1
+    assert result["errors"] == [{
+        "lead_no": 1, "message_id": 1, "stage": "reply_details", "error": "parser broke",
+    }]
+    assert inbound.should_scan_today(conn, _dt())
+
+
 def test_clean_sweep_marks_the_day_done(conn):
     engine = FakeEngine()
     engine.threads = {"whatsapp": [_thread("+55 11 98888-7777")], "instagram": []}

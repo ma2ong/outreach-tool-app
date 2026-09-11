@@ -4,7 +4,7 @@ import re
 import time
 from typing import Callable
 
-from app import campaigns, recontact
+from app import campaigns, delivery_intents, recontact
 from app.personalize import render
 # One calling-code table, in app/phone_format.py, because the book and the sender
 # must agree about what a number is. A number we cannot make international is a
@@ -190,6 +190,7 @@ def send_prepared(conn, items: list[dict], engine, image: str | None = None,
     the second succeeded, so a message that never went out was marked sent and the one
     that did stayed queued (docs/102 R1).
     """
+    delivery_intents.ensure_schema(conn)
     today = datetime.date.today().isoformat()
     sent_ids: list = []
     sent = failed = deferred = 0
@@ -202,7 +203,24 @@ def send_prepared(conn, items: list[dict], engine, image: str | None = None,
         if used.get(channel, 0) >= DAILY_CAP.get(channel, MAX_BATCH):
             deferred += 1
             continue
+        intent_id = None
         try:
+            source_id = item.get("id")
+            source_kind = "social_queue" if source_id is not None else "social_prepared"
+            operation_key = (f"social_queue:{source_id}" if source_id is not None else
+                             delivery_intents.content_key(
+                                 source_kind, lead_no=item["lead_no"], channel=channel,
+                                 target=item["target"], subject=None, body=item["body"]))
+            intent_id = delivery_intents.claim_action(
+                conn, operation_key=operation_key, source_kind=source_kind,
+                source_id=source_id, lead_no=item["lead_no"], channel=channel,
+                target=item["target"], subject=None, body=item["body"],
+                metadata={"campaign": campaign or campaigns.default_label(channel),
+                          "variant": item.get("variant"), "queue_id": source_id},
+                initialize=False,
+            )
+            if intent_id is None:
+                raise RuntimeError(delivery_intents.claim_block_reason(conn, operation_key))
             engine.send_message(channel, item["target"], item["body"], image)
             _mark_messaged(conn, item["lead_no"], channel, today)
             campaigns.log_send(conn, item["lead_no"], channel,
@@ -210,13 +228,28 @@ def send_prepared(conn, items: list[dict], engine, image: str | None = None,
                                body=item["body"], variant=item.get("variant"))
             used[channel] = used.get(channel, 0) + 1
             _note_whatsapp_result(conn, item["lead_no"], channel, None)
-            _count_harvest(harvest,
-                           after_social_send(conn, engine, item["lead_no"], channel,
-                                             item["target"], item["body"]))
+            if source_id is not None:
+                conn.execute(
+                    "UPDATE social_dm_queue SET status='sent' WHERE id=? AND status='ready'",
+                    (source_id,),
+                )
+                conn.commit()
+            delivery_intents.finish(conn, intent_id)
             sent += 1
             if item.get("id") is not None:
                 sent_ids.append(item["id"])
+            # Profile research/following is useful but not part of delivery. The
+            # transport truth and queue state are durable before this slower best-effort
+            # browser work starts, so its timeout cannot turn a sent DM into uncertainty.
+            _count_harvest(harvest,
+                           after_social_send(conn, engine, item["lead_no"], channel,
+                                             item["target"], item["body"]))
         except Exception as exc:  # noqa: BLE001
+            if intent_id is not None:
+                try:
+                    delivery_intents.finish(conn, intent_id, error=exc)
+                except Exception:
+                    conn.rollback()
             failed += 1
             _note_whatsapp_result(conn, item["lead_no"], channel, str(exc))
             errors.append({"no": item["lead_no"], "channel": channel, "error": str(exc)})
@@ -234,6 +267,7 @@ def send_channel_campaign(conn, lead_nos: list[int], channel: str, message: str,
                           engine, delay_range: tuple[int, int] | None = None,
                           image: str | None = None, campaign: str | None = None,
                           on_progress: Callable[[int, int], None] | None = None) -> dict:
+    delivery_intents.ensure_schema(conn)
     if delay_range is None:
         delay_range = DEFAULT_DELAY.get(channel, (60, 90))
     today = datetime.date.today().isoformat()
@@ -246,17 +280,38 @@ def send_channel_campaign(conn, lead_nos: list[int], channel: str, message: str,
     harvest = {"followed": 0, "learned": 0}
     errors: list[dict] = []
     for i, lead in enumerate(targets, 1):
+        intent_id = None
         try:
             rendered = render(message, lead)
-            engine.send_message(channel, _target(channel, lead), rendered, image)
+            target = _target(channel, lead)
+            operation_key = delivery_intents.content_key(
+                "channel_campaign", lead_no=lead["no"], channel=channel,
+                target=target, subject=None, body=rendered)
+            intent_id = delivery_intents.claim_action(
+                conn,
+                operation_key=operation_key,
+                source_kind="channel_campaign", source_id=None,
+                lead_no=lead["no"], channel=channel, target=target,
+                subject=None, body=rendered,
+                metadata={"campaign": label}, initialize=False,
+            )
+            if intent_id is None:
+                raise RuntimeError(delivery_intents.claim_block_reason(conn, operation_key))
+            engine.send_message(channel, target, rendered, image)
             _mark_messaged(conn, lead["no"], channel, today)
             campaigns.log_send(conn, lead["no"], channel, label, body=rendered)
             _note_whatsapp_result(conn, lead["no"], channel, None)
+            delivery_intents.finish(conn, intent_id)
+            sent += 1
             _count_harvest(harvest,
                            after_social_send(conn, engine, lead["no"], channel,
-                                             _target(channel, lead), rendered))
-            sent += 1
+                                             target, rendered))
         except Exception as exc:  # noqa: BLE001
+            if intent_id is not None:
+                try:
+                    delivery_intents.finish(conn, intent_id, error=exc)
+                except Exception:
+                    conn.rollback()
             failed += 1
             _note_whatsapp_result(conn, lead["no"], channel, str(exc))
             errors.append({"no": lead["no"], "error": str(exc)})

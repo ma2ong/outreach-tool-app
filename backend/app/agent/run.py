@@ -211,6 +211,49 @@ def _draft_proposal(conn, msg: dict) -> bool:
     return proposal is not None
 
 
+def _warm_followup_proposal(conn, msg: dict) -> bool:
+    result = draft.build_followup(conn, msg)
+    memory.update(conn, result["context"])
+    channel = msg.get("channel") or "email"
+    subject = "" if channel in SOCIAL_CHANNELS else (
+        result["subject"] or f"Re: {msg.get('subject') or ''}".strip()
+    )
+    warnings = result["warnings"]
+    count = int(msg.get("followup_count") or 0) + 1
+    proposal = proposals.create(
+        conn, "reply_draft", lead_no=msg["lead_no"], contact_id=msg.get("contact_id"),
+        inbox_message_id=msg["id"], title=f"第 {count} 次暖跟进 {msg['company_en']}",
+        reasoning=(f"客户已在本轮回复过；我方回复后已等待 7 天。"
+                   f"这是最多两次暖跟进中的第 {count} 次。"
+                   + ((" ⚠ " + "；".join(warnings)) if warnings else "")),
+        evidence=result["evidence"],
+        payload={
+            "channel": channel, "to": msg.get("from_addr") or "", "subject": subject,
+            "body": result["body"], "language": result["language"],
+            "mailbox_email": msg.get("mailbox_email") or "",
+            "open_questions": result["open_questions"], "followup_kind": "warm",
+        },
+        risk="high" if warnings else "medium", backend=result.get("backend") or "",
+        dedupe_key=f"warm-followup-{count}",
+    )
+    if proposal and proposal["status"] != "executed":
+        conversation.waiting_us(
+            conn, msg["lead_no"], channel, msg["id"], reset_followups=False)
+    return proposal is not None
+
+
+def act_on_due_followups(conn, limit: int = 5) -> dict:
+    """Prepare bounded warm follow-ups; this path never sends outside proposals."""
+    made = 0
+    errors: list[str] = []
+    for msg in conversation.due_followups(conn, limit=limit):
+        try:
+            made += bool(_warm_followup_proposal(conn, msg))
+        except Exception as exc:  # noqa: BLE001 — one account cannot block other replies
+            errors.append(f"{msg['company_en']}: {type(exc).__name__}: {exc}")
+    return {"draft": made, "errors": errors}
+
+
 def act_on_replies(conn, limit: int = DRAFT_LIMIT) -> dict:
     """Turn classified replies into proposals. One failure must not stop the rest."""
     proposals.ensure_schema(conn)
@@ -245,9 +288,9 @@ def act_on_replies(conn, limit: int = DRAFT_LIMIT) -> dict:
     return {**made, "errors": errors}
 
 
-PLAN_WINDOW = (8, 12)     # the daily plan is a morning thing; after noon it is stale
-PLAN_MAX_ATTEMPTS = 3
-PLAN_RETRY_MINUTES = 30
+PLAN_WINDOW = (8, 18)     # replenish throughout the working day, then report at 18:00
+PLAN_MAX_ATTEMPTS = 6
+PLAN_RETRY_MINUTES = 60
 REPORT_HOUR = 18          # the day is over; say what happened
 
 
@@ -271,7 +314,7 @@ def _last_plan_attempt(conn) -> dt.datetime | None:
 
 
 def plan_due(conn, now: dt.datetime | None = None) -> bool:
-    """Once successfully per day, with a bounded retry window after failures.
+    """Replenish a cleared plan queue on a bounded working-day cadence.
 
     On by default: the plan only ever produces proposals, so the cost of it running is
     a queue Allen ignores, while the cost of it not running is a day nobody planned.
@@ -282,9 +325,12 @@ def plan_due(conn, now: dt.datetime | None = None) -> bool:
     if not (PLAN_WINDOW[0] <= now.hour < PLAN_WINDOW[1]):
         return False
     today = now.date().isoformat()
-    if settings.get(conn, _K_PLAN_DATE) == today:
-        return False
     if _plan_attempts(conn, today) >= PLAN_MAX_ATTEMPTS:
+        return False
+    proposals.ensure_schema(conn)
+    if conn.execute(
+        "SELECT 1 FROM agent_proposals WHERE status IN ('pending','approved','edited_approved')"
+        " LIMIT 1").fetchone():
         return False
     last_attempt = _last_plan_attempt(conn)
     if last_attempt and settings.get(conn, _K_PLAN_ATTEMPT_DATE) == today:
@@ -346,17 +392,25 @@ def run_once(conn, now: dt.datetime | None = None) -> dict:
     try:
         incident = oversight.evaluate(conn)
         expired = proposals.expire_stale(conn)
+        followup_reconciliation = conversation.reconcile_followup_states(conn)
         classified = classify.run(conn)
         acted = act_on_replies(conn)
+        followups = act_on_due_followups(conn)
         planned = make_plan(conn, now) if plan_due(conn, now) else {"proposed": 0}
-        _maybe_report(conn, now)
+        report_error = _maybe_report(conn, now)
         result = {
             "expired": expired,
             "classified": classified.get("classified", 0),
             "classify_note": classified.get("note", ""),
             "planned": planned.get("proposed", 0),
             **{k: v for k, v in acted.items() if k != "errors"},
-            "errors": acted["errors"] + ([planned["error"]] if planned.get("error") else []),
+            "followup_draft": followups["draft"],
+            "followup_reconciliation": followup_reconciliation,
+            "errors": (classified.get("errors", [])
+                       + acted["errors"]
+                       + followups["errors"]
+                       + ([planned["error"]] if planned.get("error") else [])
+                       + ([report_error] if report_error else [])),
             "safety_paused": bool(incident.get("paused")),
         }
         finished = dt.datetime.now()
@@ -369,7 +423,7 @@ def run_once(conn, now: dt.datetime | None = None) -> dict:
         raise
 
 
-def _maybe_report(conn, now: dt.datetime | None) -> None:
+def _maybe_report(conn, now: dt.datetime | None) -> str | None:
     """Push the evening summary once the day is done.
 
     Only when some route exists: without one `send_daily` would mark the day as reported
@@ -378,11 +432,12 @@ def _maybe_report(conn, now: dt.datetime | None) -> None:
     from app.agent import report
     now = now or dt.datetime.now()
     if now.hour < REPORT_HOUR or not report.push_enabled(conn) or not report.targets():
-        return
+        return None
     try:
         report.send_daily(conn, now.date())
-    except Exception:  # noqa: BLE001 — a chat webhook must never break the pipeline
-        pass
+    except Exception as exc:  # noqa: BLE001 — report the failure without breaking replies
+        return f"daily report: {type(exc).__name__}: {exc}"
+    return None
 
 
 def _describe(now: dt.datetime, r: dict) -> str:
@@ -401,6 +456,8 @@ def _describe(now: dt.datetime, r: dict) -> str:
         bits.append(f"建议停发 {r['reject']} 家")
     if r.get("planned"):
         bits.append(f"今日计划 {r['planned']} 条")
+    if r.get("followup_draft"):
+        bits.append(f"暖跟进草稿 {r['followup_draft']} 条")
     if r["expired"]:
         bits.append(f"过期清理 {r['expired']} 条")
     if r["errors"]:

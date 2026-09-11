@@ -9,7 +9,7 @@ export function BlocklistPanel() {
   const [err, setErr] = useState("");
 
   function reload() { fetchBlocklist().then(setRows).catch((e) => setErr(String(e))); }
-  useEffect(reload, []);
+  useEffect(() => { reload(); }, []);
 
   async function add() {
     const v = value.trim();

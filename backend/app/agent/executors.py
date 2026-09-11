@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from app import activities, autosend, mailboxes, opportunities, repository
+from app import activities, autosend, delivery_intents, mailboxes, opportunities, repository
 from app.channels import email_adapter
 
 
@@ -48,6 +48,30 @@ def _mark_handled(conn, p: dict) -> None:
                      (dt.datetime.now(dt.UTC).isoformat(), p["inbox_message_id"]))
 
 
+def _reply_claim(conn, p: dict, *, channel: str, target: str, subject: str | None,
+                 body: str, metadata: dict | None = None) -> int:
+    proposal_id = int(p.get("id") or 0)
+    if not proposal_id:
+        raise ExecutionRefused("回复缺少可审计的提议编号，未发送")
+    intent_id = delivery_intents.claim_action(
+        conn,
+        operation_key=f"reply:{proposal_id}", source_kind="reply", source_id=proposal_id,
+        lead_no=p["lead_no"], channel=channel, target=target, subject=subject, body=body,
+        metadata={"inbox_message_id": p.get("inbox_message_id"), **(metadata or {})},
+    )
+    if intent_id is None:
+        raise ExecutionRefused("这条回复已有发送记录，请先在运行状态中核对结果，勿重复发送")
+    return intent_id
+
+
+def _mark_reply_unknown(conn, intent_id: int, exc: Exception) -> None:
+    conn.rollback()
+    try:
+        delivery_intents.finish(conn, intent_id, error=exc)
+    except Exception:  # noqa: BLE001 — committed pending claim still prevents a retry
+        conn.rollback()
+
+
 def send_dm_reply(conn, p: dict, channel: str) -> str:
     """Answer in the chat the customer wrote in.
 
@@ -62,17 +86,25 @@ def send_dm_reply(conn, p: dict, channel: str) -> str:
     if not body:
         raise ExecutionRefused("回复正文为空")
     target = social.target_for(conn, p["lead_no"], channel)
+    intent_id = _reply_claim(
+        conn, p, channel=channel, target=target, subject=None, body=body)
     # No case image on a reply. The always-attach rule exists for cold DMs that open a
     # conversation; re-sending the poster to someone mid-conversation reads as a bot.
-    ENGINE.send_message(channel, target, body, None)
-    _mark_handled(conn, p)
-    from app.agent import conversation
-    conversation.record_sent_reply(
-        conn, p["lead_no"], channel, p.get("inbox_message_id"),
-        (p.get("payload") or {}).get("open_questions") or "")
-    repository.add_note(conn, p["lead_no"],
-                        f"{channel} 回复（Agent 起草，已确认发送）：{body[:300]}")
-    conn.commit()
+    try:
+        ENGINE.send_message(channel, target, body, None)
+        _mark_handled(conn, p)
+        from app.agent import conversation
+        conversation.record_sent_reply(
+            conn, p["lead_no"], channel, p.get("inbox_message_id"),
+            (p.get("payload") or {}).get("open_questions") or "",
+            is_followup=(p.get("payload") or {}).get("followup_kind") == "warm")
+        repository.add_note(conn, p["lead_no"],
+                            f"{channel} 回复（Agent 起草，已确认发送）：{body[:300]}")
+        conn.commit()
+        delivery_intents.finish(conn, intent_id)
+    except Exception as exc:
+        _mark_reply_unknown(conn, intent_id, exc)
+        raise
     return f"已在 {channel} 回复 {target}"
 
 
@@ -96,15 +128,26 @@ def send_reply(conn, p: dict) -> str:
         raise ExecutionRefused("回复正文为空")
     subject = (payload.get("subject") or "").strip() or "Re:"
     box = _pick_mailbox(conn, payload.get("mailbox_email"))
-    email_adapter.send_via(box, to, subject, body, payload.get("attachment"))
-    if box.get("id"):
-        mailboxes.record_send(conn, box["id"])
-    _mark_handled(conn, p)
-    conversation.record_sent_reply(
-        conn, p["lead_no"], channel, p.get("inbox_message_id"),
-        payload.get("open_questions") or "")
-    repository.add_note(conn, p["lead_no"], f"回复 {to}（Agent 起草，已确认发送）：{body[:300]}")
-    conn.commit()
+    intent_id = _reply_claim(
+        conn, p, channel=channel, target=to, subject=subject, body=body,
+        metadata={"mailbox_id": box.get("id")},
+    )
+    try:
+        email_adapter.send_via(box, to, subject, body, payload.get("attachment"))
+        if box.get("id"):
+            mailboxes.record_send(conn, box["id"])
+            delivery_intents.update_metadata(conn, intent_id, mailbox_counted=True)
+        _mark_handled(conn, p)
+        conversation.record_sent_reply(
+            conn, p["lead_no"], channel, p.get("inbox_message_id"),
+            payload.get("open_questions") or "",
+            is_followup=payload.get("followup_kind") == "warm")
+        repository.add_note(conn, p["lead_no"], f"回复 {to}（Agent 起草，已确认发送）：{body[:300]}")
+        conn.commit()
+        delivery_intents.finish(conn, intent_id)
+    except Exception as exc:
+        _mark_reply_unknown(conn, intent_id, exc)
+        raise
     return f"已从 {box['email']} 回复 {to}"
 
 
@@ -246,35 +289,12 @@ def stop_sequence(conn, p: dict) -> str:
 
 
 def _sequence_for(conn, lead: dict) -> int | None:
-    """The sequence written for this company: their language and their segment (docs/76).
-
-    Falls back to the language's `general` sequence rather than to nothing, so a company
-    whose type we cannot read still gets a letter — a neutral one.
-    """
-    from app import copy_segments
-    from app.seed_sequences import name_for
-
-    korean = str(lead.get("country") or "").strip().lower() in {
-        "south korea", "korea", "republic of korea", "대한민국",
-    }
+    """Route from durable rules; defaults preserve the old language/segment behavior."""
     from app.seed_sequences import ensure_routing_columns
+    from app import sequence_routing
 
     ensure_routing_columns(conn)
-    for segment in (copy_segments.segment_of(lead), "general"):
-        # The declared assignment first (docs/86 R4), so a sequence someone created and
-        # assigned in the UI is reachable. The name is only a fallback for rows that
-        # predate the columns.
-        row = conn.execute(
-            "SELECT id FROM sequences WHERE segment=? AND korean=? AND active=1"
-            " AND channel='email' ORDER BY id LIMIT 1",
-            (segment, int(korean))).fetchone()
-        if row is None:
-            row = conn.execute(
-                "SELECT id FROM sequences WHERE name=? AND active=1 AND channel='email'",
-                (name_for(segment, korean),)).fetchone()
-        if row:
-            return row["id"]
-    return None
+    return sequence_routing.route(conn, lead)
 
 
 def _enroll_imported(conn, lead_nos: list[int]) -> tuple[int, list[str]]:

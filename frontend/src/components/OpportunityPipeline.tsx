@@ -226,7 +226,7 @@ export function OpportunityPipeline({ onOpenLead, onChanged }: {
       if (editing) setEditing(ledRows.find((r) => r.id === editing.id) ?? editing);
     }).catch((e) => setErr(String(e)));
   }
-  useEffect(load, [stage, attention]);
+  useEffect(() => { void load(); }, [stage, attention]);
 
   return (
     <>

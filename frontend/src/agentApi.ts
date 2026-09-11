@@ -124,6 +124,15 @@ export async function resumeConversation(leadNo: number, channel: string) {
   }), "conversation resume");
 }
 
+export async function scheduleConversation(
+  leadNo: number, channel: string, nextAction: string, dueAt: string,
+) {
+  return jsonOrThrow(await fetch(`/api/agent/conversations/${leadNo}/${channel}/schedule`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ next_action: nextAction, due_at: dueAt }),
+  }), "conversation schedule");
+}
+
 export async function fetchAgentMeta(): Promise<AgentMeta> {
   return jsonOrThrow(await fetch("/api/agent/meta"), "agent meta");
 }
@@ -202,14 +211,45 @@ export type Learning = {
     failed: number; edited: number; accept_rate_pct: number; edit_rate_pct: number;
   };
   rejections: { kind: string; reason: string; label: string; count: number }[];
-  edited_examples: { id: number; company: string | null; decided_at: string; agent: string; allen: string }[];
+  edited_examples: {
+    id: number; company: string | null; country: string | null; channel: string;
+    customer_type: string; decided_at: string; agent: string; allen: string; learned: boolean;
+  }[];
   examples_needed: number;
   guidance_active: boolean;
+  lessons: LearningLesson[];
+  lesson_categories: string[];
   weak_campaigns: { campaign: string; channel: string; leads: number; replied: number; last_sent: string }[];
+};
+
+export type LearningLesson = {
+  id: number; lineage_id: number; version: number; supersedes_id: number | null;
+  rule_text: string; category: "fact" | "sales_action" | "tone" | "timing";
+  channel: string | null; market: string | null; customer_type: string | null;
+  source_proposal_ids: number[]; status: "candidate" | "active" | "retired";
+  evidence_count: number; evidence_strength: "sufficient" | "insufficient";
+  created_at: string; updated_at: string;
 };
 
 export async function fetchLearning(): Promise<Learning> {
   return jsonOrThrow(await fetch("/api/agent/learning"), "learning");
+}
+
+export async function createLearningLesson(value: {
+  rule_text: string; category: string; channel: string | null; market: string | null;
+  customer_type: string | null; source_proposal_ids: number[];
+}): Promise<LearningLesson> {
+  return jsonOrThrow(await fetch("/api/agent/learning/lessons", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value),
+  }), "create learning lesson");
+}
+
+export async function setLearningLessonStatus(
+  id: number, status: "active" | "retired",
+): Promise<LearningLesson> {
+  return jsonOrThrow(await fetch(`/api/agent/learning/lessons/${id}/status`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }),
+  }), "learning lesson status");
 }
 
 /** What discovery returns: keyed on `domain`, named by `title`. `company_en` and

@@ -126,15 +126,18 @@ def run(conn, limit: int = BATCH_SIZE) -> dict:
     an unavailable backend is reported, not thrown, so the daily job stays quiet."""
     batch = pending(conn, limit)
     if not batch:
-        return {"classified": 0, "pending": 0, "note": "没有待分类的回复"}
+        return {"classified": 0, "pending": 0, "note": "没有待分类的回复", "errors": []}
     try:
         data = llm.complete_json(conn, "classify", SYSTEM, _prompt(batch))
     except llm.LLMUnavailable as exc:
-        return {"classified": 0, "pending": len(batch), "note": str(exc), "unavailable": True}
+        return {"classified": 0, "pending": len(batch), "note": str(exc),
+                "unavailable": True, "errors": [str(exc)]}
     except llm.LLMError as exc:
-        return {"classified": 0, "pending": len(batch), "note": f"分类失败：{exc}"}
+        note = f"分类失败：{exc}"
+        return {"classified": 0, "pending": len(batch), "note": note, "errors": [note]}
     by_id = {m["id"]: m for m in batch}
     done = 0
+    errors: list[str] = []
     for item in data.get("results") or []:
         mid = item.get("id")
         intent = str(item.get("intent") or "").strip()
@@ -145,6 +148,16 @@ def run(conn, limit: int = BATCH_SIZE) -> dict:
         except (TypeError, ValueError):
             confidence = 0
         _store(conn, mid, intent, confidence, str(item.get("needs") or "").strip())
+        try:
+            from app.agent import project_facts
+            project_facts.capture(conn, by_id[mid])
+        except Exception as exc:  # noqa: BLE001 — classification remains durable
+            errors.append(
+                f"项目事实提取 message #{mid}: {type(exc).__name__}: {str(exc)[:180]}"
+            )
         done += 1
-    return {"classified": done, "pending": len(batch) - done,
-            "note": f"已分类 {done} 条回复"}
+    missing = len(batch) - done
+    if missing:
+        errors.append(f"分类模型未返回 {missing} 条有效结果")
+    return {"classified": done, "pending": missing,
+            "note": f"已分类 {done} 条回复", "errors": errors}

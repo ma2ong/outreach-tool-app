@@ -92,11 +92,12 @@ def test_sequence_api_send_rotates_mailboxes(tmp_path, monkeypatch):
                         lambda mbx, to, subject, body, attachment: used.append(mbx["email"]))
     monkeypatch.setattr(send_api, "SENDER",
                         lambda *a, **k: pytest.fail("sequence send fell back to the single Gmail"))
-    monkeypatch.setattr(seq_api, "DB_PATH", db)
+    from app import main_deps
+    monkeypatch.setattr(main_deps, "DB_PATH", db)
     monkeypatch.setattr(sequence_send, "time", type("T", (), {"sleep": staticmethod(lambda s: None)}))
 
     job = jobs.create(total=len(due_ids))
-    seq_api._run_send(job, due_ids, None)
+    seq_api._run_send(job, due_ids, None, db)
 
     assert jobs.get(job)["result"]["sent"] == 4
     assert sorted(used) == ["a@x.com", "a@x.com", "b@x.com", "b@x.com"]

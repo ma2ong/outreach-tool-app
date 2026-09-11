@@ -5,6 +5,7 @@ import {
   fetchAgentMission, fetchProposals, rejectProposal, sendDailyReport, setAgentBackend, setAutonomy,
   setPlanEnabled, startAgentRun, startPlanRun, fetchLearning, importCandidates, proposedName,
   updateAgentMission, takeoverConversation, resumeConversation, sendCommand,
+  createLearningLesson, setLearningLessonStatus,
 } from "../agentApi";
 import type {
   AgentMeta, AgentMission, AgentStatus, CommandResult, FoundCandidate, Learning, Proposal,
@@ -312,9 +313,43 @@ function FoundCandidates({ p, onDone }: { p: Proposal; onDone: () => void }) {
   );
 }
 
-function LearningView({ data }: { data: Learning | null }) {
+const LESSON_CATEGORY: Record<string, string> = {
+  fact: "事实边界", sales_action: "销售动作", tone: "语气写法", timing: "跟进时机",
+};
+
+function LearningView({ data, onReload }: { data: Learning | null; onReload: () => void }) {
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [rule, setRule] = useState("");
+  const [category, setCategory] = useState("tone");
+  const [channel, setChannel] = useState("email");
+  const [market, setMarket] = useState("");
+  const [customerType, setCustomerType] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
   if (!data) return <div className="muted">加载中…</div>;
   const a = data.accuracy;
+
+  async function createLesson() {
+    if (!rule.trim()) return;
+    setBusy(true); setMessage("");
+    try {
+      await createLearningLesson({
+        rule_text: rule.trim(), category, channel: channel || null, market: market || null,
+        customer_type: customerType || null, source_proposal_ids: [...selected],
+      });
+      setRule(""); setSelected(new Set());
+      setMessage("已存为候选规则。确认适用范围后，再单独启用。最小样本不足时系统不会把它当成胜出结论。");
+      onReload();
+    } catch (e) { setMessage(String(e instanceof Error ? e.message : e)); }
+    finally { setBusy(false); }
+  }
+
+  async function changeStatus(id: number, status: "active" | "retired") {
+    setBusy(true); setMessage("");
+    try { await setLearningLessonStatus(id, status); onReload(); }
+    catch (e) { setMessage(String(e instanceof Error ? e.message : e)); }
+    finally { setBusy(false); }
+  }
   return (
     <div>
       <div className="card" style={{ marginBottom: 12 }}>
@@ -329,32 +364,72 @@ function LearningView({ data }: { data: Learning | null }) {
       </div>
 
       <div className="card" style={{ marginBottom: 12 }}>
-        <div className="stat-label">
-          它有没有在学你的写法
+        <div className="stat-label">正在使用的销售规则</div>
+        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+          改稿只是证据，不会偷偷改变 Agent。只有你启用且范围匹配的规则才进入草稿。
         </div>
-        {data.guidance_active ? (
-          <>
-            <div style={{ fontWeight: 700, color: "var(--green)", marginTop: 4 }}>
-              已开始参考你改过的 {data.edited_examples.length} 个例子
-            </div>
-            <div className="muted" style={{ fontSize: 12, marginTop: 4, marginBottom: 8 }}>
-              下面这些「原稿 → 你发出去的」会附在起草提示词后面。觉得哪条教坏了它，
-              就在「已执行」里找到那条驳掉这个思路，或者直接告诉我删掉。
-            </div>
-            {data.edited_examples.map((e) => (
-              <div key={e.id} style={{ borderTop: "1px solid var(--border)", padding: "8px 0" }}>
-                <div className="muted" style={{ fontSize: 12 }}>{e.company ?? "某客户"}</div>
-                <div style={{ fontSize: 13, opacity: 0.7 }}>原稿：{e.agent}</div>
-                <div style={{ fontSize: 13, marginTop: 4 }}>你发的：{e.allen}</div>
-              </div>
-            ))}
-          </>
-        ) : (
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            还没有。要再攒 {data.examples_needed} 个你改过的草稿才会开始参考——
-            样本太少就照着学，只会让它更差，而且很难发现。
-          </div>
+        {data.lessons.length === 0 && (
+          <div className="muted" style={{ fontSize: 13, marginTop: 10 }}>还没有规则。可从下方改稿中提炼一条。</div>
         )}
+        {data.lessons.map((lesson) => (
+          <div key={lesson.id} style={{ borderTop: "1px solid var(--border)", padding: "9px 0", marginTop: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 13 }}>
+                <b>{lesson.rule_text}</b>
+                <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
+                  {LESSON_CATEGORY[lesson.category] ?? lesson.category} · v{lesson.version} ·
+                  {lesson.channel ? ` ${CHANNEL_LABEL[lesson.channel] ?? lesson.channel}` : " 全渠道"} ·
+                  {lesson.market ? ` ${lesson.market}` : " 全球"} ·
+                  {lesson.customer_type ? ` ${lesson.customer_type}` : " 全客户类型"} ·
+                  {lesson.evidence_count} 条改稿证据
+                  {lesson.evidence_strength === "insufficient" ? "（样本不足）" : ""}
+                </div>
+              </div>
+              <button className={`btn btn-sm${lesson.status === "active" ? " btn-green" : ""}`}
+                disabled={busy || lesson.status === "retired"}
+                onClick={() => changeStatus(lesson.id, lesson.status === "active" ? "retired" : "active")}>
+                {lesson.status === "active" ? "停用" : lesson.status === "retired" ? "已停用" : "启用这条规则"}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="stat-label">从你的改稿提炼候选规则</div>
+        {data.edited_examples.length === 0 ? (
+          <div className="muted" style={{ fontSize: 13, marginTop: 5 }}>还没有你改过并确认发送的回复。</div>
+        ) : data.edited_examples.map((e) => (
+          <label key={e.id} style={{ display: "block", borderTop: "1px solid var(--border)", padding: "8px 0" }}>
+            <div className="muted" style={{ fontSize: 12 }}>
+              <input type="checkbox" checked={selected.has(e.id)} disabled={e.learned}
+                onChange={(event) => setSelected((old) => {
+                  const next = new Set(old); event.target.checked ? next.add(e.id) : next.delete(e.id); return next;
+                })} /> {e.company ?? "某客户"} · {CHANNEL_LABEL[e.channel] ?? e.channel} · {e.country ?? "未知市场"}
+              {e.learned ? " · 已作为规则证据" : ""}
+            </div>
+            <div style={{ fontSize: 13, opacity: 0.65 }}>原稿：{e.agent}</div>
+            <div style={{ fontSize: 13, marginTop: 3 }}>你发的：{e.allen}</div>
+          </label>
+        ))}
+        <textarea className="input" rows={2} value={rule} onChange={(e) => setRule(e.target.value)}
+          placeholder="写清你希望 Agent 以后遵守什么，例如：回答完问题后，只问一个能推进项目的具体问题。"
+          style={{ width: "100%", marginTop: 8 }} />
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 7 }}>
+          <select className="input" value={category} onChange={(e) => setCategory(e.target.value)}>
+            {Object.entries(LESSON_CATEGORY).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          <select className="input" value={channel} onChange={(e) => setChannel(e.target.value)}>
+            <option value="">全渠道</option>{Object.entries(CHANNEL_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          <input className="input" value={market} onChange={(e) => setMarket(e.target.value)} placeholder="全球或市场，如 USA" />
+          <select className="input" value={customerType} onChange={(e) => setCustomerType(e.target.value)}>
+            <option value="">全客户类型</option><option value="rental">活动租赁</option>
+            <option value="install">固定安装</option><option value="outdoor">户外为主</option><option value="general">中性版</option>
+          </select>
+          <button className="btn btn-primary btn-sm" disabled={busy || !rule.trim()} onClick={createLesson}>保存为候选</button>
+        </div>
+        {message && <div className="muted" style={{ fontSize: 12, marginTop: 7 }}>{message}</div>}
       </div>
 
       {data.rejections.length > 0 && (
@@ -884,7 +959,7 @@ export function AgentPanel({ onOpenLead }: { onOpenLead?: (no: number) => void }
       {error && <div className="error-text" style={{ marginBottom: 12 }}>{error}</div>}
 
       {tab === "learning" ? (
-        <LearningView data={learning} />
+        <LearningView data={learning} onReload={reload} />
       ) : items.length === 0 ? (
         <div className="muted">这里没有内容。</div>
       ) : items.map((p) => (

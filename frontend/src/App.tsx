@@ -25,7 +25,7 @@ import { SalesDocumentsPanel } from "./components/SalesDocumentsPanel";
 import { SalesIntelligencePanel } from "./components/SalesIntelligencePanel";
 import { AgentPanel } from "./components/AgentPanel";
 
-type Page = "dashboard" | "agent" | "intelligence" | "activities" | "leads" | "opportunities" | "conversations" | "inbox" | "sequences" | "emailplan" | "socialqueue" | "discovery" | "products" | "channels";
+export type Page = "dashboard" | "agent" | "intelligence" | "activities" | "leads" | "opportunities" | "conversations" | "inbox" | "sequences" | "emailplan" | "socialqueue" | "discovery" | "products" | "channels";
 
 function exportQuery(params: Record<string, string>): string {
   const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
@@ -48,6 +48,18 @@ const PAGES: { id: Page; label: string; ico: string }[] = [
   { id: "products", label: "报价订单", ico: "▤" },
   { id: "channels", label: "渠道连接", ico: "⇄" },
 ];
+
+const NAV_GROUPS: { label: string; pages: Page[] }[] = [
+  { label: "今日工作", pages: ["dashboard", "agent", "intelligence", "activities"] },
+  { label: "客户与对话", pages: ["leads", "conversations", "inbox"] },
+  { label: "开发计划", pages: ["discovery", "sequences", "emailplan", "socialqueue"] },
+  { label: "商机与订单", pages: ["opportunities", "products"] },
+  { label: "资料与设置", pages: ["channels"] },
+];
+
+function isPage(value: string): value is Page {
+  return PAGES.some((item) => item.id === value);
+}
 
 function useTheme(): [string, () => void] {
   const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "dark");
@@ -349,13 +361,21 @@ export function App() {
             <div className="brand-sub">客户开发系统</div>
           </span>
         </div>
-        {PAGES.map((p) => (
-          <button key={p.id} className={`nav-item${page === p.id ? " active" : ""}`} onClick={() => setPage(p.id)}>
-            <span className="ico">{p.ico}</span><span className="nav-label">{p.label}</span>
-            {p.id === "inbox" && pendingReplies > 0 && <span className="unread-dot">{pendingReplies}</span>}
-            {p.id === "activities" && !!activityStats && activityStats.overdue + activityStats.today > 0 &&
-              <span className="unread-dot">{activityStats.overdue + activityStats.today}</span>}
-          </button>
+        {NAV_GROUPS.map((group) => (
+          <div className="nav-group" key={group.label}>
+            <div className="nav-group-label">{group.label}</div>
+            {group.pages.map((id) => {
+              const p = PAGES.find((item) => item.id === id)!;
+              return (
+                <button key={p.id} className={`nav-item${page === p.id ? " active" : ""}`} onClick={() => setPage(p.id)}>
+                  <span className="ico">{p.ico}</span><span className="nav-label">{p.label}</span>
+                  {p.id === "inbox" && pendingReplies > 0 && <span className="unread-dot">{pendingReplies}</span>}
+                  {p.id === "activities" && !!activityStats && activityStats.overdue + activityStats.today > 0 &&
+                    <span className="unread-dot">{activityStats.overdue + activityStats.today}</span>}
+                </button>
+              );
+            })}
+          </div>
         ))}
       </aside>
       <div className="main">
@@ -372,7 +392,7 @@ export function App() {
         <div className="content">
           {err && <div className="error-text" style={{ marginBottom: 12 }}>加载失败：{err}</div>}
           {page === "dashboard" && stats && (
-            <Dashboard stats={stats} pendingReplies={pendingReplies} onGoto={(p) => setPage(p as Page)} onGotoFollowUp={() => {
+            <Dashboard stats={stats} pendingReplies={pendingReplies} onGoto={(p) => { if (isPage(p)) setPage(p); }} onGotoFollowUp={() => {
               setCountry(""); setChannel(""); setStatus(""); setHas(""); setSearch("");
               setFollowUp("due"); setLeadPage(0); setPage("leads");
             }} />

@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchQuota, fetchCampaignStats, fetchQualityStats, fetchDue, sendDue, fetchJob, fetchOpportunityStats, fetchActivityStats, type CampaignStat, type CountryStat, type QualityStat, type Deliverability } from "../api";
-import type { Stats, ChannelReach, DueItem, SendJob, OpportunityStats, ActivityStats } from "../types";
+import { fetchQuota, fetchCampaignStats, fetchQualityStats, fetchDue, sendDue, fetchJob, fetchOpportunityStats, fetchActivityStats, fetchReadiness, type CampaignStat, type CountryStat, type QualityStat, type Deliverability } from "../api";
+import type { Stats, ChannelReach, DueItem, SendJob, OpportunityStats, ActivityStats, Readiness } from "../types";
 import { fetchDailyReport } from "../agentApi";
 import { fetchSocialQueue } from "../socialQueueApi";
 import { StatCards } from "./StatCards";
 import { ReadinessPanel } from "./ReadinessPanel";
 import { DailyReportCards } from "./DailyReportCards";
 import { TodayPlanCard } from "./TodayPlanCard";
+import { ActivationPanel } from "./ActivationPanel";
 
 const CH_LABEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook" };
 
@@ -50,6 +51,7 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
   const [activityStats, setActivityStats] = useState<ActivityStats | null>(null);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [socialPending, setSocialPending] = useState(0);
+  const [readiness, setReadiness] = useState<Readiness | null>(null);
   const pollRef = useRef<number | null>(null);
   const reportLoadError = (name: string, error: unknown) => {
     setLoadErrors((old) => [...new Set([...old, `${name}：${String(error)}`])]);
@@ -68,6 +70,8 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
       .catch((e) => reportLoadError("商机统计", e));
     fetchActivityStats().then(setActivityStats)
       .catch((e) => reportLoadError("销售任务", e));
+    fetchReadiness().then(setReadiness)
+      .catch((e) => reportLoadError("自动发送状态", e));
   }, []);
   // 组件卸载时清掉发送轮询，避免泄漏 + 对已卸载组件 setState
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
@@ -105,6 +109,7 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
   }
 
   const f = stats.funnel;
+  const autoSend = readiness?.metrics.autosend ?? null;
   const funnelBase = Math.max(f?.total ?? stats.total, 1);
   const stages = [
     { label: "客户总数", value: f?.total ?? stats.total },
@@ -132,14 +137,14 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
   // 挂在 auto 上的那些系统自己会发 —— 说它们在等他，等于两边互相等（docs/92 R6）。
   if (socialPending > 0) decisions.push({
     key: "social", count: socialPending, unit: "条", what: "社媒私信备好了，等你按发送",
-    go: "去确认", page: "social" });
+    go: "去确认", page: "socialqueue" });
   if ((activityStats?.overdue ?? 0) > 0) decisions.push({
     key: "overdue", count: activityStats!.overdue, unit: "项", what: "销售任务已逾期",
     note: `全部未完成 ${activityStats?.open_count ?? 0}`, go: "去处理", page: "activities", urgent: true });
   if (pendingReplies > 0) decisions.push({
     key: "replies", count: pendingReplies, unit: "封", what: "客户回复等你处理",
     go: "去查看", page: "inbox", urgent: true });
-  if (sendableToday > 0) decisions.push({
+  if (sendableToday > 0 && autoSend?.enabled === false) decisions.push({
     key: "due", count: sendableToday, unit: "条", what: "跟进邮件今天额度内能发",
     note: dueSeq.length > sendableToday ? `到期 ${dueSeq.length} 条，其余明天` : undefined,
     go: "去发送", page: "sequences" });
@@ -154,7 +159,9 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
   // connected. One next step is the whole screen until there is something to count.
   if (stats.total === 0) {
     return (
-      <div className="card" style={{ maxWidth: 620, padding: "36px 34px" }}>
+      <>
+      <ActivationPanel onGoto={onGoto} />
+      <div className="card" style={{ maxWidth: 620, padding: "36px 34px", marginTop: 16 }}>
         <div className="stat-label" style={{ margin: "0 0 10px" }}>从这里开始</div>
         <h2 style={{ margin: "0 0 12px", fontSize: 26, lineHeight: 1.25 }}>
           客户库还是空的
@@ -171,11 +178,26 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
           去找客户 →
         </button>
       </div>
+      </>
     );
   }
 
   return (
     <>
+
+      <ActivationPanel onGoto={onGoto} />
+
+      {!!autoSend?.enabled && autoSend.preview.will_send > 0 && (
+        <div className="card" style={{ marginBottom: 16, borderLeft: "3px solid var(--green)" }}>
+          <div className="stat-label">Agent 正在做</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>
+            今日会自动发送 {autoSend.preview.will_send} 条到期邮件
+          </div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>
+            已排队 {autoSend.preview.due} 条；系统会在 09:00–20:00 内按邮箱额度、退信和不再联系规则执行，无需你再点发送。
+          </div>
+        </div>
+      )}
 
       {decisions.length > 0 && (
         <div className="card" style={{ marginBottom: 16, borderLeft: "3px solid var(--warn)" }}>
@@ -213,7 +235,7 @@ export function Dashboard({ stats, pendingReplies, onGotoFollowUp, onGoto }: {
       )}
       {report && <DailyReportCards text={report} />}
       <TodayPlanCard onGoto={onGoto} />
-      <ReadinessPanel onGoto={onGoto} />
+      <ReadinessPanel onGoto={onGoto} data={readiness} onChanged={setReadiness} />
       {loadErrors.length > 0 && (
         <div className="card" style={{ marginBottom: 16, borderColor: "var(--danger)" }}>
           <b>部分数据加载失败</b>

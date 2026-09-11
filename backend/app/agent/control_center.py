@@ -341,6 +341,18 @@ def snapshot(conn, *, now: dt.datetime | None = None) -> dict:
             f"上次产出 {ch['last_date']}。连接正常不代表在发东西。",
             "去看看队列里有没有人、渠道是不是被关掉了。", ch["quiet_days"]))
 
+    from app import runtime
+    capabilities = _safe("capability_health", errors,
+                         lambda: runtime.capability_status(conn), [])
+    for capability in capabilities:
+        if int(capability.get("consecutive_failures") or 0) > 0:
+            blockers.append(_blocker(
+                f"capability_{capability['name']}", "high",
+                f"后台能力 {capability['name']} 连续失败",
+                capability.get("last_error") or "没有记录错误详情",
+                "打开旁边的 Worker 状态查看最近尝试时间；修复连接或配置后等待自动重试。",
+                int(capability.get("consecutive_failures") or 0)))
+
     critical = any(b["severity"] == "critical" for b in blockers)
     high = any(b["severity"] == "high" for b in blockers)
     state = "critical" if critical else "attention" if high or true_pending else "healthy"
@@ -374,6 +386,7 @@ def snapshot(conn, *, now: dt.datetime | None = None) -> dict:
         "agent_queue": agent_queue,
         "sales_truth": truth_health,
         "autonomy": {"by_kind": autonomy, "counts": autonomy_counts},
+        "capabilities": capabilities,
         "blockers": blockers,
         "next_actions": next_actions[:12],
         "approval_backlog": pending_receipts,

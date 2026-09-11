@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 
 type Row = Record<string, string | number | null> & {
   sent: number; leads: number; replied: number; reply_rate: number;
+  meaningful_replies: number; requirements_captured: number; opportunities_progressed: number;
+  meaningful_reply_rate: number; sample_quality: "sufficient" | "insufficient";
 };
 
 type Report = {
@@ -60,7 +62,7 @@ export function CopyExperiments() {
           <table className="table">
             <thead><tr>
               {report.by.map((k) => <th key={k}>{LABEL[k] ?? k}</th>)}
-              <th>发出</th><th>客户数</th><th>回复</th><th>回复率</th>
+              <th>发出</th><th>客户数</th><th>真人回复</th><th>需求已提取</th><th>进入商机</th><th>有效回复率</th>
             </tr></thead>
             <tbody>
               {report.rows.map((r, i) => (
@@ -70,14 +72,22 @@ export function CopyExperiments() {
                   ))}
                   <td className="num">{r.sent}</td>
                   <td className="num">{r.leads}</td>
-                  <td className="num">{r.replied}</td>
-                  <td className="num" style={{ fontWeight: r.reply_rate > 0 ? 600 : undefined }}>
-                    {r.reply_rate}%
+                  <td className="num">{r.meaningful_replies}</td>
+                  <td className="num">{r.requirements_captured}</td>
+                  <td className="num">{r.opportunities_progressed}</td>
+                  <td className="num" style={{ fontWeight: r.meaningful_reply_rate > 0 ? 600 : undefined }}>
+                    {r.meaningful_reply_rate}%{r.sample_quality === "insufficient" ? " *" : ""}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {report.rows.some((row) => row.sample_quality === "insufficient") && (
+        <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+          * 少于 25 家客户，只显示观察值，不把它判断为胜出话术。
         </div>
       )}
 

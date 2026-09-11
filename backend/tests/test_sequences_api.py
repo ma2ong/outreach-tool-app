@@ -68,7 +68,10 @@ def test_send_due_runs_job_and_advances(tmp_path):
     c.commit()
     c.close()
     main.app.dependency_overrides[main.get_conn] = lambda: connect(db)
-    sequences_api.DB_PATH = db  # background job opens its own connection via this global
+    # The background job must use the currently configured application database, not a
+    # path captured while app.api.sequences was imported.
+    import app.main_deps as main_deps
+    main_deps.DB_PATH = db
     client = TestClient(main.app)
 
     sid = client.post("/api/sequences", json=_SEQ).json()["id"]
@@ -92,3 +95,51 @@ def test_validation(tmp_path):
     assert client.post("/api/sequences", json={"name": "x", "channel": "fax",
                                                "steps": [{"body": "x"}]}).status_code == 400
     assert client.post("/api/sequences/999/enroll", json={"lead_nos": [1]}).status_code == 404
+
+
+def test_step_copy_history_and_rollback_are_available_through_api(tmp_path):
+    client = _client(tmp_path)
+    sid = client.post("/api/sequences", json=_SEQ).json()["id"]
+    changed = client.put(f"/api/sequences/{sid}/steps/0", json={
+        "subject": "A question for {company}",
+        "body": "Saw your installation work. Is an indoor LED project relevant?",
+    })
+    assert changed.status_code == 200
+    versions = client.get(f"/api/sequences/{sid}/steps/0/versions").json()
+    assert [item["version"] for item in versions] == [2, 1]
+    restored = client.post(f"/api/sequences/{sid}/steps/0/rollback", json={
+        "version_id": versions[1]["id"],
+    })
+    assert restored.status_code == 200
+    assert restored.json()["version"] == 3
+    assert restored.json()["change_kind"] == "rollback"
+
+
+def test_routing_rules_can_be_previewed_and_disabled_without_touching_enrollments(tmp_path):
+    client = _client(tmp_path)
+    sid = client.post("/api/sequences", json=_SEQ).json()["id"]
+    client.post(f"/api/sequences/{sid}/enroll", json={"lead_nos": [1]})
+    created = client.post("/api/sequences/routing", json={
+        "sequence_id": sid, "enabled": True, "priority": 50,
+        "country": "USA", "language": "en", "customer_type": "rental",
+    })
+    assert created.status_code == 200
+    rule_id = created.json()["id"]
+
+    preview = client.post("/api/sequences/routing/preview", json={
+        "country": "United States", "language": "en", "customer_type": "rental",
+    }).json()
+    assert preview["sequence_id"] == sid
+    assert preview["matches"][0]["id"] == rule_id
+
+    disabled = client.put(f"/api/sequences/routing/{rule_id}", json={
+        "sequence_id": sid, "enabled": False, "priority": 50,
+        "country": "USA", "language": "en", "customer_type": "rental",
+    })
+    assert disabled.status_code == 200 and disabled.json()["enabled"] == 0
+    assert client.post("/api/sequences/routing/preview", json={
+        "country": "USA", "language": "en", "customer_type": "rental",
+    }).json()["sequence_id"] is None
+
+    # Configuration changes are prospective only.
+    assert client.get("/api/sequences/due").json()[0]["sequence_id"] == sid

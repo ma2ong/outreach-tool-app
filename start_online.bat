@@ -21,8 +21,17 @@ if not exist "bin\cloudflared.exe" (
 )
 
 echo [i] 启动本地服务（端口 8000）…
-start "outreach-tool-server" cmd /c "cd backend && python -m uvicorn app.main:app --port 8000"
-timeout /t 6 /nobreak >nul
+start "outreach-tool-server" cmd /c "python scripts\run_server.py"
+cd backend
+python -c "from app.startup import wait_for_outreach; raise SystemExit(0 if wait_for_outreach(30) else 1)"
+if errorlevel 1 (
+  cd ..
+  echo [X] 端口 8000 未运行 outreach-tool，已停止公网隧道。
+  echo     请检查 backend\logs\last-crash.txt。
+  pause
+  exit /b 1
+)
+cd ..
 
 echo.
 echo ============================================================

@@ -3,7 +3,7 @@ import random
 import time
 from typing import Callable
 
-from app import campaigns, message_guard, recontact
+from app import campaigns, delivery_intents, message_guard, recontact
 from app.personalize import render
 
 # Email needs the same anti-ban discipline as WhatsApp/Instagram. A single mailbox that
@@ -29,7 +29,7 @@ EMAIL_DELAY = (60, 110)
 def sent_today(conn) -> int:
     return conn.execute(
         "SELECT COUNT(*) FROM outreach WHERE channel='email' AND status='messaged'"
-        " AND message_sent_date = date('now')").fetchone()[0]
+        " AND message_sent_date = date('now', 'localtime')").fetchone()[0]
 
 
 def remaining_today(conn) -> int:
@@ -107,11 +107,19 @@ def _mark_messaged(conn, lead_no: int, date: str) -> None:
     recheck.schedule_after_send(conn, lead_no)
 
 
+def _prepared_sender(sender):
+    prepare = getattr(sender, "prepare", None)
+    if callable(prepare):
+        return prepare()
+    return sender, {}
+
+
 def send_campaign(conn, lead_nos: list[int], subject: str, body: str,
                   attachment: str | None, sender: Callable[[str, str, str, str | None], None],
                   delay_range: tuple[int, int] = (16, 28), max_send: int | None = None,
                   campaign: str | None = None,
                   on_progress: Callable[[int, int], None] | None = None) -> dict:
+    delivery_intents.ensure_schema(conn)
     today = datetime.date.today().isoformat()
     label = campaign or campaigns.default_label("email")
     all_targets = eligible_leads(conn, lead_nos, "email")
@@ -126,6 +134,7 @@ def send_campaign(conn, lead_nos: list[int], subject: str, body: str,
     holds: list[dict] = []
     for i, lead in enumerate(targets, 1):
         attempted_send = False
+        intent_id = None
         try:
             rendered_subject = render(subject, lead)
             rendered_body = render(body, lead)
@@ -135,21 +144,47 @@ def send_campaign(conn, lead_nos: list[int], subject: str, body: str,
                 holds.append({"no": lead["no"], "reason": verdict.reason,
                               "detail": verdict.detail})
             else:
-                attempted_send = True
                 # Send the exact strings that passed the guard; never render a second time.
                 # docs/95：这家公司别的信箱抄送在同一封信里，不另起一封。
                 from app import contacts as _contacts
 
                 cc = _contacts.also_reach(conn, lead["no"], lead["email"])
+                item_sender, sender_metadata = _prepared_sender(sender)
                 if cc:
-                    sender(lead["email"], rendered_subject, rendered_body, attachment, cc=cc)
+                    metadata = {"campaign": label, "cc": cc, **sender_metadata}
                 else:
-                    sender(lead["email"], rendered_subject, rendered_body, attachment)
+                    metadata = {"campaign": label, **sender_metadata}
+                operation_key = delivery_intents.content_key(
+                    "email_campaign", lead_no=lead["no"], channel="email",
+                    target=lead["email"], subject=rendered_subject, body=rendered_body)
+                intent_id = delivery_intents.claim_action(
+                    conn,
+                    operation_key=operation_key,
+                    source_kind="email_campaign", source_id=None,
+                    lead_no=lead["no"], channel="email", target=lead["email"],
+                    subject=rendered_subject, body=rendered_body, metadata=metadata,
+                    initialize=False,
+                )
+                if intent_id is None:
+                    raise RuntimeError(delivery_intents.claim_block_reason(conn, operation_key))
+                attempted_send = True
+                if cc:
+                    item_sender(lead["email"], rendered_subject, rendered_body, attachment, cc=cc)
+                else:
+                    item_sender(lead["email"], rendered_subject, rendered_body, attachment)
+                if sender_metadata.get("mailbox_id"):
+                    delivery_intents.update_metadata(conn, intent_id, mailbox_counted=True)
                 _mark_messaged(conn, lead["no"], today)
                 campaigns.log_send(conn, lead["no"], "email", label,
                                    subject=rendered_subject, body=rendered_body)
+                delivery_intents.finish(conn, intent_id)
                 sent += 1
         except Exception as exc:  # noqa: BLE001
+            if intent_id is not None:
+                try:
+                    delivery_intents.finish(conn, intent_id, error=exc)
+                except Exception:  # committed pending claim still blocks a duplicate
+                    conn.rollback()
             failed += 1
             errors.append({"no": lead["no"], "error": str(exc)})
         if on_progress:

@@ -301,79 +301,168 @@ def _junk_company_name(value: str | None) -> bool:
     return name in exact or "page not available" in name or name.endswith("not found")
 
 
+def _portfolio_context(conn: sqlite3.Connection,
+                       lead_rows: list[sqlite3.Row]) -> dict:
+    """Bulk-load every relation used by scoring once for a portfolio request."""
+    lead_by_no = {row["no"]: row for row in lead_rows}
+    wanted = set(lead_by_no)
+
+    contacts_by_lead: dict[int, list[sqlite3.Row]] = {}
+    for row in conn.execute("SELECT * FROM contacts"):
+        if row["lead_no"] in wanted:
+            contacts_by_lead.setdefault(row["lead_no"], []).append(row)
+
+    signals_by_lead: dict[int, list[sqlite3.Row]] = {}
+    for row in conn.execute(
+        "SELECT * FROM buying_signals WHERE status!='dismissed'"
+        " ORDER BY COALESCE(occurred_at, substr(captured_at,1,10)) DESC"
+    ):
+        if row["lead_no"] in wanted:
+            signals_by_lead.setdefault(row["lead_no"], []).append(row)
+
+    opportunity_by_lead: dict[int, sqlite3.Row] = {}
+    for row in conn.execute(
+        "SELECT * FROM opportunities WHERE stage NOT IN ('won','lost')"
+        " ORDER BY updated_at DESC,id DESC"
+    ):
+        if row["lead_no"] in wanted:
+            opportunity_by_lead.setdefault(row["lead_no"], row)
+
+    outreach_by_lead = {
+        row["lead_no"]: row for row in conn.execute(
+            "SELECT lead_no,COALESCE(SUM(touch_count),0) touches,"
+            " MAX(CASE WHEN status='replied' OR reply_received=1 THEN 1 ELSE 0 END) replied,"
+            " MAX(CASE WHEN status IN ('messaged','replied') THEN 1 ELSE 0 END) touched"
+            " FROM outreach GROUP BY lead_no"
+        ) if row["lead_no"] in wanted
+    }
+    pending_replies = {
+        row["lead_no"] for row in conn.execute(
+            "SELECT DISTINCT lead_no FROM inbox_messages"
+            " WHERE kind='reply' AND handled_at IS NULL"
+        ) if row["lead_no"] in wanted
+    }
+    overdue_by_lead: dict[int, sqlite3.Row] = {}
+    for row in conn.execute(
+        "SELECT lead_no,title,due_at,id FROM activities"
+        " WHERE status='open' AND due_at < date('now','localtime')"
+        " ORDER BY due_at,id"
+    ):
+        if row["lead_no"] in wanted:
+            overdue_by_lead.setdefault(row["lead_no"], row)
+
+    accepted_by_lead: dict[int, sqlite3.Row] = {}
+    for row in conn.execute(
+        "SELECT q.lead_no,q.quote_no,q.id FROM quotes q"
+        " WHERE q.status='accepted'"
+        " AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.quote_id=q.id)"
+        " ORDER BY q.id DESC"
+    ):
+        if row["lead_no"] in wanted:
+            accepted_by_lead.setdefault(row["lead_no"], row)
+    sent_by_lead: dict[int, sqlite3.Row] = {}
+    for row in conn.execute(
+        "SELECT lead_no,quote_no,id FROM quotes WHERE status='sent' ORDER BY id DESC"
+    ):
+        if row["lead_no"] in wanted:
+            sent_by_lead.setdefault(row["lead_no"], row)
+
+    return {
+        "leads": lead_by_no,
+        "contacts": contacts_by_lead,
+        "signals": signals_by_lead,
+        "opportunities": opportunity_by_lead,
+        "outreach": outreach_by_lead,
+        "pending_replies": pending_replies,
+        "overdue": overdue_by_lead,
+        "accepted_quotes": accepted_by_lead,
+        "sent_quotes": sent_by_lead,
+    }
+
+
 def _next_action(conn: sqlite3.Connection, lead: sqlite3.Row,
-                 best_signal: sqlite3.Row | None) -> str:
+                 best_signal: sqlite3.Row | None, context: dict | None = None) -> str:
     if lead["do_not_contact"]:
         return "保持不再联系，不进入任何发送队列"
     if lead["stage"] == "won":
         return "已成交：到报价订单页推进收款、生产和发货"
     if lead["stage"] == "lost":
         return "已丢单：仅在出现新的高可信项目证据时重新评估"
-    reply = conn.execute(
+    no = lead["no"]
+    reply = (no in context["pending_replies"] if context is not None else conn.execute(
         "SELECT 1 FROM inbox_messages WHERE lead_no=? AND kind='reply' AND handled_at IS NULL LIMIT 1",
-        (lead["no"],),
-    ).fetchone()
+        (no,),
+    ).fetchone())
     if reply:
         return "立即处理客户回复，并确认项目用途、尺寸、像素间距、预算和交期"
-    reply_status = conn.execute(
-        "SELECT 1 FROM outreach WHERE lead_no=? AND (status='replied' OR reply_received=1) LIMIT 1",
-        (lead["no"],),
-    ).fetchone()
+    reply_status = (bool((context["outreach"].get(no) or {})["replied"])
+                    if context is not None and context["outreach"].get(no) else
+                    conn.execute(
+                        "SELECT 1 FROM outreach WHERE lead_no=?"
+                        " AND (status='replied' OR reply_received=1) LIMIT 1",
+                        (no,),
+                    ).fetchone() if context is None else False)
     if reply_status:
         return "立即处理客户回复，并确认项目用途、尺寸、像素间距、预算、交期与下一次沟通时间"
-    overdue = conn.execute(
-        "SELECT title FROM activities WHERE lead_no=? AND status='open' AND due_at < date('now')"
-        " ORDER BY due_at, id LIMIT 1", (lead["no"],),
-    ).fetchone()
+    overdue = (context["overdue"].get(no) if context is not None else conn.execute(
+        "SELECT title FROM activities WHERE lead_no=? AND status='open' AND due_at < date('now', 'localtime')"
+        " ORDER BY due_at, id LIMIT 1", (no,),
+    ).fetchone())
     if overdue:
         return f"先完成逾期任务：{overdue['title']}"
-    accepted = conn.execute(
+    accepted = (context["accepted_quotes"].get(no) if context is not None else conn.execute(
         "SELECT quote_no FROM quotes q WHERE q.lead_no=? AND q.status='accepted'"
         " AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.quote_id=q.id) ORDER BY q.id DESC LIMIT 1",
-        (lead["no"],),
-    ).fetchone()
+        (no,),
+    ).fetchone())
     if accepted:
         return f"报价 {accepted['quote_no']} 已接受，立即转为订单"
-    sent = conn.execute(
+    sent = (context["sent_quotes"].get(no) if context is not None else conn.execute(
         "SELECT quote_no FROM quotes WHERE lead_no=? AND status='sent' ORDER BY id DESC LIMIT 1",
-        (lead["no"],),
-    ).fetchone()
+        (no,),
+    ).fetchone())
     if sent:
         return f"跟进报价 {sent['quote_no']}：确认技术疑问、付款条款和决策时间"
     if best_signal and int(best_signal["confidence"] or 0) >= 60:
         return best_signal["suggested_angle"] or f"核实采购信号：{best_signal['headline']}"
-    opportunity = conn.execute(
+    opportunity = (context["opportunities"].get(no) if context is not None else conn.execute(
         "SELECT next_action, title FROM opportunities WHERE lead_no=?"
-        " AND stage NOT IN ('won','lost') ORDER BY updated_at DESC LIMIT 1", (lead["no"],),
-    ).fetchone()
+        " AND stage NOT IN ('won','lost') ORDER BY updated_at DESC LIMIT 1", (no,),
+    ).fetchone())
     if opportunity:
         return opportunity["next_action"] or f"补齐商机“{opportunity['title']}”的明确下一步和日期"
     if _junk_company_name(lead["company_en"]):
         return "先从官网或域名核实正确公司名；当前名称像页面标题，不能用于外发"
     if recheck.fit_score(lead["target_fit"]) == 0:
         return "先重新读取官网并完成 ICP 分级，确认它是否真是 LED 买家"
-    decision = conn.execute(
-        "SELECT 1 FROM contacts WHERE lead_no=? AND role='decision_maker' LIMIT 1", (lead["no"],)
-    ).fetchone()
+    decision = (any(row["role"] == "decision_maker"
+                    for row in context["contacts"].get(no, []))
+                if context is not None else conn.execute(
+                    "SELECT 1 FROM contacts WHERE lead_no=? AND role='decision_maker' LIMIT 1", (no,)
+                ).fetchone())
     if not decision:
         return "先找到 Owner / Purchasing / Project 决策联系人，再发送针对性消息"
     if lead["email_status"] == "invalid" and not (lead["phone"] or lead["instagram"]):
         return "邮箱无效：补找决策人邮箱、WhatsApp 或 Instagram"
-    touched = conn.execute(
-        "SELECT 1 FROM outreach WHERE lead_no=? AND status IN ('messaged','replied') LIMIT 1",
-        (lead["no"],),
-    ).fetchone()
+    touched = (bool((context["outreach"].get(no) or {})["touched"])
+               if context is not None and context["outreach"].get(no) else
+               conn.execute(
+                   "SELECT 1 FROM outreach WHERE lead_no=? AND status IN ('messaged','replied') LIMIT 1",
+                   (no,),
+               ).fetchone() if context is None else False)
     if not touched:
         return "用官网证据写首条消息，先单渠道触达并安排下一步"
     return "确认最近一次触达结果，安排有日期的下一步任务"
 
 
 def score_lead(conn: sqlite3.Connection, lead_no: int,
-               today: dt.date | None = None, *, _ensure: bool = True) -> dict | None:
+               today: dt.date | None = None, *, _ensure: bool = True,
+               _context: dict | None = None) -> dict | None:
     if _ensure:
         ensure_schema(conn)
     today = today or _today()
-    lead = conn.execute("SELECT * FROM leads WHERE no=?", (lead_no,)).fetchone()
+    lead = (_context["leads"].get(lead_no) if _context is not None else
+            conn.execute("SELECT * FROM leads WHERE no=?", (lead_no,)).fetchone())
     if lead is None:
         return None
 
@@ -381,7 +470,8 @@ def score_lead(conn: sqlite3.Connection, lead_no: int,
     fit_score = min(30, round(raw_fit * 0.30))
     fit_reasons = [f"官网 ICP 契合分 {raw_fit}/100，折算 {fit_score}/30"] if raw_fit else ["尚未完成官网 ICP 分级"]
 
-    contacts = conn.execute("SELECT * FROM contacts WHERE lead_no=?", (lead_no,)).fetchall()
+    contacts = (_context["contacts"].get(lead_no, []) if _context is not None else
+                conn.execute("SELECT * FROM contacts WHERE lead_no=?", (lead_no,)).fetchall())
     named = any((c["name"] or "").strip() for c in contacts)
     decision = any(c["role"] == "decision_maker" for c in contacts)
     has_verified = any(c["email"] and c["email_status"] in ("valid", "role") for c in contacts)
@@ -396,15 +486,15 @@ def score_lead(conn: sqlite3.Connection, lead_no: int,
     contact_reasons.append("联系人有姓名" if named else "联系人姓名未覆盖")
     contact_reasons.append("有已验证联系渠道" if has_verified else "有可用联系渠道" if channel_points else "没有可用联系渠道")
 
-    signals = conn.execute(
+    signals = (_context["signals"].get(lead_no, []) if _context is not None else conn.execute(
         "SELECT * FROM buying_signals WHERE lead_no=? AND status!='dismissed'"
         " ORDER BY COALESCE(occurred_at, substr(captured_at,1,10)) DESC", (lead_no,),
-    ).fetchall()
+    ).fetchall())
     signal_points, best_signal = _best_signal_points(signals, today)
-    opportunity = conn.execute(
+    opportunity = (_context["opportunities"].get(lead_no) if _context is not None else conn.execute(
         "SELECT stage, title FROM opportunities WHERE lead_no=? AND stage NOT IN ('won','lost')"
         " ORDER BY updated_at DESC LIMIT 1", (lead_no,),
-    ).fetchone()
+    ).fetchone())
     stage_points = {"qualified": 10, "requirements": 15, "quoted": 20, "negotiation": 25}
     opportunity_points = stage_points.get(opportunity["stage"], 0) if opportunity else 0
     intent_score = min(25, max(signal_points, opportunity_points) + (5 if signal_points and opportunity_points else 0))
@@ -416,11 +506,12 @@ def score_lead(conn: sqlite3.Connection, lead_no: int,
     if not intent_reasons:
         intent_reasons.append("尚无来源明确的采购信号或开放商机")
 
-    outreach = conn.execute(
+    outreach = (_context["outreach"].get(lead_no) if _context is not None else conn.execute(
         "SELECT COALESCE(SUM(touch_count),0) touches,"
         " MAX(CASE WHEN status='replied' OR reply_received=1 THEN 1 ELSE 0 END) replied"
         " FROM outreach WHERE lead_no=?", (lead_no,),
-    ).fetchone()
+    ).fetchone())
+    outreach = outreach or {"touches": 0, "replied": 0}
     touches = int(outreach["touches"] or 0)
     replied = bool(outreach["replied"])
     engagement_score = 15 if replied else min(10, 4 + touches * 2) if touches else 0
@@ -466,7 +557,7 @@ def score_lead(conn: sqlite3.Connection, lead_no: int,
         "lead_no": lead_no, "company_en": lead["company_en"], "country": lead["country"],
         "target_fit": lead["target_fit"], "score": score, "grade": grade,
         "components": components, "warnings": warnings,
-        "next_action": _next_action(conn, lead, best_signal),
+        "next_action": _next_action(conn, lead, best_signal, _context),
         "best_signal": dict(best_signal) if best_signal else None,
         "missing_decision_maker": not decision,
         "data_incomplete": freshness_score < 7 or raw_fit == 0 or junk_name,
@@ -474,13 +565,21 @@ def score_lead(conn: sqlite3.Connection, lead_no: int,
 
 
 def ranked(conn: sqlite3.Connection, *, limit: int = 100,
-           min_score: int = 0) -> list[dict]:
+           min_score: int = 0, untouched_only: bool = False) -> list[dict]:
     ensure_schema(conn)
-    nos = [r["no"] for r in conn.execute(
-        "SELECT no FROM leads WHERE COALESCE(do_not_contact,0)=0"
-        " AND COALESCE(stage,'new') NOT IN ('won','lost')"
-    )]
-    rows = [score_lead(conn, no, _ensure=False) for no in nos]
+    sql = (
+        "SELECT l.* FROM leads l WHERE COALESCE(l.do_not_contact,0)=0"
+        " AND COALESCE(l.stage,'new') NOT IN ('won','lost')"
+    )
+    if untouched_only:
+        sql += (
+            " AND NOT EXISTS (SELECT 1 FROM outreach o WHERE o.lead_no=l.no"
+            " AND o.status IN ('messaged','replied'))"
+        )
+    lead_rows = list(conn.execute(sql))
+    context = _portfolio_context(conn, lead_rows)
+    rows = [score_lead(conn, lead["no"], _ensure=False, _context=context)
+            for lead in lead_rows]
     rows = [row for row in rows if row and row["score"] >= min_score]
     rows.sort(key=lambda row: (-row["score"], row["lead_no"]))
     return rows[:max(1, min(int(limit), 2000))]

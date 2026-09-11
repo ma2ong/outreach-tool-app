@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from app import jobs
 from app.agent import (classify, command, control_center, conversation, learn, llm,
                        memory as memory_mod, mission, proposals, report, run)
-from app.main_deps import DB_PATH, get_conn
+from app.main_deps import database_path, get_conn
 
 router = APIRouter(prefix="/api/agent")
 
@@ -53,6 +53,32 @@ class TakeoverRequest(BaseModel):
     reason: str = "Allen 手动接管"
 
 
+class ConversationScheduleRequest(BaseModel):
+    next_action: str
+    due_at: str
+
+
+class LearningLessonCreate(BaseModel):
+    rule_text: str
+    category: str
+    channel: str | None = None
+    market: str | None = None
+    customer_type: str | None = None
+    source_proposal_ids: list[int] = []
+
+
+class LearningLessonStatus(BaseModel):
+    status: str
+
+
+class LearningLessonRevise(BaseModel):
+    rule_text: str
+    category: str | None = None
+    channel: str | None = None
+    market: str | None = None
+    customer_type: str | None = None
+
+
 def _bad(exc: Exception):
     raise HTTPException(status_code=400, detail=str(exc))
 
@@ -99,6 +125,20 @@ def resume_conversation(lead_no: int, channel: str, conn=Depends(get_conn)):
     return conversation.resume(conn, lead_no, _conversation_channel(channel))
 
 
+@router.patch("/conversations/{lead_no}/{channel}/schedule")
+def schedule_conversation(lead_no: int, channel: str, req: ConversationScheduleRequest,
+                          conn=Depends(get_conn)):
+    if conn.execute("SELECT 1 FROM leads WHERE no=?", (lead_no,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    try:
+        return conversation.reschedule(
+            conn, lead_no, _conversation_channel(channel),
+            next_action=req.next_action, due_at=req.due_at,
+        )
+    except ValueError as exc:
+        _bad(exc)
+
+
 @router.get("/meta")
 def agent_meta():
     """The vocabulary the UI renders: kinds, levels, intents, rejection reasons."""
@@ -142,7 +182,7 @@ def approve(proposal_id: int, req: ApproveRequest, background: BackgroundTasks,
     except proposals.ProposalError as exc:
         _bad(exc)
     job_id = jobs.create(1)
-    background.add_task(_execute_proposal, job_id, proposal_id, req.note, _db_path(conn))
+    background.add_task(_execute_proposal, job_id, proposal_id, req.note, database_path(conn))
     return {"job_id": job_id, "proposal": proposal}
 
 
@@ -195,17 +235,6 @@ def set_backend(req: BackendRequest, conn=Depends(get_conn)):
     return llm.status(conn)
 
 
-def _db_path(conn) -> str:
-    """The file this request's connection is actually open on.
-
-    A background task outlives the request, so it needs its own connection — but
-    reading the module-level DB_PATH would send it to the live lead base even when the
-    caller was working on another database. Ask the connection instead.
-    """
-    row = conn.execute("PRAGMA database_list").fetchone()
-    return row[2] or DB_PATH
-
-
 def _run(job_id: str, db_path: str) -> None:
     from app.db import connect
     conn = connect(db_path)
@@ -221,7 +250,7 @@ def _run(job_id: str, db_path: str) -> None:
 def trigger_run(background: BackgroundTasks, conn=Depends(get_conn)):
     """Classification and drafting take minutes, so the page never waits on them."""
     job_id = jobs.create(1)
-    background.add_task(_run, job_id, _db_path(conn))
+    background.add_task(_run, job_id, database_path(conn))
     return {"job_id": job_id}
 
 
@@ -255,7 +284,7 @@ def trigger_plan(background: BackgroundTasks, conn=Depends(get_conn)):
     """Build today's plan on demand — the morning schedule is a convenience, not the
     only way in, and Allen should not have to wait until tomorrow to try it."""
     job_id = jobs.create(1)
-    background.add_task(_plan_now, job_id, _db_path(conn))
+    background.add_task(_plan_now, job_id, database_path(conn))
     return {"job_id": job_id}
 
 
@@ -274,6 +303,36 @@ def send_report(conn=Depends(get_conn)):
 def learning(conn=Depends(get_conn)):
     """What Allen's decisions have taught the agent — and whether it is using it yet."""
     return learn.summary(conn)
+
+
+@router.post("/learning/lessons")
+def create_learning_lesson(req: LearningLessonCreate, conn=Depends(get_conn)):
+    try:
+        return learn.create_lesson(conn, **req.model_dump())
+    except (ValueError, LookupError) as exc:
+        _bad(exc)
+
+
+@router.patch("/learning/lessons/{lesson_id}/status")
+def change_learning_lesson_status(lesson_id: int, req: LearningLessonStatus,
+                                  conn=Depends(get_conn)):
+    try:
+        return learn.set_lesson_status(conn, lesson_id, req.status)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        _bad(exc)
+
+
+@router.post("/learning/lessons/{lesson_id}/revisions")
+def revise_learning_lesson(lesson_id: int, req: LearningLessonRevise,
+                           conn=Depends(get_conn)):
+    try:
+        return learn.revise_lesson(conn, lesson_id, **req.model_dump())
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        _bad(exc)
 
 
 @router.get("/memory/{lead_no}")

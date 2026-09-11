@@ -21,7 +21,7 @@ export function MailboxPanel() {
   const [sendingTest, setSendingTest] = useState(false);
 
   function reload() { fetchMailboxes().then(setBoxes).catch((e) => setMsg(String(e))); }
-  useEffect(reload, []);
+  useEffect(() => { reload(); }, []);
 
   async function savePassword(id: number) {
     if (!pwDraft.trim()) { setMsg("密码不能为空"); return; }

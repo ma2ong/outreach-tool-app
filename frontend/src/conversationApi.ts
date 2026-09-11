@@ -47,7 +47,17 @@ export type Conversation = {
     do_not_contact: number;
   };
   events: ConversationEvent[];
-  state: { owner: string; state: string; next_action: string | null } | null;
+  state: {
+    channel: string; owner: string; state: string; reason: string | null;
+    next_action: string | null; due_at: string | null; updated_at: string | null;
+  } | null;
+  requirements: {
+    facts: {
+      id: number; field: string; value: string; normalized_value: string;
+      source_message_id: number; source_quote: string; opportunity_id: number | null;
+    }[];
+    conflicts: { field: string; values: string[]; opportunity_id: number | null }[];
+  };
   sent_count: number;
   reply_count: number;
   missing_bodies: number;

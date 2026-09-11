@@ -54,13 +54,18 @@ def list_conversations(waiting_only: int = 0, limit: int = 100, conn=Depends(get
 @router.get("/{no}")
 def get_conversation(no: int, conn=Depends(get_conn)):
     from app import conversation_view
+    from app.agent import project_facts
 
     lead = conn.execute(
         "SELECT no, company_en, company_local, country, email, contact_name, title,"
         " stage, tags, do_not_contact FROM leads WHERE no=?", (no,)).fetchone()
     if lead is None:
         raise HTTPException(404, "线索不存在")
-    return {"lead": dict(lead), **conversation_view.summary(conn, no)}
+    return {
+        "lead": dict(lead),
+        **conversation_view.summary(conn, no),
+        "requirements": project_facts.for_lead(conn, no),
+    }
 
 
 @router.post("/{no}/reply")

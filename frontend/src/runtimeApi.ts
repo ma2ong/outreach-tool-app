@@ -17,7 +17,37 @@ export interface RuntimeState {
   last_email_poll_ok: number | null;
   last_error: string | null;
   cycle_count: number;
+  last_standby_at: string | null;
+  last_standby_owner: string | null;
+  standby_count: number;
   updated_at: string;
+}
+
+export interface CapabilityHealth {
+  name: string;
+  status?: "disabled" | "not_configured" | "idle" | "running" | "stalled" | "partial" | "failed" | "succeeded";
+  running_since?: string | null;
+  last_attempt_at: string | null;
+  last_success_at: string | null;
+  last_output_at: string | null;
+  last_error: string | null;
+  consecutive_failures: number;
+  processed_count: number;
+  updated_at: string;
+}
+
+export interface UnresolvedDelivery {
+  id: number;
+  lead_no: number;
+  company_en: string | null;
+  channel: string;
+  target: string;
+  subject: string | null;
+  body: string;
+  source_kind: "sequence" | "reply" | string;
+  status: "pending" | "unknown";
+  last_error: string | null;
+  created_at: string;
 }
 
 export interface ProductionHealth {
@@ -55,7 +85,20 @@ export interface RuntimeStatus {
   heartbeat_age_seconds: number | null;
   embedded_worker_enabled: boolean;
   dedicated_worker_expected: boolean;
+  capabilities: CapabilityHealth[];
+  unresolved_deliveries: UnresolvedDelivery[];
   production: ProductionHealth;
+}
+
+export async function resolveDelivery(id: number, outcome: "sent" | "not_sent"): Promise<void> {
+  const r = await fetch(`/api/runtime/delivery-intents/${id}/resolve`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ outcome }),
+  });
+  if (!r.ok) {
+    const detail = (await r.json().catch(() => null))?.detail;
+    throw new Error(detail || `delivery resolution ${r.status}`);
+  }
 }
 
 export async function fetchRuntimeStatus(): Promise<RuntimeStatus> {

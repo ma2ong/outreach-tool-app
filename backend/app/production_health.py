@@ -156,7 +156,7 @@ def status(conn: sqlite3.Connection, db_path: str) -> dict:
         "auth_enabled": auth.enabled(),
         "python": {
             "version": ".".join(map(str, sys.version_info[:3])),
-            "ci_baseline": "3.11",
-            "matches_ci_minor": sys.version_info[:2] == (3, 11),
+            "ci_baseline": "3.14",
+            "matches_ci_minor": sys.version_info[:2] == (3, 13),
         },
     }

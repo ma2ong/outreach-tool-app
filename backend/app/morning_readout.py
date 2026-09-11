@@ -103,7 +103,7 @@ def _development(conn, days: int) -> None:
 def _waiting(conn) -> None:
     _line("等你定的")
     queue = conn.execute(
-        "SELECT COUNT(*) FROM social_dm_queue WHERE queue_date=date('now')"
+        "SELECT COUNT(*) FROM social_dm_queue WHERE queue_date=date('now', 'localtime')"
         " AND status='ready'").fetchone()[0]
     replies = conn.execute(
         "SELECT COUNT(*) FROM inbox_messages WHERE kind='reply' AND handled_at IS NULL"

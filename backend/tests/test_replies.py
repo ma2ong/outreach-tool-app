@@ -1,3 +1,6 @@
+import json
+from email.message import EmailMessage
+
 import pytest
 
 from app import replies, sequences
@@ -51,6 +54,43 @@ def test_poll_uses_injected_fetcher(conn):
     assert res["lead_nos"] == [3]
 
 
+def test_attachment_metadata_is_evidence_only():
+    msg = EmailMessage()
+    msg.set_content("Please check the drawing.")
+    msg.add_attachment(b"drawing bytes", maintype="application", subtype="pdf",
+                       filename="Cabinet drawing.pdf")
+
+    found = replies._attachment_metadata(msg)
+
+    assert found == [{
+        "filename": "Cabinet drawing.pdf",
+        "content_type": "application/pdf",
+        "size": 13,
+        "sha256": "597c3489ab2ffa7aad92c99eba241a5aadb43bca19c5d0d540e7da856c2f4ffa",
+    }]
+    assert "payload" not in found[0]
+
+
+def test_rfc_message_id_dedupes_repoll_with_changed_received_at(conn):
+    first = {
+        "from_addr": "sales@alpha.com", "subject": "Re: LED",
+        "body": "See the attached drawing.", "received_at": "2026-09-09T08:00:00+08:00",
+        "rfc_message_id": "<stable-42@alpha.com>",
+        "attachments": [{"filename": "drawing.pdf", "content_type": "application/pdf",
+                         "size": 42, "sha256": "abc"}],
+    }
+    second = {**first, "received_at": "2026-09-09T00:00:01Z"}
+
+    assert replies.process_messages(conn, [first])["stored"] == 1
+    assert replies.process_messages(conn, [second])["stored"] == 0
+
+    row = conn.execute(
+        "SELECT rfc_message_id,attachments_json FROM inbox_messages WHERE lead_no=1"
+    ).fetchone()
+    assert row["rfc_message_id"] == "<stable-42@alpha.com>"
+    assert json.loads(row["attachments_json"])[0]["filename"] == "drawing.pdf"
+
+
 def test_lookback_widens_to_cover_the_outage(conn, monkeypatch):
     """A fixed 7-day window drops every reply that arrived while polling was broken
     for longer than a week — the exact failure that hid replies for two weeks."""
@@ -89,6 +129,24 @@ def test_successful_poll_records_success_timestamp(conn, monkeypatch):
     res = replies.poll_all_replies(conn, fetcher=lambda mailbox, since_days: fake)
     assert res["replies"] == 1 and res["since_days"] == replies.SINCE_DAYS_MAX
     assert settings.get(conn, "reply_sync_last_success_at")
+
+
+def test_reply_enrichment_failure_is_visible_without_losing_the_reply(conn, monkeypatch):
+    monkeypatch.setattr(
+        "app.reply_details.apply",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("bad signature parser")),
+    )
+    result = replies.process_messages(conn, [{
+        "from_addr": "sales@alpha.com", "subject": "Re: LED", "body": "hello",
+        "received_at": "2026-09-10T10:00:00+08:00",
+    }])
+
+    assert result["stored"] == 1 and result["replies"] == 1
+    assert result["enrichment_errors"] == [{
+        "lead_no": 1, "message_id": 1, "stage": "reply_details",
+        "error": "bad signature parser",
+    }]
+    assert conn.execute("SELECT COUNT(*) FROM inbox_messages").fetchone()[0] == 1
 
 
 # Verbatim shapes taken from Allen's Gmail — the localised notice is exactly what the

@@ -1,6 +1,5 @@
 import datetime as dt
 
-from app import main
 from app.agent import account_brain, catchup, plan, proposals, world
 
 
@@ -114,18 +113,24 @@ def test_late_start_respects_existing_retry_cooldown(conn):
     settings.set_value(conn, "agent_plan_attempts", "1")
     settings.set_value(conn, "agent_plan_last_attempt_at", "2026-08-21T14:45:00")
     assert catchup.due(conn, dt.datetime(2026, 8, 21, 15, 0)) is False
-    assert catchup.due(conn, dt.datetime(2026, 8, 21, 15, 15)) is True
+    assert catchup.due(conn, dt.datetime(2026, 8, 21, 15, 15)) is False
+    assert catchup.due(conn, dt.datetime(2026, 8, 21, 15, 45)) is True
 
 
 def test_disabling_email_poll_does_not_disable_the_background_cycle(monkeypatch):
+    from app import background_jobs
+
     monkeypatch.setenv("OUTREACH_AUTO_POLL", "0")
-    assert main.auto_poll_replies() is True
+    assert background_jobs.email_poll("unused.db") == {"status": "disabled"}
 
     called = []
-    monkeypatch.setattr(main, "auto_scan_social", lambda: called.append("social"))
-    monkeypatch.setattr(main, "auto_recheck", lambda: called.append("recheck"))
-    monkeypatch.setattr(main, "auto_prune_sequences", lambda: called.append("prune"))
-    monkeypatch.setattr(main, "auto_agent_run", lambda: called.append("agent"))
+    monkeypatch.setattr(background_jobs, "social_scan", lambda _p: called.append("social") or True)
+    monkeypatch.setattr(background_jobs, "website_recheck", lambda _p: called.append("recheck") or True)
+    monkeypatch.setattr(background_jobs, "sequence_maintenance", lambda _p: called.append("prune") or True)
+    monkeypatch.setattr(background_jobs, "email_send", lambda _p: True)
+    monkeypatch.setattr(background_jobs, "social_send", lambda _p: called.append("queue") or True)
+    monkeypatch.setattr(background_jobs, "agent", lambda _p: called.append("agent") or True)
+    monkeypatch.setattr(background_jobs, "contact_names", lambda _p: called.append("names") or True)
 
-    assert main.background_cycle() is True
-    assert called == ["social", "recheck", "prune", "agent"]
+    assert [fn() for _name, fn in background_jobs.ordered_stages("unused.db")]
+    assert called == ["social", "recheck", "prune", "queue", "names", "agent"]

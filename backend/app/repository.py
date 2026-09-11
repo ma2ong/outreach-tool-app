@@ -65,7 +65,7 @@ def _due_clause(days: int) -> tuple[str, list]:
         "   AND message_sent_date IS NOT NULL AND message_sent_date <= date('now', ?))"
         " AND l.no NOT IN (SELECT lead_no FROM outreach WHERE status='replied'))"
         " OR (l.follow_up_date IS NOT NULL AND l.follow_up_date != ''"
-        "   AND l.follow_up_date <= date('now')))"
+        "   AND l.follow_up_date <= date('now', 'localtime')))"
     )
     return clause, [f"-{days} days"]
 

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from app import channel_outreach, jobs, social_autonomy, social_queue
 from app.api import channels as channels_api
 from app.api import send as send_api
-from app.main_deps import get_conn
+from app.main_deps import database_path, get_conn
 
 router = APIRouter(prefix="/api/social-queue")
 
@@ -127,5 +127,5 @@ def send_queue(req: SendRequest, background: BackgroundTasks, conn=Depends(get_c
     if not items:
         raise HTTPException(status_code=400, detail="选中的条目已发送或已不在今天的队列里")
     job_id = jobs.create(total=len(items))
-    background.add_task(_run_send, job_id, send_api.DB_PATH, items)
+    background.add_task(_run_send, job_id, database_path(conn), items)
     return {"job_id": job_id, "will_send": len(items)}

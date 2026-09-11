@@ -12,7 +12,7 @@ import os
 import signal
 import time
 
-from app import runtime
+from app import background_jobs, runtime, scheduler
 from app.main_deps import DB_PATH
 
 
@@ -32,19 +32,20 @@ def _seconds(name: str, default: int, minimum: int = 5) -> int:
 def run_once(*, db_path: str = DB_PATH, owner: str | None = None,
              mode: str = "worker", release_after: bool = True) -> dict:
     """Run one leased operating cycle; useful for health checks, tests and cron."""
-    from app import main
-
     owner = owner or runtime.owner_id(mode)
-    # In normal deployment main.DB_PATH and db_path both come from OUTREACH_DB. Keeping
-    # the explicit check prevents a test or caller from leasing one DB while the cycle
-    # silently mutates another.
-    if os.path.abspath(main.DB_PATH) != os.path.abspath(db_path):
-        raise RuntimeError(
-            "worker db_path 与 app.main.DB_PATH 不一致；请在进程启动前设置 OUTREACH_DB"
-        )
     return runtime.run_leased_cycle(
-        db_path, main.background_cycle, owner=owner, mode=mode,
+        db_path, lambda: background_jobs.run_cycle(db_path), owner=owner, mode=mode,
         release_after=release_after,
+    )
+
+
+def run_embedded(db_path: str = DB_PATH) -> None:
+    """Run the same Worker behind the local Web process without importing FastAPI."""
+    scheduler.run_forever(
+        db_path, lambda: background_jobs.run_cycle(db_path),
+        poll_seconds=_seconds("OUTREACH_WORKER_INTERVAL_SECONDS", DEFAULT_INTERVAL_SECONDS),
+        retry_seconds=_seconds("OUTREACH_WORKER_RETRY_SECONDS", DEFAULT_RETRY_SECONDS),
+        sleep_fn=time.sleep,
     )
 
 

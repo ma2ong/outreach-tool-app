@@ -129,6 +129,6 @@ def count_today(conn, kind: str) -> int:
         ensure_schema(conn)
         return conn.execute(
             "SELECT COUNT(*) FROM relationship_events"
-            " WHERE kind=? AND date(at)=date('now')", (kind,)).fetchone()[0]
+            " WHERE kind=? AND date(at, 'localtime')=date('now', 'localtime')", (kind,)).fetchone()[0]
     except Exception:  # noqa: BLE001
         return 0

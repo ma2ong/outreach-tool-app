@@ -226,7 +226,7 @@ def _next_section(conn) -> list[str]:
     lines = []
     due = conn.execute(
         "SELECT COUNT(*) c FROM sequence_enrollments e JOIN sequences s ON s.id=e.sequence_id"
-        " WHERE e.status='active' AND s.channel='email' AND e.next_due_date <= date('now')"
+        " WHERE e.status='active' AND s.channel='email' AND e.next_due_date <= date('now', 'localtime')"
     ).fetchone()["c"]
     if due:
         lines.append(f"  邮件跟进到期 {due} 条")
@@ -234,7 +234,7 @@ def _next_section(conn) -> list[str]:
         social_queue.ensure_schema(conn)
         ready = conn.execute(
             "SELECT channel, COUNT(*) c FROM social_dm_queue"
-            " WHERE queue_date=date('now') AND status='ready' GROUP BY channel").fetchall()
+            " WHERE queue_date=date('now', 'localtime') AND status='ready' GROUP BY channel").fetchall()
         if ready:
             detail = "、".join(f"{CH_LABEL.get(r['channel'], r['channel'])} {r['c']}"
                               for r in ready)

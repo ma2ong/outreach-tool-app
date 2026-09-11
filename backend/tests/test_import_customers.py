@@ -49,7 +49,8 @@ def test_an_imported_customer_does_not_land_in_todays_cold_queue(conn):
     from app import outreach as email_outreach
 
     import_customers.apply(conn, [
-        {"company_en": "Old Friend Displays", "email": "buyer@oldfriend.com"}], today=TODAY)
+        {"company_en": "Old Friend Displays", "email": "buyer@oldfriend.com"}],
+        today=dt.date.today())
     no = conn.execute("SELECT no FROM leads WHERE company_en='Old Friend Displays'").fetchone()["no"]
     assert email_outreach.eligible_leads(conn, [no], "email") == []
 

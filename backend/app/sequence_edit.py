@@ -72,7 +72,8 @@ def preview(conn, sequence_id: int, step_order: int, subject: str | None,
 
 
 def update_step(conn, sequence_id: int, step_order: int, *, subject: str | None,
-                body: str, day_offset: int | None = None) -> dict:
+                body: str, day_offset: int | None = None,
+                change_kind: str = "edit", rollback_of_id: int | None = None) -> dict:
     """Store the edit and mark the step as the user's. Refuses what the guard refuses.
 
     Refusing here rather than at send time is the whole point: a step the guard would
@@ -84,6 +85,14 @@ def update_step(conn, sequence_id: int, step_order: int, *, subject: str | None,
     result = preview(conn, sequence_id, step_order, subject, body)
     if result["blocked"]:
         raise ValueError(f"{result['detail']}")
+    from app import copy_versions
+    current = conn.execute(
+        "SELECT subject,body,day_offset FROM sequence_steps"
+        " WHERE sequence_id=? AND step_order=?", (sequence_id, step_order),
+    ).fetchone()
+    if not current:
+        raise LookupError("这一步不存在")
+    copy_versions.ensure_sequence_baseline(conn, sequence_id, step_order, current)
     sets = ["subject=?", "body=?", "edited=1"]
     args: list = [subject, body]
     if day_offset is not None:
@@ -95,6 +104,10 @@ def update_step(conn, sequence_id: int, step_order: int, *, subject: str | None,
         " WHERE sequence_id=? AND step_order=?", args)
     if not cur.rowcount:
         raise LookupError("这一步不存在")
+    copy_versions.record_sequence_step(
+        conn, sequence_id, step_order, change_kind=change_kind,
+        rollback_of_id=rollback_of_id,
+    )
     conn.commit()
     return result
 

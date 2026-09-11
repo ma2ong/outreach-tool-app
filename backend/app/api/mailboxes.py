@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app import mailboxes as mb, replies
+from app import mailboxes as mb, replies, settings
 from app.channels import email_adapter
 from app.main_deps import get_conn
 
@@ -74,6 +74,8 @@ def test_mailbox(mid: int, conn=Depends(get_conn)):
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400,
                             detail=f"{'SMTP/IMAP' if imap else 'SMTP'} 登录失败：{exc}")
+    import datetime as dt
+    settings.set_value(conn, f"mailbox_test_success:{mid}", dt.datetime.now(dt.UTC).isoformat())
     return {"ok": True, "smtp": True, "imap": imap}
 
 
@@ -148,6 +150,8 @@ def set_password(mid: int, req: PasswordUpdate, conn=Depends(get_conn)):
         raise HTTPException(status_code=400, detail="密码不能为空")
     if not mb.set_password(conn, mid, req.password.strip()):
         raise HTTPException(status_code=404, detail="mailbox not found")
+    conn.execute("DELETE FROM settings WHERE key=?", (f"mailbox_test_success:{mid}",))
+    conn.commit()
     return {"ok": True}
 
 

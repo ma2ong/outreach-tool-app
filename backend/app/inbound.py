@@ -213,6 +213,7 @@ def process_threads(conn, channel: str, threads: list[dict]) -> dict:
         return primary(sender, lookup) or match_name(sender, by_name)
 
     replies = stored = outgoing = auto = 0
+    enrichment_errors: list[dict] = []
     unmatched: list[str] = []
     lead_nos: list[int] = []
     now = _dt.datetime.now(_dt.UTC).isoformat()
@@ -251,14 +252,18 @@ def process_threads(conn, channel: str, threads: list[dict]) -> dict:
                 try:
                     reply_details.apply(conn, no, body,
                                         contact_id=contact["id"] if contact else None)
-                except Exception:  # noqa: BLE001 — enrichment may never lose a reply
-                    pass
+                except Exception as exc:  # noqa: BLE001 — enrichment may never lose a reply
+                    enrichment_errors.append({
+                        "lead_no": no, "message_id": cur.lastrowid,
+                        "stage": "reply_details", "error": str(exc)[:200],
+                    })
         if not robot:
             repository.mark_replied(conn, no, channel)
     conn.commit()
     return {"channel": channel, "threads": len(threads), "replies": replies,
             "auto": auto, "stored": stored, "outgoing": outgoing,
-            "unmatched": unmatched[:20], "lead_nos": lead_nos}
+            "unmatched": unmatched[:20], "lead_nos": lead_nos,
+            "enrichment_errors": enrichment_errors}
 
 
 def scan(conn, channel: str, scanner) -> dict:
@@ -283,6 +288,8 @@ def scan_all(conn, scanner, channels=CHANNELS) -> dict:
 
 def _record(conn, results: list[dict], errors: list[dict] | None = None) -> dict:
     errors = errors or []
+    for result in results:
+        errors.extend(result.get("enrichment_errors") or [])
     summary = {
         "replies": sum(r["replies"] for r in results),
         "auto": sum(r["auto"] for r in results),
@@ -298,7 +305,7 @@ def _record(conn, results: list[dict], errors: list[dict] | None = None) -> dict
     settings.set_value(conn, _K_LAST_AT, now.isoformat())
     settings.set_value(conn, _K_LAST_RESULT, json.dumps(summary, ensure_ascii=False))
     if results and not errors:
-        settings.set_value(conn, _K_LAST_DATE, now.date().isoformat())
+        settings.set_value(conn, _K_LAST_DATE, now.astimezone().date().isoformat())
     return summary
 
 

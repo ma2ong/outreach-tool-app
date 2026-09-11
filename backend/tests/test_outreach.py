@@ -46,6 +46,76 @@ def test_send_campaign_records_failure(conn):
     assert result["failed"] == 1
 
 
+def test_uncertain_email_transport_is_not_reentered(conn):
+    _seed(conn)
+    calls = []
+
+    def accepted_then_timeout(to, *_args, **_kwargs):
+        calls.append(to)
+        raise TimeoutError("provider response lost")
+
+    first = outreach.send_campaign(
+        conn, [1], "Hi {company}", "Hello {company}", None,
+        sender=accepted_then_timeout, delay_range=(0, 0), campaign="Manual test")
+    second = outreach.send_campaign(
+        conn, [1], "Hi {company}", "Hello {company}", None,
+        sender=accepted_then_timeout, delay_range=(0, 0), campaign="Manual test")
+
+    assert first["failed"] == 1
+    assert second["sent"] == 0
+    assert calls == ["a@a.com"]
+    intent = conn.execute("SELECT status FROM delivery_intents").fetchone()
+    assert intent["status"] == "unknown"
+
+
+def test_confirming_uncertain_email_as_sent_repairs_crm_without_transport(conn):
+    from app import delivery_intents
+
+    _seed(conn)
+    outreach.send_campaign(
+        conn, [1], "Hi {company}", "Hello {company}", None,
+        sender=lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("unknown")),
+        delay_range=(0, 0), campaign="Manual repair")
+    intent = delivery_intents.unresolved(conn)[0]
+
+    delivery_intents.resolve(conn, intent["id"], "sent")
+
+    assert conn.execute(
+        "SELECT status FROM outreach WHERE lead_no=1 AND channel='email'"
+    ).fetchone()["status"] == "messaged"
+    log = conn.execute("SELECT campaign,body FROM send_log WHERE lead_no=1").fetchone()
+    assert dict(log) == {"campaign": "Manual repair", "body": "Hello Alpha"}
+
+
+def test_confirming_uncertain_rotating_mailbox_send_reserves_its_daily_slot(conn, monkeypatch):
+    from app import delivery_intents, mailboxes
+
+    _seed(conn)
+    mailbox_id = mailboxes.add_mailbox(
+        conn, "allen@example.com", "smtp.example.com", 465, "allen", "pw", daily_cap=2,
+    )
+    calls = []
+
+    def accepted_then_timeout(mailbox, to, *_args, **_kwargs):
+        calls.append((mailbox["id"], to))
+        raise TimeoutError("provider response lost")
+
+    monkeypatch.setattr("app.channels.email_adapter.send_via", accepted_then_timeout)
+    result = outreach.send_campaign(
+        conn, [1], "Hi {company}", "Hello {company}", None,
+        sender=mailboxes.rotating_sender(conn), delay_range=(0, 0), campaign="Rotating",
+    )
+    intent = delivery_intents.unresolved(conn)[0]
+    assert result["failed"] == 1
+    assert mailboxes.sent_today(conn, mailbox_id) == 0
+    assert calls == [(mailbox_id, "a@a.com")]
+
+    delivery_intents.resolve(conn, intent["id"], "sent")
+    assert mailboxes.sent_today(conn, mailbox_id) == 1
+    delivery_intents.resolve(conn, intent["id"], "sent")
+    assert mailboxes.sent_today(conn, mailbox_id) == 1
+
+
 def test_send_campaign_progress_callback(conn):
     _seed(conn)
     seen = []

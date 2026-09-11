@@ -10,6 +10,8 @@ Passwords live in the local single-user DB and are never returned by the API.
 """
 import datetime as _dt
 
+from app.channels import email_adapter
+
 
 def infer_imap_host(smtp_host: str) -> str | None:
     host = (smtp_host or "").strip().lower()
@@ -137,3 +139,32 @@ def total_remaining(conn) -> int:
 
 def has_active(conn) -> bool:
     return conn.execute("SELECT 1 FROM mailboxes WHERE active=1 LIMIT 1").fetchone() is not None
+
+
+class RotatingSender:
+    """Select before claim, then deliver with that exact mailbox after claim."""
+
+    def __init__(self, conn):
+        self.conn = conn
+
+    def prepare(self):
+        mailbox = pick_mailbox(self.conn)
+        if mailbox is None:
+            raise RuntimeError("no mailbox capacity")
+
+        def deliver(to, subject, body, attachment, cc=None):
+            if cc:
+                email_adapter.send_via(mailbox, to, subject, body, attachment, cc)
+            else:
+                email_adapter.send_via(mailbox, to, subject, body, attachment)
+            record_send(self.conn, mailbox["id"])
+
+        return deliver, {"mailbox_id": mailbox["id"], "mailbox_email": mailbox["email"]}
+
+    def __call__(self, to, subject, body, attachment, cc=None):
+        deliver, _ = self.prepare()
+        return deliver(to, subject, body, attachment, cc=cc)
+
+
+def rotating_sender(conn) -> RotatingSender:
+    return RotatingSender(conn)
