@@ -5,6 +5,11 @@ def test_windows_updater_is_ascii_and_has_no_inline_python_command():
     repo = Path(__file__).resolve().parents[2]
     script = (repo / "scripts" / "update_production.ps1").read_text(encoding="utf-8")
     assert script.isascii()
+    # ASCII alone is not enough. On 2026-09-11 an edit wrote the frontend path with a
+    # real form feed in it instead of the two characters that spell it: ASCII, invisible
+    # on screen, and enough to make npm print its own help instead of installing.
+    stray = {c for c in script if ord(c) < 32 and ord(c) not in (9, 10, 13)}
+    assert not stray, f'script carries control characters: {[hex(ord(c)) for c in stray]}'
     assert "python -c" not in script
     assert "production_acceptance.py" in script
 

@@ -37,11 +37,11 @@ python -m pip install -r "$repo\backend\requirements.txt"
 Assert-LastExit 'Python dependency install'
 
 Write-Host "`n[3/8] Frontend install and audit" -ForegroundColor Green
-npm --prefix "$reporontend" ci
+npm --prefix "$repo\frontend" ci
 Assert-LastExit 'npm ci'
-npm --prefix "$reporontend" run audit:production
+npm --prefix "$repo\frontend" run audit:production
 Assert-LastExit 'production npm audit'
-npm --prefix "$reporontend" run audit:all
+npm --prefix "$repo\frontend" run audit:all
 Assert-LastExit 'full npm audit'
 
 # On 2026-09-11 a commit whose tests were red reached production, because every step up
@@ -54,19 +54,19 @@ Write-Host "`n[4/8] Prove it: backend tests and frontend typecheck" -ForegroundC
 if ($SkipTests) {
     Write-Host 'SKIPPED by -SkipTests. Nothing below has been proven.' -ForegroundColor Yellow
 } else {
-    Push-Location "$repoackend"
+    Push-Location "$repo\backend"
     python -m pytest -q
     $testExit = $LASTEXITCODE
     Pop-Location
     if ($testExit -ne 0) {
         throw "Backend tests failed (exit $testExit). Nothing was deployed; production still runs the previous version."
     }
-    npm --prefix "$reporontend" run typecheck
+    npm --prefix "$repo\frontend" run typecheck
     Assert-LastExit 'frontend typecheck'
 }
 
 Write-Host "`n[5/8] Frontend build" -ForegroundColor Green
-npm --prefix "$reporontend" run build
+npm --prefix "$repo\frontend" run build
 Assert-LastExit 'frontend build'
 
 Write-Host "`n[6/8] Restart local service" -ForegroundColor Green

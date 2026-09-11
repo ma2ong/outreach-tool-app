@@ -99,7 +99,7 @@ PEER_BRANDS = (
 _CN_ORIGIN = re.compile(
     r"shenzhen|shen\s?zhen|guangzhou|dongguan|guangdong|zhongshan|foshan|"
     r"深圳|广州|东莞", re.I)
-_MAKER = re.compile(r"manufactur|factory|oem|odm|工厂|厂家", re.I)
+_MAKER = re.compile(r"manufactur|factory|oem\b|odm\b|工厂|厂家", re.I)
 
 
 def _squash(text: str | None) -> str:
