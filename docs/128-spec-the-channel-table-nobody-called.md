@@ -145,6 +145,29 @@ Instagram 的搜索页未登录只有一面登录墙（811 字节），没有 Fa
 `~/.outreach-tool/scrape/instagram` 上的浏览器窗口，Allen 在窗口里自己登录，
 关掉窗口时登录态落盘。服务器不收任何凭据，也没有任何接口接受凭据。
 
+### 登录这一步不能由程序驱动的浏览器来做
+
+2026-09-11 一路测下来，这条是硬的：
+
+| 试的东西 | 结果 |
+|---|---|
+| Playwright 自带 Chromium | 登录被推进 Meta 验证码页，**验证码不渲染**，只剩一个 logo |
+| Playwright + 真实 Chrome + 去掉 `--enable-automation` | `navigator.webdriver` 已经是 false、品牌已经是 Google Chrome，**照样空白** |
+| reCAPTCHA 官方演示页（同一个窗口） | **正常渲染**，资源全 200，零失败请求 |
+| Allen 自己的 Chrome 无痕窗口（同一台机器、同一个 IP） | **验证码正常，登得进去** |
+
+浏览器不背锅，网络不背锅，IP 也不背锅——同一个 IP 上普通 Chrome 能登。
+剩下的唯一变量是**这个浏览器被 CDP 接管着**，而那不是一个可以关掉的开关：
+Playwright 就是靠它工作的。账号本身也排除了，是用了两三年的成熟号。
+
+所以规矩是：**登录用一个普通的 Chrome 进程，不带任何自动化**——
+`chrome.exe --user-data-dir=~/.outreach-tool/scrape/instagram`，一个进程参数而已，
+没有 Playwright、没有 CDP、没有自动化标记。Allen 在里面像平时一样登录，关掉窗口，
+登录态落在我们自己的采集目录里。之后采集再用 Playwright 打开这个目录——
+**带着已经建立的会话去浏览，和从零登录不是同一件事**。
+
+这也解释了为什么发私信那个账号一直好好的：它当初也不是在自动化窗口里登的。
+
 登录窗口用的是**真实 Chrome**，并去掉 `--enable-automation`。实测 2026-09-11：
 Playwright 自带的 Chromium 在页面里 `navigator.webdriver === true`、
 品牌报 "Chromium"，Instagram 因此把登录挡进验证码页——而那个验证码**根本不渲染**，

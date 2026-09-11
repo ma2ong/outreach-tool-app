@@ -39,11 +39,14 @@ RUN_TIMEOUT = 180
 # search is shut to a logged-out browser — every public Page's About tab reads fine
 # without an account, so that channel carries none (docs/128 R4).
 NEEDS_LOGIN = ("instagram",)
-LOGIN_URL = {"instagram": "https://www.instagram.com/accounts/login/"}
+# 首页，不是 /accounts/login/：未登录时是同一个登录表单，而后者 2026-09-11 回过一次
+# ERR_HTTP_RESPONSE_CODE_FAILURE。
+LOGIN_URL = {"instagram": "https://www.instagram.com/"}
 LOGIN_HINT = {
     "instagram": "未启用：需要先登录采集专用账号（小号）。到「渠道」页点「登录采集账号」，"
-                 "在弹出的窗口里自己登录 —— 不要用发私信那个账号：平台封的是账号，"
-                 "发信账号封了，在谈的对话和联系人一起没（docs/126 R4）",
+                 "会打开一个普通 Chrome 窗口，在里面像平时一样登录，然后关掉窗口 —— "
+                 "不要用发私信那个账号：平台封的是账号，发信账号封了，"
+                 "在谈的对话和联系人一起没（docs/126 R4）",
 }
 # The cookie a platform sets only after a real login. A profile directory is not the
 # test: Chromium writes `Default/` the moment it starts, so the first version of
@@ -117,21 +120,48 @@ def _spawn(argv: list[str]):
 _LOGIN_WINDOWS: dict = {}
 
 
-def start_login(channel: str):
-    """Open a browser on the collecting profile so Allen can log a spare account in.
+# Where Windows keeps Chrome. Not Playwright's bundled Chromium and not Playwright at
+# all: see `start_login`.
+_CHROME_PATHS = (
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                 r"Google\Chrome\Application\chrome.exe"),
+)
 
-    No credential ever reaches this process: the window is his, the session lands in
-    `~/.outreach-tool/scrape/<channel>`, and the collector later reuses that directory.
+
+def chrome_path() -> str:
+    for candidate in _CHROME_PATHS:
+        if candidate and os.path.isfile(candidate):
+            return candidate
+    return ""
+
+
+def start_login(channel: str):
+    """Open an ordinary Chrome on the collecting profile, with nothing driving it.
+
+    Measured 2026-09-11: a Playwright-driven browser — real Chrome build, automation
+    flag removed, `navigator.webdriver` false — is answered by Instagram with a captcha
+    page that never draws its captcha, while Allen's own Chrome logs in from this same
+    machine and this same IP. reCAPTCHA itself renders fine in the driven window, so
+    what is left is CDP, and CDP is not a flag: it is how Playwright works at all.
+
+    So this launches Chrome the way the Start menu does, pointed at our own profile
+    directory. No credential reaches this process, the session lands in
+    `~/.outreach-tool/scrape/<channel>`, and the collector opens that directory later —
+    browsing with a session already in hand is a different proposition from making one.
     """
     if channel not in LOGIN_URL:
         raise ValueError(f"{channel} 不需要登录采集账号")
-    reason = unavailable("")          # playwright itself has to be installed
-    if reason:
-        raise Unavailable(reason)
+    chrome = chrome_path()
+    if not chrome:
+        raise Unavailable(
+            "找不到 Chrome。采集账号必须在普通 Chrome 里登录 —— 被程序驱动的浏览器"
+            "登不进 Instagram（Meta 的验证码不渲染）。请先安装 Google Chrome")
     profile = profile_dir(channel)
     profile.mkdir(parents=True, exist_ok=True)
-    proc = _spawn([sys.executable, str(RUNNER), "--channel", channel, "--login",
-                   "--profile-dir", str(profile)])
+    proc = _spawn([chrome, f"--user-data-dir={profile}", "--no-first-run",
+                   "--no-default-browser-check", LOGIN_URL[channel]])
     _LOGIN_WINDOWS[channel] = proc
     return proc
 

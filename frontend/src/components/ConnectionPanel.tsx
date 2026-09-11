@@ -115,7 +115,8 @@ export function ConnectionPanel() {
               )}
               {s.state === "等待登录" && (
                 <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>
-                  登完把那个窗口关掉，登录态才会存下来；页面如果是错误页，按 F5 重试一次
+                  这是一个<b>普通 Chrome 窗口</b>（和你平时用的一样，没有任何程序在驱动它——
+                  被驱动的浏览器登不进 Instagram）。登完把窗口关掉，登录态才会存下来
                 </span>
               )}
             </div>

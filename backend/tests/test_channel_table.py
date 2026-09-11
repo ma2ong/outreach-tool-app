@@ -288,10 +288,10 @@ def test_the_login_window_opens_the_collecting_profile_and_no_other(tmp_path, mo
     monkeypatch.setattr(scrape_browser, "_LOGIN_WINDOWS", {})
     started: list[list[str]] = []
     monkeypatch.setattr(scrape_browser, "_spawn", lambda argv: started.append(argv) or FakeWindow())
+    monkeypatch.setattr(scrape_browser, "chrome_path", lambda: "C:/Chrome/chrome.exe")
     scrape_browser.start_login("instagram")
     argv = started[0]
-    assert "--login" in argv
-    profile = argv[argv.index("--profile-dir") + 1]
+    profile = [a for a in argv if a.startswith("--user-data-dir=")][0].split("=", 1)[1]
     assert profile.lower().startswith(str(tmp_path).lower())
     assert not profile.lower().startswith(str(playwright_engine.DATA_DIR).lower())
 
@@ -319,33 +319,6 @@ def test_pressing_login_opens_a_window_rather_than_asking_for_a_password(tmp_pat
     client = _client(tmp_path)
     assert client.post("/api/channels/scrape/instagram/login").json()["status"] == "等待登录"
     assert opened == ["instagram"]
-
-
-def test_a_failed_navigation_does_not_take_the_login_window_with_it():
-    """Measured 2026-09-11: the first launch got ERR_HTTP_RESPONSE_CODE_FAILURE from
-    Instagram and every launch after it got 200 — and that one failure closed the
-    window, which is all Allen saw of it."""
-    class Page:
-        calls = 0
-
-        def goto(self, url, **kw):
-            Page.calls += 1
-            raise RuntimeError("net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://x/")
-
-    reason = scrape_runner.open_login_page(Page(), "https://www.instagram.com/")
-    assert Page.calls == 2, "一次偶发失败值得重试一次"
-    assert "ERR_HTTP_RESPONSE_CODE_FAILURE" in reason, "窗口留着，但要说得出为什么是错误页"
-
-
-def test_a_navigation_that_works_is_not_retried():
-    class Page:
-        calls = 0
-
-        def goto(self, url, **kw):
-            Page.calls += 1
-
-    assert scrape_runner.open_login_page(Page(), "https://www.instagram.com/") == ""
-    assert Page.calls == 1
 
 
 # ------------------------------ R5 a window that says "I am a robot" gets no captcha
@@ -404,3 +377,43 @@ def test_a_leftover_window_holding_the_profile_is_cleared_and_the_launch_retried
     play = FakePlay(fail_once=True)
     assert scrape_runner.launch_quiet(play, "C:/prof", headless=False) == "ctx2"
     assert killed == ["C:/prof"]
+
+
+# ------------------------ R5 the login window is an ordinary Chrome, not a driven one
+
+def test_the_login_window_is_a_plain_chrome_with_no_automation_attached(tmp_path, monkeypatch):
+    """Measured 2026-09-11: Allen's own Chrome logs in on this machine and this IP, and
+    a Playwright-driven one is answered with a captcha page that never draws its
+    captcha — real Chrome build, navigator.webdriver false and all. What is left is CDP,
+    and CDP is not a flag that can be turned off. So the login is not driven at all."""
+    monkeypatch.setattr(scrape_browser, "SCRAPE_DIR", tmp_path)
+    monkeypatch.setattr(scrape_browser, "_LOGIN_WINDOWS", {})
+    monkeypatch.setattr(scrape_browser, "chrome_path", lambda: "C:/Chrome/chrome.exe")
+    started: list[list[str]] = []
+
+    class FakeWindow:
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(scrape_browser, "_spawn", lambda argv: started.append(argv) or FakeWindow())
+    scrape_browser.start_login("instagram")
+    argv = started[0]
+    assert argv[0] == "C:/Chrome/chrome.exe"
+    assert not any("scrape_runner" in a or "playwright" in a.lower() for a in argv), argv
+    assert any(a.startswith("--user-data-dir=") for a in argv)
+    profile = [a for a in argv if a.startswith("--user-data-dir=")][0]
+    assert str(tmp_path).lower() in profile.lower()
+    assert argv[-1].startswith("https://www.instagram.com")
+
+
+def test_without_chrome_the_login_says_so_rather_than_opening_nothing(monkeypatch):
+    monkeypatch.setattr(scrape_browser, "chrome_path", lambda: "")
+    with pytest.raises(scrape_browser.Unavailable) as caught:
+        scrape_browser.start_login("instagram")
+    assert "Chrome" in str(caught.value)
+
+
+def test_chrome_is_found_where_windows_actually_puts_it(monkeypatch):
+    seen = {"C:/Program Files/Google/Chrome/Application/chrome.exe"}
+    monkeypatch.setattr(scrape_browser.os.path, "isfile", lambda p: p.replace("\\", "/") in seen)
+    assert scrape_browser.chrome_path().replace("\\", "/").endswith("chrome.exe")
